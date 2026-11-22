@@ -1,0 +1,119 @@
+zip size: 1,506,761,140 bytes
+EOCD: 99 entries, cd at 0x59cf3730 size 0x226e
+zip members:
+  idong_setup-7.bin  method=8 csize=199,400,345 usize=200,000,000 local@0x0
+  dependent/  method=0 csize=0 usize=0 local@0xbe29bc8
+  dependent/directX_9.0C_x86/  method=0 csize=0 usize=0 local@0xbe29bf0
+  dependent/directX_9.0C_x86/Feb2006_XACT_x64.cab  method=8 csize=176,897 usize=179,247 local@0xbe29c29
+  dependent/directX_9.0C_x86/Feb2005_d3dx9_24_x86.cab  method=8 csize=1,009,303 usize=1,014,113 local@0xbe54f77
+  dependent/directX_9.0C_x86/DEC2006_d3dx10_00_x64.cab  method=8 csize=211,451 usize=213,767 local@0xbf4b65f
+  dependent/directX_9.0C_x86/Apr2006_XACT_x64.cab  method=8 csize=177,693 usize=180,021 local@0xbf7f0ac
+  dependent/directX_9.0C_x86/APR2007_d3dx10_33_x64.cab  method=8 csize=697,187 usize=702,212 local@0xbfaa716
+  dependent/directX_9.0C_x86/APR2007_d3dx9_33_x64.cab  method=8 csize=1,605,283 usize=1,610,958 local@0xc054acb
+  dependent/directX_9.0C_x86/OCT2006_XACT_x64.cab  method=8 csize=180,915 usize=183,321 local@0xc1dc9bf
+  dependent/directX_9.0C_x86/JUN2006_XACT_x86.cab  method=8 csize=132,234 usize=134,631 local@0xc208cbf
+  dependent/directX_9.0C_x86/Apr2006_d3dx9_30_x64.cab  method=8 csize=1,395,951 usize=1,398,718 local@0xc229196
+  dependent/directX_9.0C_x86/Jun2005_d3dx9_26_x86.cab  method=8 csize=1,060,825 usize=1,065,813 local@0xc37ded6
+  dependent/directX_9.0C_x86/Apr2006_XACT_x86.cab  method=8 csize=131,628 usize=133,991 local@0xc480f00
+  dependent/directX_9.0C_x86/APR2007_d3dx10_33_x86.cab  method=8 csize=694,242 usize=699,465 local@0xc4a1179
+  dependent/directX_9.0C_x86/JUN2007_XACT_x86.cab  method=8 csize=150,889 usize=155,892 local@0xc54a9ad
+  dependent/directX_9.0C_x86/Feb2006_XACT_x86.cab  method=8 csize=130,920 usize=133,297 local@0xc56f763
+  dependent/directX_9.0C_x86/DEC2006_XACT_x86.cab  method=8 csize=144,174 usize=146,559 local@0xc58f718
+  dependent/directX_9.0C_x86/Apr2005_d3dx9_25_x86.cab  method=8 csize=1,074,814 usize=1,079,850 local@0xc5b2a93
+  dependent/directX_9.0C_x86/JUN2007_d3dx10_34_x86.cab  method=8 csize=695,962 usize=701,218 local@0xc6b9162
+  dependent/directX_9.0C_x86/APR2007_XACT_x64.cab  method=8 csize=194,406 usize=199,366 local@0xc76304e
+  dependent/directX_9.0C_x86/BDANT.cab  method=8 csize=1,151,749 usize=1,156,363 local@0xc792801
+  dependent/directX_9.0C_x86/DEC2006_d3dx9_32_x64.cab  method=8 csize=1,569,342 usize=1,572,114 local@0xc8abb48
+  dependent/directX_9.0C_x86/Oct2005_xinput_x64.cab  method=8 csize=84,602 usize=86,925 local@0xca2add7
+  dependent/directX_9.0C_x86/Apr2005_d3dx9_25_x64.cab  method=8 csize=1,345,534 usize=1,348,242 local@0xca3f8a0
+  dependent/directX_9.0C_x86/APR2007_XACT_x86.cab  method=8 csize=150,372 usize=154,825 local@0xcb880ef
+  dependent/directX_9.0C_x86/JUN2007_XACT_x64.cab  method=8 csize=195,676 usize=200,646 local@0xcbacca0
+  dependent/directX_9.0C_x86/Apr2006_xinput_x64.cab  method=8 csize=85,689 usize=87,989 local@0xcbdc949
+  dependent/directX_9.0C_x86/Feb2006_d3dx9_29_x86.cab  method=8 csize=1,080,638 usize=1,085,608 local@0xcbf1851
+  dependent/directX_9.0C_x86/Aug2005_d3dx9_27_x86.cab  method=8 csize=1,073,825 usize=1,078,532 local@0xccf95e0
+  dependent/directX_9.0C_x86/dxnt.cab  method=8 csize=13,216,468 usize=13,265,040 local@0xcdff8d2
+  dependent/directX_9.0C_x86/Feb2006_d3dx9_29_x64.cab  method=8 csize=1,360,895 usize=1,363,684 local@0xda9a3e7
+  dependent/directX_9.0C_x86/JUN2007_d3dx10_34_x64.cab  method=8 csize=698,288 usize=703,258 local@0xdbe6837
+  dependent/directX_9.0C_x86/APR2007_xinput_x64.cab  method=8 csize=95,447 usize=100,417 local@0xdc91039
+  dependent/directX_9.0C_x86/OCT2006_XACT_x86.cab  method=8 csize=136,531 usize=138,977 local@0xdca855f
+  dependent/directX_9.0C_x86/JUN2007_d3dx9_34_x64.cab  method=8 csize=1,606,410 usize=1,611,772 local@0xdcc9aff
+  dependent/directX_9.0C_x86/AUG2006_XACT_x86.cab  method=8 csize=135,765 usize=138,195 local@0xde51e5a
+  dependent/directX_9.0C_x86/Oct2005_xinput_x86.cab  method=8 csize=43,934 usize=46,247 local@0xde730fc
+  dependent/directX_9.0C_x86/FEB2007_XACT_x64.cab  method=8 csize=193,324 usize=198,275 local@0xde7dce9
+  dependent/directX_9.0C_x86/Apr2006_MDX1_x86_Archive.cab  method=8 csize=4,161,688 usize=4,163,518 local@0xdead062
+  dependent/directX_9.0C_x86/Feb2005_d3dx9_24_x64.cab  method=8 csize=1,245,795 usize=1,248,387 local@0xe2a514f
+  dependent/directX_9.0C_x86/OCT2006_d3dx9_31_x64.cab  method=8 csize=1,411,120 usize=1,413,862 local@0xe3d5403
+  dependent/directX_9.0C_x86/Dec2005_d3dx9_28_x64.cab  method=8 csize=1,355,999 usize=1,358,864 local@0xe52dc84
+  dependent/directX_9.0C_x86/APR2007_xinput_x86.cab  method=8 csize=51,912 usize=56,902 local@0xe678db4
+  dependent/directX_9.0C_x86/DEC2006_XACT_x64.cab  method=8 csize=191,113 usize=193,435 local@0xe6858cb
+  dependent/directX_9.0C_x86/Apr2006_xinput_x86.cab  method=8 csize=44,584 usize=46,898 local@0xe6b43a1
+  dependent/directX_9.0C_x86/Dec2005_d3dx9_28_x86.cab  method=8 csize=1,075,585 usize=1,080,344 local@0xe6bf218
+  dependent/directX_9.0C_x86/dxdllreg_x86.cab  method=8 csize=39,720 usize=44,687 local@0xe7c5bea
+  dependent/directX_9.0C_x86/AUG2006_XACT_x64.cab  method=8 csize=181,494 usize=183,863 local@0xe7cf75b
+  dependent/directX_9.0C_x86/Aug2005_d3dx9_27_x64.cab  method=8 csize=1,348,865 usize=1,351,430 local@0xe7fbc9e
+  dependent/directX_9.0C_x86/dxupdate.cab  method=8 csize=81,415 usize=86,401 local@0xe9451f0
+  dependent/directX_9.0C_x86/DEC2006_d3dx9_32_x86.cab  method=8 csize=1,570,380 usize=1,575,336 local@0xe95903c
+  dependent/directX_9.0C_x86/JUN2006_XACT_x64.cab  method=8 csize=179,379 usize=181,745 local@0xead86d9
+  dependent/directX_9.0C_x86/AUG2006_xinput_x86.cab  method=8 csize=44,667 usize=47,018 local@0xeb043d9
+  dependent/directX_9.0C_x86/OCT2006_d3dx9_31_x86.cab  method=8 csize=1,123,020 usize=1,128,177 local@0xeb0f2a3
+  dependent/directX_9.0C_x86/APR2007_d3dx9_33_x86.cab  method=8 csize=1,601,798 usize=1,609,639 local@0xec215c0
+  dependent/directX_9.0C_x86/FEB2007_XACT_x86.cab  method=8 csize=146,577 usize=151,583 local@0xeda8717
+  dependent/directX_9.0C_x86/JUN2007_d3dx9_34_x86.cab  method=8 csize=1,602,328 usize=1,610,203 local@0xedcc3f5
+  dependent/directX_9.0C_x86/dsetup32.dll  method=8 csize=144,532 usize=1,673,576 local@0xef5375e
+  dependent/directX_9.0C_x86/Apr2006_MDX1_x86.cab  method=8 csize=910,562 usize=917,318 local@0xef76c37
+  dependent/directX_9.0C_x86/BDAXP.cab  method=8 csize=971,769 usize=976,020 local@0xf055166
+  dependent/directX_9.0C_x86/AUG2006_xinput_x64.cab  method=8 csize=85,767 usize=88,102 local@0xf1425a1
+  dependent/directX_9.0C_x86/Jun2005_d3dx9_26_x64.cab  method=8 csize=1,334,124 usize=1,336,890 local@0xf1574f7
+  dependent/directX_9.0C_x86/DEC2006_d3dx10_00_x86.cab  method=8 csize=190,276 usize=192,680 local@0xf29d0b4
+  dependent/directX_9.0C_x86/Apr2006_d3dx9_30_x86.cab  method=8 csize=1,111,309 usize=1,116,109 local@0xf2cb84a
+  dependent/directX_9.0C_x86/DSETUP.dll  method=8 csize=40,315 usize=77,160 local@0xf3dada8
+  dependent/directX_9.0C_x86/DXSETUP.exe  method=8 csize=108,139 usize=503,144 local@0xf3e4b66
+  dependent/FP_AX_CAB_INSTALLER.exe  method=8 csize=4,036,395 usize=4,127,088 local@0xf3ff215
+  dependent/InstallGuide/  method=0 csize=0 usize=0 local@0xf7d897f
+  dependent/InstallGuide/flashplay_10.exe  method=8 csize=24,935 usize=67,672 local@0xf7d89b4
+  dependent/InstallGuide/config.ini  method=0 csize=58 usize=58 local@0xf7deb60
+  dependent/InstallGuide/Microsoft.VC80.MFC/  method=0 csize=0 usize=0 local@0xf7debd9
+  dependent/InstallGuide/Microsoft.VC80.MFC/mfc80u.dll  method=8 csize=513,637 usize=1,093,120 local@0xf7dec21
+  dependent/InstallGuide/Microsoft.VC80.MFC/mfc80.dll  method=8 csize=515,282 usize=1,101,824 local@0xf85c2d8
+  dependent/InstallGuide/Microsoft.VC80.MFC/Microsoft.VC80.MFC.manifest  method=8 csize=656 usize=2,371 local@0xf8d9ffb
+  dependent/InstallGuide/Microsoft.VC80.MFC/mfcm80u.dll  method=8 csize=24,054 usize=57,856 local@0xf8da2ee
+  dependent/InstallGuide/Microsoft.VC80.MFC/mfcm80.dll  method=8 csize=24,440 usize=69,632 local@0xf8e0137
+  dependent/InstallGuide/guide.swf  method=8 csize=1,163,513 usize=1,163,333 local@0xf8e6101
+  dependent/InstallGuide/Microsoft.VC80.CRT/  method=0 csize=0 usize=0 local@0xfa02238
+  dependent/InstallGuide/Microsoft.VC80.CRT/msvcr80.dll  method=8 csize=317,583 usize=626,688 local@0xfa02280
+  dependent/InstallGuide/Microsoft.VC80.CRT/msvcp80.dll  method=8 csize=147,792 usize=548,864 local@0xfa4fb62
+  dependent/InstallGuide/Microsoft.VC80.CRT/Microsoft.VC80.CRT.manifest  method=8 csize=598 usize=1,869 local@0xfa73d05
+  dependent/InstallGuide/Microsoft.VC80.CRT/msvcm80.dll  method=8 csize=125,702 usize=479,232 local@0xfa73fbe
+  dependent/vcredist_x64.exe  method=8 csize=3,129,414 usize=3,167,560 local@0xfa92b17
+  dependent/vcredist_x86.exe  method=8 csize=2,670,343 usize=2,706,248 local@0xfd8eb95
+  dependent/Xvid.exe  method=8 csize=627,903 usize=652,794 local@0x1001aad4
+  dependent/pingbisetup.exe  method=8 csize=323,883 usize=349,976 local@0x100b3fc3
+  dependent/xeyez_pc_v2.6.0.6/  method=0 csize=0 usize=0 local@0x10103125
+  dependent/xeyez_pc_v2.6.0.6/xeyez_setup.exe  method=8 csize=56,849 usize=82,816 local@0x1010315f
+  dependent/xeyez_pc_v2.6.0.6/xeyez_Lobby.dat  method=8 csize=20,878,467 usize=20,901,912 local@0x10110fb9
+  dependent/xeyez_pc_v2.6.0.6/xeyez_alone.dat  method=8 csize=23,632,199 usize=23,655,864 local@0x114fa485
+  AUTORUN.INF  method=8 csize=95 usize=128 local@0x12b83e15
+  idong_setup.exe  method=8 csize=1,160,940 usize=2,132,624 local@0x12b83e9d
+  idong_setup-1.bin  method=8 csize=195,967,350 usize=197,873,664 local@0x12c9f5b6
+  idong_setup-2.bin  method=8 csize=199,010,729 usize=200,000,000 local@0x1e782f5b
+  idong_setup-3.bin  method=8 csize=199,005,560 usize=200,000,000 local@0x2a54d933
+  idong_setup-4.bin  method=8 csize=199,037,853 usize=200,000,000 local@0x36316eda
+  idong_setup-5.bin  method=8 csize=199,169,363 usize=200,000,000 local@0x420e82a6
+  idong_setup-6.bin  method=8 csize=199,335,641 usize=200,000,000 local@0x4ded9828
+total 7 .bin slices
+first bin: idong_setup-1.bin data at 0x12c9f5e5 (csize 195,967,350 method 8)
+  inflated 900,000 bytes from 1,000,000 compressed
+saved 900,000 bytes -> /home/z/my-project/analysis/live_test/idong_setup-1.bin
+  [1] {app}\Lobby\AboutSystem.dll 260,424 B -> MD5 OK
+  [2] {app}\Lobby\AboutXeYeZDlg.dll 248,136 B -> MD5 OK
+  [3] {app}\Lobby\ACE.dll 1,083,720 B -> MD5 OK
+  [4] {app}\Lobby\amconn.dll 207,176 B -> MD5 OK
+  [5] {app}\Lobby\borlndmm.dll 28,488 B -> MD5 OK
+  [6] {app}\Lobby\Camset.dll 350,536 B -> MD5 OK
+  [7] b'{app}\\Lobby\\CapStill.dll': missing slice 1 (tried idong_setup-2.bin in /home/z/my-project/analysis/live_test)
+  [8] b'{app}\\Lobby\\CapStill.exe': missing slice 1 (tried idong_setup-2.bin in /home/z/my-project/analysis/live_test)
+  [9] b'{app}\\Lobby\\cc3260mt.dll': missing slice 1 (tried idong_setup-2.bin in /home/z/my-project/analysis/live_test)
+  [10] b'{app}\\Lobby\\CleanProcess.dll': missing slice 1 (tried idong_setup-2.bin in /home/z/my-project/analysis/live_test)
+  [11] b'{app}\\Lobby\\ComAnnouncement.dll': missing slice 1 (tried idong_setup-2.bin in /home/z/my-project/analysis/live_test)
+
+LIVE TEST: 6 files extracted + MD5-verified from the live server

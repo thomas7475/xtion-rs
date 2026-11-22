@@ -1,0 +1,668 @@
+
+############ 'Failed to receive: Ready to load program!' @VA 0x10017f58 <- ['0x1000fc77']
+  1000fc4f  add byte ptr [eax], al
+  1000fc51  push 0xbb8
+  1000fc56  push 0x40
+  1000fc58  push 0x1001c788
+  1000fc5d  push 2
+  1000fc5f  call 0x100139be
+  1000fc64  add esp, 0x10
+  1000fc67  mov dword ptr [ebp - 0x1922c], eax
+  1000fc6d  cmp dword ptr [ebp - 0x1922c], 0
+  1000fc74  jge 0x1000fc8d
+  1000fc76  push 0x10017f58
+  1000fc7b  call 0x10010b80
+  1000fc80  add esp, 4
+  1000fc83  mov eax, 0xfffffffa
+  1000fc88  jmp 0x1000fe10
+  1000fc8d  mov dword ptr [ebp - 0x19020], 0x1001c788
+  1000fc97  mov edx, dword ptr [ebp - 0x19020]
+  1000fc9d  cmp dword ptr [edx], 0x7f7f444f
+  1000fca3  jne 0x1000fcb4
+  1000fca5  mov eax, dword ptr [ebp - 0x19020]
+  1000fcab  movzx ecx, word ptr [eax + 4]
+  1000fcaf  cmp ecx, 2
+  1000fcb2  je 0x1000fccb
+  1000fcb4  push 0x10017f84
+  1000fcb9  call 0x10010b80
+  1000fcbe  add esp, 4
+  1000fcc1  mov eax, 0xfffffff9
+  1000fcc6  jmp 0x1000fe10
+  1000fccb  mov edx, dword ptr [ebp - 0x19018]
+  1000fcd1  push edx
+  1000fcd2  call dword ptr [0x1001526c]
+  1000fcd8  add esp, 4
+  1000fcdb  mov dword ptr [ebp - 0x19010], 0
+  1000fce5  jmp 0x1000fcf6
+  1000fce7  mov eax, dword ptr [ebp - 0x19010]
+  1000fced  add eax, 1
+  1000fcf0  mov dword ptr [ebp - 0x19010], eax
+  1000fcf6  mov ecx, dword ptr [ebp - 0x19010]
+  1000fcfc  cmp ecx, dword ptr [ebp - 0x19228]
+  1000fd02  jae 0x1000fd64
+  1000fd04  mov edx, dword ptr [ebp - 0x19018]
+  1000fd0a  push edx
+  1000fd0b  push 0x40
+  1000fd0d  push 1
+  1000fd0f  lea eax, [ebp - 0x19220]
+  1000fd15  push eax
+  1000fd16  call dword ptr [0x10015230]
+  1000fd1c  add esp, 0x10
+  1000fd1f  push 0x1770
+  1000fd24  push 0x40
+  1000fd26  lea ecx, [ebp - 0x19220]
+  1000fd2c  push ecx
+  1000fd2d  push 3
+  1000fd2f  call 0x100139b8
+  1000fd34  add esp, 0x10
+  1000fd37  test eax, eax
+  1000fd39  jge 0x1000fd62
+  1000fd3b  mov edx, dword ptr [ebp - 0x19018]
+  1000fd41  push edx
+  1000fd42  call dword ptr [0x10015228]
+  1000fd48  add esp, 4
+  1000fd4b  push 0x10017fb0
+
+############ 'Error transfer: send program code error' @VA 0x10017fb0 <- ['0x1000fd4c']
+  1000fd24  push 0x40
+  1000fd26  lea ecx, [ebp - 0x19220]
+  1000fd2c  push ecx
+  1000fd2d  push 3
+  1000fd2f  call 0x100139b8
+  1000fd34  add esp, 0x10
+  1000fd37  test eax, eax
+  1000fd39  jge 0x1000fd62
+  1000fd3b  mov edx, dword ptr [ebp - 0x19018]
+  1000fd41  push edx
+  1000fd42  call dword ptr [0x10015228]
+  1000fd48  add esp, 4
+  1000fd4b  push 0x10017fb0
+  1000fd50  call 0x10010b80
+  1000fd55  add esp, 4
+  1000fd58  mov eax, 0xfffffff8
+  1000fd5d  jmp 0x1000fe10
+  1000fd62  jmp 0x1000fce7
+  1000fd64  mov eax, dword ptr [ebp - 0x19018]
+  1000fd6a  push eax
+  1000fd6b  call dword ptr [0x10015228]
+  1000fd71  add esp, 4
+  1000fd74  push 0x1770
+  1000fd79  push 0x40
+  1000fd7b  push 0x1001c788
+  1000fd80  push 2
+  1000fd82  call 0x100139be
+  1000fd87  add esp, 0x10
+  1000fd8a  mov dword ptr [ebp - 0x1922c], eax
+  1000fd90  cmp dword ptr [ebp - 0x1922c], 0
+  1000fd97  jge 0x1000fdad
+  1000fd99  push 0x10017fdc
+  1000fd9e  call 0x10010b80
+  1000fda3  add esp, 4
+  1000fda6  mov eax, 0xfffffff7
+  1000fdab  jmp 0x1000fe10
+  1000fdad  mov dword ptr [ebp - 0x19014], 0x1001c788
+  1000fdb7  mov ecx, dword ptr [ebp - 0x19014]
+  1000fdbd  cmp dword ptr [ecx], 0x7f7f444f
+  1000fdc3  jne 0x1000fdd4
+  1000fdc5  mov edx, dword ptr [ebp - 0x19014]
+  1000fdcb  movzx eax, word ptr [edx + 4]
+  1000fdcf  cmp eax, 3
+  1000fdd2  je 0x1000fde8
+  1000fdd4  push 0x10017ffc
+  1000fdd9  call 0x10010b80
+  1000fdde  add esp, 4
+  1000fde1  mov eax, 0xfffffff6
+  1000fde6  jmp 0x1000fe10
+  1000fde8  mov ecx, dword ptr [ebp - 0x19014]
+  1000fdee  movzx edx, word ptr [ecx + 8]
+  1000fdf2  cmp edx, 0xf
+  1000fdf5  jne 0x1000fe0b
+  1000fdf7  push 0x10018024
+  1000fdfc  call 0x10010b80
+  1000fe01  add esp, 4
+  1000fe04  mov eax, 0xfffffff5
+  1000fe09  jmp 0x1000fe10
+  1000fe0b  mov eax, 2
+  1000fe10  mov ecx, dword ptr [ebp - 8]
+  1000fe13  xor ecx, ebp
+  1000fe15  call 0x10012d64
+  1000fe1a  mov esp, ebp
+  1000fe1c  pop ebp
+  1000fe1d  ret 
+  1000fe1e  int3 
+  1000fe1f  int3 
+  1000fe20  push ebp
+  1000fe21  mov ebp, esp
+
+############ 'Failed to receive: CRC result!' @VA 0x10017fdc <- ['0x1000fd9a']
+  1000fd72  les eax, ptr [eax + ebp*2]
+  1000fd75  jo 0x1000fd8e
+  1000fd77  add byte ptr [eax], al
+  1000fd79  push 0x40
+  1000fd7b  push 0x1001c788
+  1000fd80  push 2
+  1000fd82  call 0x100139be
+  1000fd87  add esp, 0x10
+  1000fd8a  mov dword ptr [ebp - 0x1922c], eax
+  1000fd90  cmp dword ptr [ebp - 0x1922c], 0
+  1000fd97  jge 0x1000fdad
+  1000fd99  push 0x10017fdc
+  1000fd9e  call 0x10010b80
+  1000fda3  add esp, 4
+  1000fda6  mov eax, 0xfffffff7
+  1000fdab  jmp 0x1000fe10
+  1000fdad  mov dword ptr [ebp - 0x19014], 0x1001c788
+  1000fdb7  mov ecx, dword ptr [ebp - 0x19014]
+  1000fdbd  cmp dword ptr [ecx], 0x7f7f444f
+  1000fdc3  jne 0x1000fdd4
+  1000fdc5  mov edx, dword ptr [ebp - 0x19014]
+  1000fdcb  movzx eax, word ptr [edx + 4]
+  1000fdcf  cmp eax, 3
+  1000fdd2  je 0x1000fde8
+  1000fdd4  push 0x10017ffc
+  1000fdd9  call 0x10010b80
+  1000fdde  add esp, 4
+  1000fde1  mov eax, 0xfffffff6
+  1000fde6  jmp 0x1000fe10
+  1000fde8  mov ecx, dword ptr [ebp - 0x19014]
+  1000fdee  movzx edx, word ptr [ecx + 8]
+  1000fdf2  cmp edx, 0xf
+  1000fdf5  jne 0x1000fe0b
+  1000fdf7  push 0x10018024
+  1000fdfc  call 0x10010b80
+  1000fe01  add esp, 4
+  1000fe04  mov eax, 0xfffffff5
+  1000fe09  jmp 0x1000fe10
+  1000fe0b  mov eax, 2
+  1000fe10  mov ecx, dword ptr [ebp - 8]
+  1000fe13  xor ecx, ebp
+  1000fe15  call 0x10012d64
+  1000fe1a  mov esp, ebp
+  1000fe1c  pop ebp
+  1000fe1d  ret 
+  1000fe1e  int3 
+  1000fe1f  int3 
+  1000fe20  push ebp
+  1000fe21  mov ebp, esp
+  1000fe23  sub esp, 0x214
+  1000fe29  mov eax, dword ptr [0x1001c2a8]
+  1000fe2e  xor eax, ebp
+  1000fe30  mov dword ptr [ebp - 0x10], eax
+  1000fe33  mov dword ptr [ebp - 4], 0
+  1000fe3a  push 0x12c
+  1000fe3f  push 0x40
+  1000fe41  push 0x1001c788
+  1000fe46  push 2
+  1000fe48  call 0x100139be
+  1000fe4d  add esp, 0x10
+  1000fe50  mov dword ptr [ebp - 0x214], eax
+  1000fe56  cmp dword ptr [ebp - 0x214], 0
+  1000fe5d  jge 0x1000fe98
+  1000fe5f  cmp dword ptr [ebp - 4], 0xa
+  1000fe63  jl 0x1000fe71
+  1000fe65  mov eax, 0xfffffff4
+  1000fe6a  jmp 0x1000ff9f
+  1000fe6f  jmp 0x1000fe98
+  1000fe71  mov eax, dword ptr [ebp - 4]
+
+############ 'Error: crc result is not correct!' @VA 0x10018024 <- ['0x1000fdf8']
+  1000fdd0  clc 
+  1000fdd1  add esi, dword ptr [esp + edx + 0x68]
+  1000fdd5  cld 
+  1000fdd6  jg 0x1000fdd9
+  1000fdd8  adc al, ch
+  1000fdda  mov byte ptr [0x8300000d], al
+  1000fddf  les eax, ptr [eax + edi*4]
+  1000fde2  idiv bh
+
+############ 'Tx packet count & crc!' @VA 0x10017f40 <- ['0x1000fc3b']
+  1000fc13  xchg ebp, eax
+  1000fc14  in al, 0x6f
+
+############ 'Tx DSP Start Err' @VA 0x10017ed8 <- ['0x1000fa5c']
+  1000fa34  in al, dx
+  1000fa35  or al, 2
+  1000fa37  add byte ptr [eax], al
+  1000fa39  mov eax, dword ptr [0x1001c2a8]
+  1000fa3e  xor eax, ebp
+  1000fa40  mov dword ptr [ebp - 4], eax
+  1000fa43  push 0x40
+  1000fa45  push 1
+  1000fa47  lea eax, [ebp - 0x208]
+  1000fa4d  push eax
+  1000fa4e  call 0x100105f0
+  1000fa53  add esp, 0xc
+  1000fa56  cmp eax, 1
+  1000fa59  je 0x1000fa6d
+  1000fa5b  push 0x10017ed8
+  1000fa60  call 0x10010b80
+  1000fa65  add esp, 4
+  1000fa68  or eax, 0xffffffff
+  1000fa6b  jmp 0x1000faca
+  1000fa6d  push 0xbb8
+  1000fa72  push 0x40
+  1000fa74  push 1
+  1000fa76  push 0x1001c788
+  1000fa7b  call 0x10010590
+  1000fa80  add esp, 0x10
+  1000fa83  mov dword ptr [ebp - 0x20c], eax
+  1000fa89  cmp dword ptr [ebp - 0x20c], -1
+  1000fa90  jne 0x1000faa8
+  1000fa92  push 0x10017eec
+  1000fa97  call 0x10010b80
+  1000fa9c  add esp, 4
+  1000fa9f  mov eax, 0xfffffffe
+  1000faa4  jmp 0x1000faca
+  1000faa6  jmp 0x1000fac5
+  1000faa8  cmp dword ptr [ebp - 0x20c], -2
+  1000faaf  jne 0x1000fac5
+  1000fab1  push 0x10017f04
+  1000fab6  call 0x10010b80
+  1000fabb  add esp, 4
+  1000fabe  mov eax, 0xfffffffd
+  1000fac3  jmp 0x1000faca
+  1000fac5  mov eax, 1
+  1000faca  mov ecx, dword ptr [ebp - 4]
+  1000facd  xor ecx, ebp
+  1000facf  call 0x10012d64
+  1000fad4  mov esp, ebp
+  1000fad6  pop ebp
+  1000fad7  ret 
+  1000fad8  int3 
+  1000fad9  int3 
+  1000fada  int3 
+  1000fadb  int3 
+  1000fadc  int3 
+  1000fadd  int3 
+  1000fade  int3 
+  1000fadf  int3 
+  1000fae0  push ebp
+  1000fae1  mov ebp, esp
+  1000fae3  mov eax, 0x1922c
+  1000fae8  call 0x10012f90
+  1000faed  mov eax, dword ptr [0x1001c2a8]
+  1000faf2  xor eax, ebp
+  1000faf4  mov dword ptr [ebp - 8], eax
+  1000faf7  push 0x10017f20
+  1000fafc  mov eax, dword ptr [ebp + 8]
+  1000faff  push eax
+  1000fb00  lea ecx, [ebp - 0x19018]
+  1000fb06  push ecx
+  1000fb07  call dword ptr [0x10015234]
+  1000fb0d  add esp, 0xc
+  1000fb10  mov dword ptr [ebp - 0x19224], eax
+  1000fb16  cmp dword ptr [ebp - 0x19224], 0
+  1000fb1d  je 0x1000fb36
+  1000fb1f  push 0x10017f24
+  1000fb24  call 0x10010b80
+  1000fb29  add esp, 4
+  1000fb2c  mov eax, 0xfffffffc
+  1000fb31  jmp 0x1000fe10
+  1000fb36  push 2
+
+############ '--- _InitBlobUpload OK ---' @VA 0x10015b58 <- ['0x100052e3']
+  100052bb  add byte ptr [eax], al
+  100052bd  add bl, ch
+  100052bf  adc byte ptr [ebx - 0x2eb7b], cl
+  100052c5  inc edi
+  100052c7  adc ah, 0
+  100052ca  add byte ptr [eax], al
+  100052cc  add dword ptr [eax], eax
+  100052ce  add byte ptr [eax], al
+  100052d0  mov ecx, dword ptr [ebp - 0x2ec]
+  100052d6  call 0x100057c0
+  100052db  movzx ecx, al
+  100052de  test ecx, ecx
+  100052e0  je 0x100052f6
+  100052e2  push 0x10015b58
+  100052e7  call dword ptr [0x10015030]
+  100052ed  mov byte ptr [ebp - 0xd1], 1
+  100052f4  jmp 0x10005301
+  100052f6  push 0x10015b74
+  100052fb  call dword ptr [0x10015030]
+  10005301  jmp 0x1000532f
+  10005303  push 0x100
+  10005308  lea edx, [ebp - 0x2e8]
+  1000530e  push edx
+  1000530f  call 0x10013946
+  10005314  add esp, 8
+  10005317  lea eax, [ebp - 0x2e8]
+  1000531d  push eax
+  1000531e  call dword ptr [0x10015030]
+  10005324  push 0x10015b94
+  10005329  call dword ptr [0x10015030]
+  1000532f  call 0x10007900
+  10005334  mov ecx, eax
+  10005336  call 0x10008ab0
+  1000533b  mov ecx, dword ptr [ebp - 0x2ec]
+  10005341  call 0x10005c50
+  10005346  mov al, byte ptr [ebp - 0xd1]
+  1000534c  mov ecx, dword ptr [ebp - 4]
+  1000534f  xor ecx, ebp
+  10005351  call 0x10012d64
+  10005356  mov esp, ebp
+  10005358  pop ebp
+  10005359  ret 
+  1000535a  int3 
+  1000535b  int3 
+  1000535c  int3 
+  1000535d  int3 
+  1000535e  int3 
+  1000535f  int3 
+  10005360  push ebp
+  10005361  mov ebp, esp
+  10005363  sub esp, 0x114
+  10005369  mov eax, dword ptr [0x1001c2a8]
+  1000536e  xor eax, ebp
+  10005370  mov dword ptr [ebp - 0x10], eax
+  10005373  mov dword ptr [ebp - 0x114], ecx
+  10005379  mov byte ptr [ebp - 5], 0
+  1000537d  mov dword ptr [ebp - 0xc], 0xffffffff
+  10005384  push 0
+  10005386  push 0
+  10005388  push 0
+  1000538a  mov eax, dword ptr [ebp - 0x114]
+  10005390  mov ecx, dword ptr [eax + 8]
+  10005393  push ecx
+  10005394  mov edx, dword ptr [ebp - 0x114]
+  1000539a  mov eax, dword ptr [edx + 4]
+  1000539d  push eax
+  1000539e  call 0x1001396a
+  100053a3  add esp, 0x14
+  100053a6  mov dword ptr [ebp - 0xc], eax
+  100053a9  mov ecx, dword ptr [ebp - 0x114]
+  100053af  mov edx, dword ptr [ebp - 0xc]
+  100053b2  mov dword ptr [ecx + 0xd0], edx
+  100053b8  mov eax, dword ptr [ebp - 0x114]
+
+############ 'Get DSP Reset ACK OK' @VA 0x100186b4 <- ['0x100116a7']
+  1001167f  push 0x10018680
+  10011684  call 0x10010b80
+  10011689  add esp, 4
+  1001168c  jmp 0x100116b8
+  1001168e  cmp dword ptr [ebp - 0x2e8], -2
+  10011695  jne 0x100116a6
+  10011697  push 0x10018698
+  1001169c  call 0x10010b80
+  100116a1  add esp, 4
+  100116a4  jmp 0x100116b8
+  100116a6  push 0x100186b4
+  100116ab  call 0x10010b80
+  100116b0  add esp, 4
+  100116b3  jmp 0x10011750
+  100116b8  cmp dword ptr [ebp - 4], 5
+  100116bc  jle 0x100116c7
+  100116be  xor eax, eax
+  100116c0  jmp 0x10011755
+  100116c5  jmp 0x100116d0
+  100116c7  mov edx, dword ptr [ebp - 4]
+  100116ca  add edx, 1
+  100116cd  mov dword ptr [ebp - 4], edx
+  100116d0  jmp 0x10011516
+  100116d5  jmp 0x100116e6
+  100116d7  mov eax, dword ptr [ebp - 0x298]
+  100116dd  add eax, 1
+  100116e0  mov dword ptr [ebp - 0x298], eax
+  100116e6  push 0x40
+  100116e8  push 0
+  100116ea  lea ecx, [ebp - 0x2e0]
+  100116f0  push ecx
+  100116f1  call 0x10012e64
+  100116f6  add esp, 0xc
+  100116f9  mov edx, dword ptr [ebp - 8]
+  100116fc  mov dword ptr [edx], 0x7f7f5550
+  10011702  mov eax, dword ptr [ebp - 8]
+  10011705  mov word ptr [eax + 4], 7
+  1001170b  push 0x3e8
+  10011710  push 0x40
+  10011712  lea ecx, [ebp - 0x2e0]
+  10011718  push ecx
+  10011719  push 3
+  1001171b  call 0x100139b8
+  10011720  add esp, 0x10
+  10011723  test eax, eax
+  10011725  jge 0x1001174b
+  10011727  push 0x100186cc
+  1001172c  call 0x10010b80
+  10011731  add esp, 4
+  10011734  mov dword ptr [ebp - 0x298], 0
+  1001173e  push 0xa
+  10011740  call dword ptr [0x10015034]
+  10011746  jmp 0x10011516
+  1001174b  jmp 0x10011516
+  10011750  mov eax, 1
+  10011755  mov ecx, dword ptr [ebp - 0x10]
+  10011758  xor ecx, ebp
+  1001175a  call 0x10012d64
+  1001175f  mov esp, ebp
+  10011761  pop ebp
+  10011762  ret 
+  10011763  int3 
+  10011764  int3 
+  10011765  int3 
+  10011766  int3 
+  10011767  int3 
+  10011768  int3 
+  10011769  int3 
+  1001176a  int3 
+  1001176b  int3 
+  1001176c  int3 
+  1001176d  int3 
+  1001176e  int3 
+  1001176f  int3 
+  10011770  push ebp
+  10011771  mov ebp, esp
+  10011773  sub esp, 0xf0c
+  10011779  mov eax, dword ptr [0x1001c2a8]
+  1001177e  xor eax, ebp
+  10011780  mov dword ptr [ebp - 0x10], eax
+
+############ 'Device ID is received!' @VA 0x10015b98 <- ['0x10005519']
+  100054f1  jl 0x10005514
+  100054f3  push 0x20
+  100054f5  lea ecx, [ebp - 0x5f0]
+  100054fb  push ecx
+  100054fc  mov edx, dword ptr [ebp - 0x5f4]
+  10005502  mov eax, dword ptr [edx + 0xc]
+  10005505  push eax
+  10005506  call 0x10012f5c
+  1000550b  add esp, 0xc
+  1000550e  mov byte ptr [ebp - 1], 1
+  10005512  jmp 0x10005518
+  10005514  mov byte ptr [ebp - 1], 0
+  10005518  push 0x10015b98
+  1000551d  call dword ptr [0x10015030]
+  10005523  mov al, byte ptr [ebp - 1]
+  10005526  mov ecx, dword ptr [ebp - 0xc]
+  10005529  xor ecx, ebp
+  1000552b  call 0x10012d64
+  10005530  mov esp, ebp
+  10005532  pop ebp
+  10005533  ret 
+  10005534  int3 
+  10005535  int3 
+  10005536  int3 
+  10005537  int3 
+  10005538  int3 
+  10005539  int3 
+  1000553a  int3 
+  1000553b  int3 
+  1000553c  int3 
+  1000553d  int3 
+  1000553e  int3 
+  1000553f  int3 
+  10005540  push ebp
+  10005541  mov ebp, esp
+  10005543  sub esp, 8
+  10005546  mov dword ptr [ebp - 8], ecx
+  10005549  mov byte ptr [ebp - 1], 0
+  1000554d  mov byte ptr [ebp - 1], 1
+  10005551  mov al, byte ptr [ebp - 1]
+  10005554  mov esp, ebp
+  10005556  pop ebp
+  10005557  ret 4
+  1000555a  int3 
+  1000555b  int3 
+  1000555c  int3 
+  1000555d  int3 
+  1000555e  int3 
+  1000555f  int3 
+  10005560  push ebp
+  10005561  mov ebp, esp
+  10005563  sub esp, 0xc
+  10005566  mov dword ptr [ebp - 0xc], ecx
+  10005569  mov byte ptr [ebp - 1], 0
+  1000556d  cmp dword ptr [ebp + 8], 0
+  10005571  jne 0x10005580
+  10005573  mov ecx, dword ptr [ebp - 0xc]
+  10005576  call 0x10005360
+  1000557b  mov byte ptr [ebp - 1], al
+  1000557e  jmp 0x100055d1
+  10005580  cmp dword ptr [ebp + 8], 1
+  10005584  jne 0x10005593
+  10005586  mov ecx, dword ptr [ebp - 0xc]
+  10005589  call 0x100054b0
+  1000558e  mov byte ptr [ebp - 1], al
+  10005591  jmp 0x100055d1
+  10005593  cmp dword ptr [ebp + 8], 2
+  10005597  jne 0x1000559b
+  10005599  jmp 0x100055d1
+  1000559b  cmp dword ptr [ebp + 8], 5
+  1000559f  jne 0x100055c0
+  100055a1  cmp dword ptr [ebp + 0xc], 0
+  100055a5  je 0x100055be
+  100055a7  mov eax, dword ptr [ebp + 0xc]
+  100055aa  mov ecx, dword ptr [eax]
+  100055ac  mov dword ptr [ebp - 8], ecx
+  100055af  mov edx, dword ptr [ebp - 8]
+  100055b2  push edx
+  100055b3  mov ecx, dword ptr [ebp - 0xc]
+  100055b6  call 0x10005540
+  100055bb  mov byte ptr [ebp - 1], al
+  100055be  jmp 0x100055d1
+  100055c0  cmp dword ptr [ebp + 8], 6
+  100055c4  jne 0x100055d1
+  100055c6  mov ecx, dword ptr [ebp - 0xc]
+  100055c9  call 0x10005ad0
+  100055ce  mov byte ptr [ebp - 1], al
+  100055d1  mov al, byte ptr [ebp - 1]
+  100055d4  mov esp, ebp
+  100055d6  pop ebp
+  100055d7  ret 8
+  100055da  int3 
+  100055db  int3 
+  100055dc  int3 
+  100055dd  int3 
+  100055de  int3 
+  100055df  int3 
+  100055e0  push ebp
+  100055e1  mov ebp, esp
+  100055e3  sub esp, 0x20
+  100055e6  mov dword ptr [ebp - 0x18], ecx
+  100055e9  mov byte ptr [ebp - 1], 0
+  100055ed  cmp dword ptr [ebp + 8], 0
+
+############ 'Device ID is received!' @VA 0x10015fac <- ['0x10006c89']
+  10006c61  jl 0x10006c84
+  10006c63  push 0x20
+  10006c65  lea ecx, [ebp - 0x5f0]
+  10006c6b  push ecx
+  10006c6c  mov edx, dword ptr [ebp - 0x5f4]
+  10006c72  mov eax, dword ptr [edx + 0xc]
+  10006c75  push eax
+  10006c76  call 0x10012f5c
+  10006c7b  add esp, 0xc
+  10006c7e  mov byte ptr [ebp - 1], 1
+  10006c82  jmp 0x10006c88
+  10006c84  mov byte ptr [ebp - 1], 0
+  10006c88  push 0x10015fac
+  10006c8d  call dword ptr [0x10015030]
+  10006c93  mov al, byte ptr [ebp - 1]
+  10006c96  mov ecx, dword ptr [ebp - 0xc]
+  10006c99  xor ecx, ebp
+  10006c9b  call 0x10012d64
+  10006ca0  mov esp, ebp
+  10006ca2  pop ebp
+  10006ca3  ret 
+  10006ca4  int3 
+  10006ca5  int3 
+  10006ca6  int3 
+  10006ca7  int3 
+  10006ca8  int3 
+  10006ca9  int3 
+  10006caa  int3 
+  10006cab  int3 
+  10006cac  int3 
+  10006cad  int3 
+  10006cae  int3 
+  10006caf  int3 
+  10006cb0  push ebp
+  10006cb1  mov ebp, esp
+  10006cb3  sub esp, 8
+  10006cb6  mov dword ptr [ebp - 8], ecx
+  10006cb9  mov byte ptr [ebp - 1], 0
+  10006cbd  mov byte ptr [ebp - 1], 1
+  10006cc1  mov al, byte ptr [ebp - 1]
+  10006cc4  mov esp, ebp
+  10006cc6  pop ebp
+  10006cc7  ret 4
+  10006cca  int3 
+  10006ccb  int3 
+  10006ccc  int3 
+  10006ccd  int3 
+  10006cce  int3 
+  10006ccf  int3 
+  10006cd0  push ebp
+  10006cd1  mov ebp, esp
+  10006cd3  sub esp, 0xc
+  10006cd6  mov dword ptr [ebp - 0xc], ecx
+  10006cd9  mov byte ptr [ebp - 1], 0
+  10006cdd  cmp dword ptr [ebp + 8], 0
+  10006ce1  jne 0x10006cf0
+  10006ce3  mov ecx, dword ptr [ebp - 0xc]
+  10006ce6  call 0x10006940
+  10006ceb  mov byte ptr [ebp - 1], al
+  10006cee  jmp 0x10006d41
+  10006cf0  cmp dword ptr [ebp + 8], 1
+  10006cf4  jne 0x10006d03
+  10006cf6  mov ecx, dword ptr [ebp - 0xc]
+  10006cf9  call 0x10006c20
+  10006cfe  mov byte ptr [ebp - 1], al
+  10006d01  jmp 0x10006d41
+  10006d03  cmp dword ptr [ebp + 8], 2
+  10006d07  jne 0x10006d0b
+  10006d09  jmp 0x10006d41
+  10006d0b  cmp dword ptr [ebp + 8], 5
+  10006d0f  jne 0x10006d30
+  10006d11  cmp dword ptr [ebp + 0xc], 0
+  10006d15  je 0x10006d2e
+  10006d17  mov eax, dword ptr [ebp + 0xc]
+  10006d1a  mov ecx, dword ptr [eax]
+  10006d1c  mov dword ptr [ebp - 8], ecx
+  10006d1f  mov edx, dword ptr [ebp - 8]
+  10006d22  push edx
+  10006d23  mov ecx, dword ptr [ebp - 0xc]
+  10006d26  call 0x10006cb0
+  10006d2b  mov byte ptr [ebp - 1], al
+  10006d2e  jmp 0x10006d41
+  10006d30  cmp dword ptr [ebp + 8], 6
+  10006d34  jne 0x10006d41
+  10006d36  mov ecx, dword ptr [ebp - 0xc]
+  10006d39  call 0x100072a0
+  10006d3e  mov byte ptr [ebp - 1], al
+  10006d41  mov al, byte ptr [ebp - 1]
+  10006d44  mov esp, ebp
+  10006d46  pop ebp
+  10006d47  ret 8
+  10006d4a  int3 
+  10006d4b  int3 
+  10006d4c  int3 
+  10006d4d  int3 
+  10006d4e  int3 
+  10006d4f  int3 
+  10006d50  push ebp
+  10006d51  mov ebp, esp
+  10006d53  sub esp, 0x20
+  10006d56  mov dword ptr [ebp - 0x18], ecx
+  10006d59  mov byte ptr [ebp - 1], 0
+  10006d5d  cmp dword ptr [ebp + 8], 0
