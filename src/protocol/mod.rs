@@ -5,6 +5,7 @@
 pub mod algorithm;
 pub mod command;
 pub mod fixed_params;
+pub mod identity;
 
 pub use command::CommandLink;
 
@@ -52,6 +53,10 @@ impl Opcode {
 
 /// Firmware parameters addressable through GET_PARAM / SET_PARAM.
 /// Source: Sensor/XnParams.h `EPsProtocolParams`.
+///
+/// Only parameters that are safe runtime configuration are modeled; the
+/// flash-file-system parameter (85) and other persistent-state writes are
+/// excluded on purpose (see docs/FEATURE_PLAN.md, "Excluded features").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 pub enum Param {
@@ -62,17 +67,51 @@ pub enum Param {
     ImageFormat = 12,
     ImageResolution = 13,
     ImageFps = 14,
+    ImageAgc = 15,
+    ImageQuality = 16,
+    ImageFlickerDetection = 17,
     DepthFormat = 18,
     DepthResolution = 19,
     DepthFps = 20,
     DepthAgc = 21,
     DepthHoleFilter = 22,
     DepthMirror = 23,
+    IrResolution = 26,
+    IrFps = 27,
+    DepthGmcMode = 36,
+    ImageMirror = 71,
+    IrMirror = 72,
+    ImageAutoWhiteBalanceMode = 77,
+    ImageAutoExposureMode = 80,
+    ImageExposureBar = 81,
+    DepthCloseRange = 84,
 }
 
 impl Param {
     pub fn as_u16(self) -> u16 {
         self as u16
+    }
+}
+
+/// USB core of the device, read with OPCODE_GET_USB_CORE_TYPE.
+/// Source: Sensor/XnHostProtocol.h `XnHostProtocolUsbCore`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u16)]
+pub enum UsbCore {
+    /// The "Jango" USB core (fw >= 5.3.16): the fast one; the reference
+    /// driver uses it to shorten its inter-command delays.
+    Jango = 0,
+    /// gadgetfs-based core (older firmware).
+    Gadgetfs = 1,
+}
+
+impl UsbCore {
+    pub fn from_u16(v: u16) -> Option<UsbCore> {
+        match v {
+            0 => Some(UsbCore::Jango),
+            1 => Some(UsbCore::Gadgetfs),
+            _ => None,
+        }
     }
 }
 

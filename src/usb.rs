@@ -44,6 +44,8 @@ pub struct UsbDevice {
     pub depth_max_packet_size: u32,
     /// Max packet size of the image endpoint.
     pub image_max_packet_size: u32,
+    /// Max packet size of the misc endpoint, if present (512 fallback).
+    pub misc_max_packet_size: u32,
 }
 
 /// A USB device found during enumeration.
@@ -114,7 +116,19 @@ impl UsbDevice {
             other => other.into(),
         })?;
 
+        // The misc endpoint (0x83) may live on a second interface (the
+        // USB Audio Class one). Claim any extra interfaces best-effort:
+        // failure only means device events cannot be captured, streaming
+        // still works.
+        for iface in 1..=2 {
+            let _ = handle.claim_interface(iface);
+        }
+
         let (depth_mps, image_mps) = Self::max_packet_sizes(&handle)?;
+        let misc_mps = endpoints
+            .misc
+            .and_then(|ep| Self::find_endpoint(&handle, ep, true))
+            .unwrap_or(512);
         let context = handle.device().context().clone();
         let speed = handle.device().speed();
         Ok(UsbDevice {
@@ -124,6 +138,7 @@ impl UsbDevice {
             endpoints,
             depth_max_packet_size: depth_mps,
             image_max_packet_size: image_mps,
+            misc_max_packet_size: misc_mps,
         })
     }
 

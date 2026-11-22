@@ -90,3 +90,70 @@ fn depth_stream_roundtrip() {
 
     cam.stop_depth().expect("stop");
 }
+
+#[test]
+fn phase1_identity_and_options() {
+    if !hardware_present() {
+        eprintln!("skipped: no Xtion attached");
+        return;
+    }
+    let _lock = lock_device();
+    let mut cam = Xtion::open().expect("open");
+
+    // platform string and USB core (fw 5.8.22 answers both)
+    let platform = cam.platform_string().expect("platform string");
+    println!("platform: {platform}");
+    assert!(!platform.is_empty(), "platform string must not be empty");
+
+    let core = cam.usb_core_type().expect("usb core type");
+    println!("usb core: {core:?}");
+
+    // runtime options round-trip through GET_PARAM
+    cam.set_registration(true).expect("registration on");
+    assert!(cam.registration_enabled().unwrap());
+    cam.set_registration(false).expect("registration off");
+    assert!(!cam.registration_enabled().unwrap());
+
+    cam.set_hole_filter(true).expect("hole filter");
+    cam.set_depth_mirror(true).expect("depth mirror");
+    cam.set_close_range(false).expect("close range");
+
+    // emitter toggle: off and back on (runtime state only)
+    cam.set_emitter_enabled(false).expect("emitter off");
+    cam.set_emitter_enabled(true).expect("emitter on");
+}
+
+#[test]
+fn ir_stream_roundtrip() {
+    if !hardware_present() {
+        eprintln!("skipped: no Xtion attached");
+        return;
+    }
+    let _lock = lock_device();
+    let mut cam = Xtion::open().expect("open");
+
+    cam.start_ir(xtion::IrConfig::default()).expect("start ir");
+    let frame = cam
+        .read_ir_frame(Duration::from_secs(3))
+        .expect("one ir frame");
+    println!(
+        "ir {}x{}, value range {:?}",
+        frame.width,
+        frame.height,
+        frame.value_range()
+    );
+    assert_eq!(frame.width, 640);
+    assert_eq!(frame.height, 480);
+    assert_eq!(frame.data.len(), 640 * 480);
+    // with the projector on, a scene must produce non-constant IR values
+    let (min, max) = frame.value_range().expect("value range");
+    assert!(max > min, "IR frame is constant ({min}..{max})");
+    assert!(max > 0, "IR frame is all black");
+
+    // no device events expected on a healthy camera, and draining must
+    // not panic
+    let events = cam.drain_events();
+    println!("events: {events:?}");
+
+    cam.stop_ir().expect("stop ir");
+}

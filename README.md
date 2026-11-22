@@ -15,24 +15,32 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 |---|---|
 | USB transport (rusb), endpoint probing | done, unit-tested |
 | Command protocol (v2.5/v2.6, retry quirks, split-reply accumulation) | done, unit-tested incl. first-run hardware regression |
-| Version handshake + identity (serial, versions) | done |
+| Version handshake + identity (serial, versions, platform string, USB core) | done |
 | Calibration (fixed params, depth info) | done |
 | Shift-to-depth tables | done, **byte-identical to the C reference** (golden vectors) |
 | Packed-11 depth decode | done, **byte-identical to the C reference** (golden vectors) |
 | Bulk-stream frame assembly | done, unit-tested incl. chunk splits |
-| Depth stream (VGA@30, packed-11 or raw 16-bit) | implemented; **on-camera validation pending** |
+| Depth stream (VGA@30, packed-11 or raw 16-bit) | **hardware-validated** (87% valid pixels @ 29.97 fps) |
 | Color stream (YUV422 -> RGB888) | implemented; on-camera validation pending |
-| Registration, MJPEG, misc/GMC, keep-alive | not yet (see docs/PLAN.md) |
+| IR stream (16-bit grayscale, image pipe) | implemented in 0.2.0; on-camera validation pending |
+| Hardware registration, emitter on/off, OVERHEAT/PROJECTOR_FAULT events | implemented in 0.2.0 |
+| Runtime options: mirror, hole filter, AGC, close range, GMC mode, exposure, white balance, gain, quality, flicker | implemented in 0.2.0 |
+| Cropping, depth AGC bins, GMC data, audio, firmware log | not yet (Phase 3-4 of docs/FEATURE_PLAN.md) |
 | Pre-3.0 firmware (bulk control endpoints) | not supported (explicit error) |
 
-Everything that can be verified without the camera **is** verified: 61
-tests pass on a bare CI machine (`cargo test`), and the two numerical
-cores are proven equal to the original C++ implementation by golden
-vectors generated from a verbatim C transcription
-(`reference/c_golden.c` -> `reference/golden.txt` -> `tests/golden.rs`).
-The remaining step is running `cargo test --test hardware` and the
-examples on a real Xtion plugged into a **USB 2.0** port (the known USB
-3.0 bandwidth quirk applies).
+Everything that can be verified without the camera **is** verified: 84
+tests pass on a bare CI machine (`cargo test`), and the numerical cores
+(packed-11 depth, 10-bit IR, shift-to-depth) are proven equal to the
+original C++ implementation by golden vectors generated from a verbatim C
+transcription (`reference/c_golden.c` -> `reference/golden.txt` ->
+`tests/golden.rs`). The 0.2.0 feature additions (identity, IR,
+registration, options, events) carry FakeTransport wire tests derived
+from the OpenNI 2.2.0 source.
+
+**Safety by design**: the driver never issues flash, file-system, I2C,
+AHB or calibration writes - anything that could delete calibration data
+or overwrite configs is excluded on purpose (docs/FEATURE_PLAN.md,
+"Excluded features").
 
 ## Usage
 
@@ -42,12 +50,26 @@ use xtion::{DepthConfig, Xtion};
 
 let mut cam = Xtion::open()?;                    // handshake + calibration
 println!("{} serial {}", cam.version, cam.serial_number()?);
+println!("platform {} ({:?})", cam.platform_string()?, cam.usb_core_type()?);
 
 cam.start_depth(DepthConfig::default())?;        // VGA 640x480 @ 30 fps
+cam.set_registration(true)?;                     // depth onto color, in firmware
+cam.set_hole_filter(true)?;                      // fill single-pixel holes
 let frame = cam.read_depth_frame(Duration::from_secs(2))?;
 println!("min depth {} mm, {} valid pixels",
          frame.min_depth().unwrap_or(0), frame.valid_pixels());
+
+for event in cam.drain_events() {                // OVERHEAT / PROJECTOR_FAULT
+    eprintln!("device event: {event:?}");
+}
 ```
+
+The infrared stream (`cam.start_ir(IrConfig::default())` ->
+`cam.read_ir_frame(..)` -> 16-bit grayscale) shares the image pipe with
+the color camera, so IR and color are mutually exclusive; IR pairs with
+depth, which is the combination hardware registration is designed for.
+The IR projector can be toggled at runtime with
+`cam.set_emitter_enabled(false)`.
 
 Examples:
 
@@ -65,14 +87,17 @@ udev rule (or run as root) to allow user access to `1d27:0601`.
   matrix, known gaps.
 - `docs/PROTOCOL.md` - the extracted PS1080 USB protocol reference, every
   constant cited to its OpenNI 2.2.0 source file.
+- `docs/FEATURE_PLAN.md` - what the OpenNI 2 driver implements that this
+  crate does not (yet): gap analysis, phased plan ordered by effort and
+  risk, and the excluded (flash/calibration) features.
+- `docs/FIRMWARE.md` - reverse-engineered overview of the camera's firmware
+  5.8.22: boot self-test, runtime architecture, the complete command
+  surface, and the functionality this driver does not use yet.
 - `docs/recovery/` - snapshot of the research workspace for session
   recovery.
 - `firmware/` - the final ASUS firmware release for the camera (FWUpdate
   5.8.22, the version the validation camera runs), mirrored from ASUS's
   official download with the flash images extracted and documented.
-- `docs/FIRMWARE.md` - reverse-engineered overview of that firmware: boot
-  self-test, runtime architecture, the complete command/parameter surface,
-  and the functionality this driver does not use yet.
 
 ## Attribution
 

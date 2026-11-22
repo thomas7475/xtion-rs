@@ -18,6 +18,21 @@ pub enum FrameKind {
     Other(u16),
 }
 
+/// Asynchronous device events, delivered inside the bulk packet stream.
+///
+/// The reference driver maps both to the device error state
+/// (`XnFirmwareStreams.cpp`: OVERHEAT -> XN_STATUS_DEVICE_OVERHEAT,
+/// PROJECTOR_FAULT_EVENT -> XN_STATUS_DEVICE_PROJECTOR_FAULT; a following
+/// good stream packet clears the state again). They are informational:
+/// the firmware keeps streaming unless the fault persists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceEvent {
+    /// Packet 0xf31f: the sensor is overheating.
+    Overheat,
+    /// Packet 0xdead: the projector-fault detector tripped.
+    ProjectorFault,
+}
+
 /// A fully assembled frame.
 #[derive(Debug, Clone)]
 pub struct AssembledFrame {
@@ -70,6 +85,9 @@ pub struct StreamAssembler {
     last_sof_packet_id: u16,
     /// Completed frames, ready for the consumer.
     pub frames: VecDeque<AssembledFrame>,
+    /// Completed device events (OVERHEAT / PROJECTOR_FAULT), ready for
+    /// the consumer.
+    events: VecDeque<DeviceEvent>,
     /// Count of non-frame packets consumed (GMC, audio, ...).
     pub other_packets: u64,
 }
@@ -99,6 +117,7 @@ impl StreamAssembler {
             frame_open: false,
             last_sof_packet_id: 0,
             frames: VecDeque::new(),
+            events: VecDeque::new(),
             other_packets: 0,
         }
     }
@@ -267,8 +286,22 @@ impl StreamAssembler {
                 self.frame_data.extend_from_slice(data);
             }
             other => {
+                // Error-state packets become events instead of being
+                // dropped on the floor (the reference driver's
+                // XnFirmwareStreams.cpp sets the device error state for
+                // these two; everything else is just counted).
+                match other {
+                    packet_type::OVERHEAT => {
+                        log::warn!("device event: OVERHEAT");
+                        self.events.push_back(DeviceEvent::Overheat);
+                    }
+                    packet_type::PROJECTOR_FAULT_EVENT => {
+                        log::warn!("device event: PROJECTOR_FAULT");
+                        self.events.push_back(DeviceEvent::ProjectorFault);
+                    }
+                    _ => {}
+                }
                 self.other_packets += 1;
-                let _ = other;
             }
         }
     }
@@ -289,6 +322,16 @@ impl StreamAssembler {
     /// Pop the next completed frame, if any.
     pub fn pop_frame(&mut self) -> Option<AssembledFrame> {
         self.frames.pop_front()
+    }
+
+    /// Pop the next device event (OVERHEAT / PROJECTOR_FAULT), if any.
+    pub fn pop_event(&mut self) -> Option<DeviceEvent> {
+        self.events.pop_front()
+    }
+
+    /// Drain all pending device events.
+    pub fn drain_events(&mut self) -> Vec<DeviceEvent> {
+        self.events.drain(..).collect()
     }
 }
 
@@ -464,6 +507,46 @@ mod tests {
         asm.feed(&stream);
         assert_eq!(asm.other_packets, 2);
         assert!(asm.pop_frame().is_none());
+    }
+
+    #[test]
+    fn error_state_packets_become_events() {
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        let mut stream = Vec::new();
+        stream.extend(packet(packet_type::OVERHEAT, 1, b"hot", 1));
+        stream.extend(packet(packet_type::GMC, 2, b"gmc", 2));
+        stream.extend(packet(packet_type::PROJECTOR_FAULT_EVENT, 3, b"", 3));
+        asm.feed(&stream);
+        assert_eq!(
+            asm.drain_events(),
+            vec![DeviceEvent::Overheat, DeviceEvent::ProjectorFault]
+        );
+        // and the queue is empty afterwards
+        assert!(asm.pop_event().is_none());
+        // still counted as misc packets
+        assert_eq!(asm.other_packets, 3);
+    }
+
+    /// Regression guard: event packets interleaved into a frame must not
+    /// disturb frame assembly (the magic-resync path must not eat frame
+    /// data), and the event must still surface.
+    #[test]
+    fn events_interleaved_with_frames_do_not_disturb_assembly() {
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        let mut stream = Vec::new();
+        stream.extend(packet(packet_type::DEPTH_START, 1, b"SOF", 1));
+        stream.extend(packet(packet_type::OVERHEAT, 2, b"hot", 2));
+        stream.extend(packet(packet_type::DEPTH_BUFFER, 3, b"MID", 3));
+        stream.extend(packet(packet_type::PROJECTOR_FAULT_EVENT, 4, b"", 4));
+        stream.extend(packet(packet_type::DEPTH_END, 5, b"!", 5));
+        asm.feed(&stream);
+        let f = asm.pop_frame().unwrap();
+        assert_eq!(f.data, b"SOFMID!".to_vec());
+        assert!(!f.corrupted);
+        assert_eq!(
+            asm.drain_events(),
+            vec![DeviceEvent::Overheat, DeviceEvent::ProjectorFault]
+        );
     }
 
     #[test]

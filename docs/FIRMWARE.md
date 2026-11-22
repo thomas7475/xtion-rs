@@ -114,22 +114,26 @@ Full tables with per-item notes: `firmware/analysis` artifacts; summary:
 
 | Surface | Total | xtion-rs uses |
 |---|---|---|
-| Command opcodes (0–42 + 999) | 41 (+KILL) | **6** (0,1,2,3,4,22) |
-| Firmware parameters (0–85) | 85 | **8** (5,6,12,13,14,18,19,20) |
-| Bulk packet types | 15 | **6** (depth+image only) |
+| Command opcodes (0–42 + 999) | 41 (+KILL) | **7** (0,1,2,3,4,22,37); 0.2.0 adds 39/40/42 — see [`FEATURE_PLAN.md`](FEATURE_PLAN.md) |
+| Firmware parameters (0–85) | 85 | **8** (5,6,12,13,14,18,19,20); 0.2.0 adds 13 more |
+| Bulk packet types | 15 | **6** (depth+image); 0.2.0 handles OVERHEAT/PROJECTOR_FAULT events |
 | ALGORITHM_PARAMS data | 6 | **1** (DEPTH_INFO) |
 
-### 4.1 Opcodes not used by xtion-rs (grouped)
+### 4.1 Opcodes not used by xtion-rs 0.1.x (grouped)
 
-- **Identity / trivial wins**: `GET_SERIAL_NUMBER` (37), `GET_PLATFORM_STRING`
-  (39), `GET_USB_CORE_TYPE` (40 — the Jango-core delay optimization), `GET_MODE`
-  (5), `SET_MODE` (6).
+> 0.2.0 implements most of groups 1–6 below; see
+> [`FEATURE_PLAN.md`](FEATURE_PLAN.md) for what landed and what is next.
+
+- **Identity / trivial wins**: `GET_PLATFORM_STRING` (39), `GET_USB_CORE_TYPE`
+  (40 — the Jango-core delay optimization), `GET_MODE` (5), `SET_MODE` (6).
+  (`GET_SERIAL_NUMBER` 37 was already wired up in 0.1.x.)
 - **Events ignored by the stream parser**: OVERHEAT (0xf31f),
   PROJECTOR_FAULT (0xdead) — the firmware actively reports thermal and
-  projector-health events; the driver currently skips them.
+  projector-health events; the driver skipped them.
 - **Audio**: STREAM2_MODE param 7 + AUDIO_BUFFER 0x9200 + params 8–11, 33–35.
-- **IR stream**: STREAM1_MODE=3 + params 25–29, 72, 56–60 (a full parallel
-  stream configuration).
+- **IR stream**: STREAM0_MODE=3 (the image pipe, not the depth pipe — the
+  frames arrive as IMAGE packets with 4x10-bit packed pixels) + params
+  25–29, 72, 56–60 (a full parallel stream configuration).
 - **Image (color camera) controls**: params 15–17, 71, 76–82 (AGC, quality,
   flicker detection, mirror, sharpness, auto white balance, color temperature,
   backlight compensation, auto/manual exposure, low-light compensation) and
@@ -137,8 +141,8 @@ Full tables with per-item notes: `firmware/analysis` artifacts; summary:
 - **Depth extras**: AGC 21 (+ bins 63–70), hole filter 22, mirror 23,
   decimation 24, white balance 45, crop 51–55, **close range 84**, GMC
   36–44/61/75, wavelength correction 73–74.
-- **Registration**: param 2 + ALGORITHM REGISTRATION (0x02) — depth-to-color
-  alignment (already on the M7 roadmap).
+- **Registration**: param 2 (hardware, in-firmware on PS1080) + ALGORITHM
+  REGISTRATION (0x02) tables — depth-to-color alignment.
 - **Diagnostics**: GET_LOG (7) + log filter/interval params 30–31,
   GET_CPU_STATS (27), BIST (28), TEC data (29/30/38), emitter data (31/32),
   projector-fault calibration (33), CMOS blanking/presets (34–36).
@@ -149,19 +153,18 @@ Full tables with per-item notes: `firmware/analysis` artifacts; summary:
 
 ### 4.2 Highest-value additions for xtion-rs (recommended order)
 
-1. **OVERHEAT + PROJECTOR_FAULT handling** — safety-relevant, tiny effort:
-   the packets already reach the misc-endpoint reader; they currently get
-   skipped during magic resync.
-2. **GET_SERIAL_NUMBER + GET_PLATFORM_STRING** — device identity, trivial
-   request/reply commands.
-3. **IR streaming** (STREAM1_MODE=3 + IR params) — a whole second use of the
-   sensor with the existing depth pipeline.
-4. **Registration** (param 2 + ALGORITHM REGISTRATION tables) — depth↔color
-   alignment, M7 roadmap item.
+1. **OVERHEAT + PROJECTOR_FAULT handling** — safety-relevant, tiny effort.
+   *Landed in 0.2.0 (`DeviceEvent`).*
+2. **GET_PLATFORM_STRING + GET_USB_CORE_TYPE** — device identity, trivial
+   request/reply commands. *Landed in 0.2.0.*
+3. **IR streaming** (STREAM0_MODE=3 + IR params, 10-bit packed decode) — a
+   whole second use of the sensor. *Landed in 0.2.0 (`start_ir`).*
+4. **Registration** (param 2, done in firmware on PS1080) — depth↔color
+   alignment, M7 roadmap item. *Landed in 0.2.0 (`set_registration`).*
 5. **ENABLE_EMITTER** — IR projector on/off: power saving, laser safety, and
-   required for capturing IR-illuminated scenes.
-6. **Mirror + CloseRange + hole filter** — one-line SET_PARAM features with
-   visible user value.
+   required for capturing IR-illuminated scenes. *Landed in 0.2.0.*
+6. **Mirror + CloseRange + hole filter + AGC + image controls** — one-line
+   SET_PARAM features with visible user value. *Landed in 0.2.0.*
 7. **Audio** — mic capture over the misc endpoint + volume/mute params.
 8. **GET_LOG / TEC / CPU stats** — field diagnostics and thermal monitoring.
 

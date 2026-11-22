@@ -11,14 +11,16 @@ use crate::color::yuv422_to_rgb888;
 use crate::depth::packed11::unpack_packed11;
 use crate::depth::shift_to_depth::{ShiftToDepthConfig, ShiftToDepthTables};
 use crate::error::{Result, XtionError};
+use crate::ir::{decode_ir_frame, expected_wire_size, IrConfig, IrFrame};
 use crate::protocol::algorithm::read_depth_information;
 use crate::protocol::command::{CommandLink, ControlTransport, ProtocolVersion};
 use crate::protocol::fixed_params::{read_fixed_params, FixedParams};
+use crate::protocol::identity::{read_platform_string, read_usb_core_type, set_emitter_state};
 use crate::protocol::{
-    DepthFormat, ImageFormat, Opcode, Param, Resolution, SHIFTS_PARAM_COEFFICIENT,
-    SHIFTS_SHIFT_SCALE, STREAM_MODE_COLOR, STREAM_MODE_DEPTH, STREAM_MODE_OFF,
+    DepthFormat, ImageFormat, Opcode, Param, Resolution, UsbCore, SHIFTS_PARAM_COEFFICIENT,
+    SHIFTS_SHIFT_SCALE, STREAM_MODE_COLOR, STREAM_MODE_DEPTH, STREAM_MODE_IR, STREAM_MODE_OFF,
 };
-use crate::stream::StreamAssembler;
+use crate::stream::{DeviceEvent, StreamAssembler};
 use crate::usb::UsbDevice;
 
 /// How long a single command exchange may take.
@@ -221,6 +223,10 @@ pub struct Xtion {
     /// (their transfers must not outlive the device handle).
     depth_ring: Option<crate::ring::BulkRing>,
     color_ring: Option<crate::ring::BulkRing>,
+    ir_ring: Option<crate::ring::BulkRing>,
+    /// Misc endpoint (0x83) ring, active while any stream runs, so
+    /// OVERHEAT / PROJECTOR_FAULT events reach the host.
+    misc_ring: Option<crate::ring::BulkRing>,
     usb: UsbDevice,
     link: CommandLink,
     pub version: DeviceVersion,
@@ -229,8 +235,11 @@ pub struct Xtion {
     shift_to_depth: ShiftToDepthTables,
     depth_config: Option<DepthConfig>,
     color_config: Option<Resolution>,
+    ir_config: Option<IrConfig>,
     depth_assembler: StreamAssembler,
     color_assembler: StreamAssembler,
+    ir_assembler: StreamAssembler,
+    misc_assembler: StreamAssembler,
 }
 
 impl Xtion {
@@ -278,8 +287,12 @@ impl Xtion {
         Ok(Xtion {
             depth_ring: None,
             color_ring: None,
+            ir_ring: None,
+            misc_ring: None,
             depth_assembler: StreamAssembler::new(fw_magic, ignore),
             color_assembler: StreamAssembler::new(fw_magic, ignore),
+            ir_assembler: StreamAssembler::new(fw_magic, ignore),
+            misc_assembler: StreamAssembler::new(fw_magic, ignore),
             usb,
             link,
             version,
@@ -288,6 +301,7 @@ impl Xtion {
             shift_to_depth,
             depth_config: None,
             color_config: None,
+            ir_config: None,
         })
     }
 
@@ -321,6 +335,10 @@ impl Xtion {
         Ok((old, version))
     }
 
+    // ------------------------------------------------------------------
+    // Identity (Phase 1, docs/FEATURE_PLAN.md)
+    // ------------------------------------------------------------------
+
     /// Device serial number (OPCODE_GET_SERIAL_NUMBER, ASCII reply).
     pub fn serial_number(&mut self) -> Result<String> {
         let data =
@@ -329,6 +347,175 @@ impl Xtion {
         Ok(String::from_utf8_lossy(&data)
             .trim_end_matches('\0')
             .to_string())
+    }
+
+    /// Sensor platform string, e.g. "RD108x-112"
+    /// (OPCODE_GET_PLATFORM_STRING; one char per 16-bit word).
+    pub fn platform_string(&mut self) -> Result<String> {
+        read_platform_string(&mut self.link, &mut self.usb, COMMAND_TIMEOUT)
+    }
+
+    /// USB core type (OPCODE_GET_USB_CORE_TYPE). Firmware >= 5.3.16 uses
+    /// the fast "Jango" core.
+    pub fn usb_core_type(&mut self) -> Result<UsbCore> {
+        read_usb_core_type(&mut self.link, &mut self.usb, COMMAND_TIMEOUT)
+    }
+
+    // ------------------------------------------------------------------
+    // Device events (Phase 1)
+    // ------------------------------------------------------------------
+
+    /// Enable or disable the IR projector (OPCODE_ENABLE_EMITTER).
+    ///
+    /// Runtime firmware state: power-cycling the camera restores the
+    /// emitter. The *calibration* opcodes for the emitter are excluded on
+    /// purpose (docs/FEATURE_PLAN.md, "Excluded features").
+    pub fn set_emitter_enabled(&mut self, active: bool) -> Result<()> {
+        set_emitter_state(&mut self.link, &mut self.usb, active, COMMAND_TIMEOUT)
+    }
+
+    /// Drain pending device events (OVERHEAT / PROJECTOR_FAULT) from all
+    /// stream assemblers. Events accumulate while streams are being read;
+    /// call this between frame reads.
+    pub fn drain_events(&mut self) -> Vec<DeviceEvent> {
+        let mut events = self.depth_assembler.drain_events();
+        events.extend(self.color_assembler.drain_events());
+        events.extend(self.ir_assembler.drain_events());
+        events.extend(self.misc_assembler.drain_events());
+        events
+    }
+
+    /// Feed any chunks the misc ring has collected into its assembler
+    /// (non-blocking; called from the read loops so events surface while
+    /// frames are being waited for).
+    fn pump_misc(&mut self) {
+        let Some(ring) = self.misc_ring.as_ref() else {
+            return;
+        };
+        let mut chunks = Vec::new();
+        ring.drain(&mut chunks);
+        for chunk in chunks {
+            self.misc_assembler.feed(&chunk);
+        }
+    }
+
+    /// Start the misc-endpoint ring so device events reach the host.
+    /// Best-effort: devices without the endpoint (or with it unclaimable)
+    /// still stream fine, they just may miss events.
+    fn ensure_misc_ring(&mut self) {
+        if self.misc_ring.is_some() {
+            return;
+        }
+        let Some(endpoint) = self.usb.endpoints.misc else {
+            return;
+        };
+        match crate::ring::BulkRing::start(
+            self.usb.raw_context(),
+            self.usb.raw_handle(),
+            endpoint,
+            self.usb.misc_max_packet_size,
+            crate::ring::RING_BUFFERS,
+        ) {
+            Ok(ring) => self.misc_ring = Some(ring),
+            Err(e) => log::warn!("misc endpoint unavailable, device events may be missed: {e}"),
+        }
+    }
+
+    /// Stop the misc ring once no data stream is running.
+    fn maybe_stop_misc_ring(&mut self) {
+        if self.depth_ring.is_none() && self.color_ring.is_none() && self.ir_ring.is_none() {
+            self.misc_ring = None;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Runtime stream options (Phase 2) — all volatile firmware state,
+    // restored to defaults on power-cycle.
+    // ------------------------------------------------------------------
+
+    /// Enable or disable **hardware registration**: the firmware aligns
+    /// the depth image onto the color image (PARAM_REGISTRATION_ENABLE).
+    ///
+    /// On PS1080 the registration happens in firmware
+    /// (`XnSensorDepthStream::DecideFirmwareRegistration`: PS1080 supports
+    /// hardware registration at every resolution), so no host-side table
+    /// processing is needed. The color stream must be running for the
+    /// result to be meaningful.
+    pub fn set_registration(&mut self, enable: bool) -> Result<()> {
+        self.set_param(Param::RegistrationEnable, enable as u16)
+    }
+
+    /// Whether registration is currently enabled.
+    pub fn registration_enabled(&mut self) -> Result<bool> {
+        Ok(self.get_param(Param::RegistrationEnable)? != 0)
+    }
+
+    /// Flip the depth image horizontally (PARAM_DEPTH_MIRROR).
+    pub fn set_depth_mirror(&mut self, enable: bool) -> Result<()> {
+        self.set_param(Param::DepthMirror, enable as u16)
+    }
+
+    /// Enable the firmware depth hole filter (PARAM_DEPTH_HOLE_FILTER):
+    /// fills single-pixel holes in the depth image.
+    pub fn set_hole_filter(&mut self, enable: bool) -> Result<()> {
+        self.set_param(Param::DepthHoleFilter, enable as u16)
+    }
+
+    /// Enable depth automatic gain control (PARAM_DEPTH_AGC).
+    pub fn set_depth_agc(&mut self, enable: bool) -> Result<()> {
+        self.set_param(Param::DepthAgc, enable as u16)
+    }
+
+    /// Switch the depth stream to close-range mode (PARAM_DEPTH_CLOSE_RANGE,
+    /// firmware >= 5.6): trades long range for sub-50 cm sensitivity using
+    /// the same ConstShift calibration this driver already reads.
+    pub fn set_close_range(&mut self, enable: bool) -> Result<()> {
+        self.set_param(Param::DepthCloseRange, enable as u16)
+    }
+
+    /// Enable global-motion-compensation processing on the depth stream
+    /// (PARAM_DEPTH_GMC_MODE).
+    pub fn set_gmc_mode(&mut self, enable: bool) -> Result<()> {
+        self.set_param(Param::DepthGmcMode, enable as u16)
+    }
+
+    /// Flip the color image horizontally (PARAM_IMAGE_MIRROR).
+    pub fn set_image_mirror(&mut self, enable: bool) -> Result<()> {
+        self.set_param(Param::ImageMirror, enable as u16)
+    }
+
+    /// Enable the color camera's automatic exposure loop
+    /// (PARAM_IMAGE_AUTO_EXPOSURE_MODE).
+    pub fn set_auto_exposure(&mut self, enable: bool) -> Result<()> {
+        self.set_param(Param::ImageAutoExposureMode, enable as u16)
+    }
+
+    /// Manual exposure level (PARAM_IMAGE_EXPOSURE_BAR), meaningful only
+    /// with auto exposure off.
+    pub fn set_exposure(&mut self, value: u16) -> Result<()> {
+        self.set_param(Param::ImageExposureBar, value)
+    }
+
+    /// Enable the color camera's automatic white balance
+    /// (PARAM_IMAGE_AUTO_WHITE_BALANCE_MODE).
+    pub fn set_auto_white_balance(&mut self, enable: bool) -> Result<()> {
+        self.set_param(Param::ImageAutoWhiteBalanceMode, enable as u16)
+    }
+
+    /// Color camera gain / AGC level (PARAM_IMAGE_AGC).
+    pub fn set_image_gain(&mut self, value: u16) -> Result<()> {
+        self.set_param(Param::ImageAgc, value)
+    }
+
+    /// Color camera quality setting (PARAM_IMAGE_QUALITY).
+    pub fn set_image_quality(&mut self, value: u16) -> Result<()> {
+        self.set_param(Param::ImageQuality, value)
+    }
+
+    /// Anti-flicker frequency in Hz (PARAM_IMAGE_FLICKER_DETECTION):
+    /// 50 or 60.
+    pub fn set_flicker(&mut self, frequency_hz: u16) -> Result<()> {
+        self.set_param(Param::ImageFlickerDetection, frequency_hz)
     }
 
     /// Read one firmware parameter.
@@ -347,12 +534,7 @@ impl Xtion {
 
     /// Write one firmware parameter.
     pub fn set_param(&mut self, param: Param, value: u16) -> Result<()> {
-        let mut payload = Vec::with_capacity(4);
-        payload.extend_from_slice(&param.as_u16().to_le_bytes());
-        payload.extend_from_slice(&value.to_le_bytes());
-        self.link
-            .exchange(&mut self.usb, Opcode::SetParam, &payload, COMMAND_TIMEOUT)?;
-        Ok(())
+        set_param_via(&mut self.link, &mut self.usb, param, value, COMMAND_TIMEOUT)
     }
 
     /// Configure and start the depth stream (stream1 in firmware terms).
@@ -375,6 +557,7 @@ impl Xtion {
             self.usb.depth_max_packet_size,
             crate::ring::RING_BUFFERS,
         )?);
+        self.ensure_misc_ring();
 
         self.depth_config = Some(config);
         Ok(())
@@ -387,17 +570,25 @@ impl Xtion {
         self.depth_ring = None;
         self.set_param(Param::Stream1Mode, STREAM_MODE_OFF)?;
         self.depth_config = None;
+        self.maybe_stop_misc_ring();
         Ok(())
     }
 
     /// Configure and start the color stream (stream0 in firmware terms).
-    /// Only YUV422 input formats are supported in 0.1.
+    /// Only YUV422 input formats are supported in 0.1. The color camera
+    /// and the IR stream share firmware stream0, so they cannot run at
+    /// the same time (stop one before starting the other).
     pub fn start_color(
         &mut self,
         resolution: Resolution,
         fps: u16,
         format: ImageFormat,
     ) -> Result<()> {
+        if self.ir_config.is_some() {
+            return Err(XtionError::BadConfig(
+                "the IR stream is running; color and IR share the image pipe".into(),
+            ));
+        }
         match format {
             ImageFormat::UncompressedYuv422 | ImageFormat::Yuv422 => {}
             _ => {
@@ -418,6 +609,7 @@ impl Xtion {
             self.usb.image_max_packet_size,
             crate::ring::RING_BUFFERS,
         )?);
+        self.ensure_misc_ring();
 
         self.color_config = Some(resolution);
         Ok(())
@@ -428,6 +620,47 @@ impl Xtion {
         self.color_ring = None;
         self.set_param(Param::Stream0Mode, STREAM_MODE_OFF)?;
         self.color_config = None;
+        self.maybe_stop_misc_ring();
+        Ok(())
+    }
+
+    /// Configure and start the infrared stream.
+    ///
+    /// IR reuses firmware stream0 (the image pipe): the frames arrive on
+    /// the image endpoint as IMAGE packets with 4x10-bit packed pixels
+    /// and are decoded to 16-bit grayscale. The firmware IR mirror is
+    /// forced off, exactly like the reference driver
+    /// (`XnSensorIRStream::ConfigureStreamImpl`), which mirrors IR
+    /// host-side instead. Color and IR are mutually exclusive; IR pairs
+    /// with depth (that is the combination hardware registration is
+    /// designed for).
+    pub fn start_ir(&mut self, config: IrConfig) -> Result<()> {
+        if self.color_config.is_some() {
+            return Err(XtionError::BadConfig(
+                "the color stream is running; color and IR share the image pipe".into(),
+            ));
+        }
+        configure_ir_via(&mut self.link, &mut self.usb, config, COMMAND_TIMEOUT)?;
+
+        self.ir_ring = Some(crate::ring::BulkRing::start(
+            self.usb.raw_context(),
+            self.usb.raw_handle(),
+            self.usb.endpoints.image,
+            self.usb.image_max_packet_size,
+            crate::ring::RING_BUFFERS,
+        )?);
+        self.ensure_misc_ring();
+
+        self.ir_config = Some(config);
+        Ok(())
+    }
+
+    /// Stop the infrared stream.
+    pub fn stop_ir(&mut self) -> Result<()> {
+        self.ir_ring = None;
+        self.set_param(Param::Stream0Mode, STREAM_MODE_OFF)?;
+        self.ir_config = None;
+        self.maybe_stop_misc_ring();
         Ok(())
     }
 
@@ -521,6 +754,7 @@ impl Xtion {
                 }
                 return self.decode_depth_frame(&frame, width, height, expected_pixels, config);
             }
+            self.pump_misc();
             // take one completed chunk from the ring (borrow ends here)
             let chunk = {
                 let ring = self
@@ -564,6 +798,7 @@ impl Xtion {
                     timestamp: frame.timestamp,
                 });
             }
+            self.pump_misc();
             let chunk = {
                 let ring = self
                     .color_ring
@@ -575,6 +810,48 @@ impl Xtion {
                 Some(data) => self.color_assembler.feed(&data),
                 None => {
                     if let Some(err) = self.color_ring.as_ref().unwrap().error() {
+                        return Err(err);
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(XtionError::ControlTimeout);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Block until one infrared frame is decoded (16-bit grayscale).
+    /// Corrupted frames are dropped and reading continues.
+    pub fn read_ir_frame(&mut self, timeout: Duration) -> Result<IrFrame> {
+        let config = self.ir_config.ok_or(XtionError::StreamNotRunning)?;
+        let (width, height) = config.dimensions();
+        let expected = expected_wire_size((width * height) as usize);
+        let deadline = Instant::now() + timeout;
+
+        loop {
+            while let Some(frame) = self.ir_assembler.pop_frame() {
+                if frame.corrupted {
+                    log::warn!("corrupted ir frame dropped");
+                    continue;
+                }
+                if frame.data.len() != expected {
+                    log::warn!(
+                        "ir frame is corrupt: {} bytes != expected {expected}, dropped",
+                        frame.data.len()
+                    );
+                    continue;
+                }
+                return decode_ir_frame(&frame.data, width, height, frame.timestamp);
+            }
+            self.pump_misc();
+            let chunk = {
+                let ring = self.ir_ring.as_ref().ok_or(XtionError::StreamNotRunning)?;
+                ring.pop(deadline)
+            };
+            match chunk {
+                Some(data) => self.ir_assembler.feed(&data),
+                None => {
+                    if let Some(err) = self.ir_ring.as_ref().unwrap().error() {
                         return Err(err);
                     }
                     if Instant::now() >= deadline {
@@ -631,6 +908,48 @@ impl Xtion {
     pub fn depth_const_shift(&self) -> u16 {
         self.depth_const_shift
     }
+}
+
+/// Write one firmware parameter over any control transport
+/// (the transport-generic core of [`Xtion::set_param`], so the exact
+/// request sequences are unit-testable without hardware).
+fn set_param_via<T: ControlTransport>(
+    link: &mut CommandLink,
+    transport: &mut T,
+    param: Param,
+    value: u16,
+    timeout: Duration,
+) -> Result<()> {
+    let mut payload = Vec::with_capacity(4);
+    payload.extend_from_slice(&param.as_u16().to_le_bytes());
+    payload.extend_from_slice(&value.to_le_bytes());
+    link.exchange(transport, Opcode::SetParam, &payload, timeout)?;
+    Ok(())
+}
+
+/// IR stream parameter sequence, transport-generic for testing.
+///
+/// Port of `XnSensorIRStream::ConfigureStreamImpl` + `MapPropertiesToFirmware`:
+/// resolution -> fps -> mirror forced off -> stream0 into IR mode.
+fn configure_ir_via<T: ControlTransport>(
+    link: &mut CommandLink,
+    transport: &mut T,
+    config: IrConfig,
+    timeout: Duration,
+) -> Result<()> {
+    set_param_via(
+        link,
+        transport,
+        Param::IrResolution,
+        config.resolution.as_u16(),
+        timeout,
+    )?;
+    set_param_via(link, transport, Param::IrFps, config.fps, timeout)?;
+    // "IR mirror is always off in firmware" — the reference driver
+    // mirrors IR host-side instead.
+    set_param_via(link, transport, Param::IrMirror, 0, timeout)?;
+    set_param_via(link, transport, Param::Stream0Mode, STREAM_MODE_IR, timeout)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -780,5 +1099,124 @@ mod tests {
         assert_eq!(link.protocol(), ProtocolVersion::V25);
         assert_eq!(version.major, 5);
         assert_eq!(version.minor, 3);
+    }
+
+    // ------------------------------------------------------------------
+    // Phase 1-2 feature wire tests (docs/FEATURE_PLAN.md)
+    // ------------------------------------------------------------------
+
+    /// ACK reply for a SET_PARAM (the value is echoed back).
+    fn setparam_ack_reply(id: u16, value: u16) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&FW_MAGIC_V26.to_le_bytes());
+        v.extend_from_slice(&2u16.to_le_bytes()); // error + value word
+        v.extend_from_slice(&Opcode::SetParam.as_u16().to_le_bytes());
+        v.extend_from_slice(&id.to_le_bytes());
+        v.extend_from_slice(&0u16.to_le_bytes()); // ACK
+        v.extend_from_slice(&value.to_le_bytes());
+        v
+    }
+
+    /// Wire-contract guard: every Param discriminant must equal the
+    /// vendor's EPsProtocolParams id (XnParams.h), so a typo here can
+    /// never silently configure the wrong thing.
+    #[test]
+    fn param_ids_match_xnparams() {
+        assert_eq!(Param::RegistrationEnable.as_u16(), 2);
+        assert_eq!(Param::Stream0Mode.as_u16(), 5);
+        assert_eq!(Param::Stream1Mode.as_u16(), 6);
+        assert_eq!(Param::Stream2Mode.as_u16(), 7);
+        assert_eq!(Param::ImageAgc.as_u16(), 15);
+        assert_eq!(Param::ImageQuality.as_u16(), 16);
+        assert_eq!(Param::ImageFlickerDetection.as_u16(), 17);
+        assert_eq!(Param::DepthAgc.as_u16(), 21);
+        assert_eq!(Param::DepthHoleFilter.as_u16(), 22);
+        assert_eq!(Param::DepthMirror.as_u16(), 23);
+        assert_eq!(Param::IrResolution.as_u16(), 26);
+        assert_eq!(Param::IrFps.as_u16(), 27);
+        assert_eq!(Param::DepthGmcMode.as_u16(), 36);
+        assert_eq!(Param::ImageMirror.as_u16(), 71);
+        assert_eq!(Param::IrMirror.as_u16(), 72);
+        assert_eq!(Param::ImageAutoWhiteBalanceMode.as_u16(), 77);
+        assert_eq!(Param::ImageAutoExposureMode.as_u16(), 80);
+        assert_eq!(Param::ImageExposureBar.as_u16(), 81);
+        assert_eq!(Param::DepthCloseRange.as_u16(), 84);
+    }
+
+    #[test]
+    fn set_param_sends_param_and_value_words() {
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![setparam_ack_reply(0, 1)],
+                sent: vec![],
+            },
+        );
+        set_param_via(
+            &mut link,
+            &mut fake,
+            Param::DepthCloseRange,
+            1,
+            Duration::from_millis(50),
+        )
+        .unwrap();
+        assert_eq!(fake.sent.len(), 1);
+        let req = &fake.sent[0];
+        assert_eq!(req.len(), 8 + 4);
+        assert_eq!(
+            u16::from_le_bytes([req[4], req[5]]),
+            Opcode::SetParam.as_u16()
+        );
+        // payload: param id then value
+        assert_eq!(u16::from_le_bytes([req[8], req[9]]), 84);
+        assert_eq!(u16::from_le_bytes([req[10], req[11]]), 1);
+    }
+
+    /// The IR start sequence must match XnSensorIRStream::ConfigureStreamImpl:
+    /// IrResolution -> IrFps -> IrMirror forced off -> stream0 into IR mode.
+    #[test]
+    fn configure_ir_sequence_matches_reference() {
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![
+                    setparam_ack_reply(0, 1),
+                    setparam_ack_reply(1, 30),
+                    setparam_ack_reply(2, 0),
+                    setparam_ack_reply(3, 3),
+                ],
+                sent: vec![],
+            },
+        );
+        configure_ir_via(
+            &mut link,
+            &mut fake,
+            IrConfig {
+                resolution: Resolution::Vga,
+                fps: 30,
+            },
+            Duration::from_millis(50),
+        )
+        .unwrap();
+        assert_eq!(fake.sent.len(), 4);
+        let params: Vec<(u16, u16)> = fake
+            .sent
+            .iter()
+            .map(|req| {
+                (
+                    u16::from_le_bytes([req[8], req[9]]),
+                    u16::from_le_bytes([req[10], req[11]]),
+                )
+            })
+            .collect();
+        assert_eq!(
+            params,
+            vec![
+                (26, 1),  // PARAM_IR_RESOLUTION = VGA
+                (27, 30), // PARAM_IR_FPS
+                (72, 0),  // PARAM_IR_MIRROR forced off
+                (5, 3),   // PARAM_GENERAL_STREAM0_MODE = IR
+            ]
+        );
     }
 }
