@@ -34,6 +34,16 @@ now fixed and covered by unit tests:
    `start_depth`, `start_color` and `start_ir` (parity with
    XnSensorDepthStream.cpp / XnSensorImageStream.cpp /
    XnSensorIRStream.cpp).
+3. `ir_stream_roundtrip` "unusable frames: 390,400 bytes (expected
+   384,000)" (0.2.2 diagnostics run) → the MT9M001 IR CMOS transmits
+   **`height + 8` rows** per frame (488 rows at VGA); the 0.2.3 fix
+   mirrors the reference exactly: expect the extra-rows wire size
+   (`ir::ir_wire_size`, XnSensorIRStream.cpp:411-422) and crop the
+   trailing 8 rows off the decoded frame (XnIRProcessor.cpp:244-282,
+   "don't report additional rows out"). The CMOS type comes from the
+   fixed params (`depth_cmos_type`, already parsed since 0.1.2);
+   0.2.2's fail-fast diagnostics + assembler/ring counters pinpointed
+   the size mismatch in one run.
 
 ## 1. Gap analysis (OpenNI 2.2.0 vs xtion-rs 0.1.5)
 

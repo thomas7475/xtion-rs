@@ -5,8 +5,12 @@
 //!
 //! IR reuses the **image pipe**: the firmware streams IR frames as IMAGE
 //! packets (0x8100..0x8500) on the image endpoint, with 4 pixels packed
-//! into 5 bytes (4 x 10 bits). The reference driver keeps the firmware
-//! IR-mirror off and mirrors host-side; this port returns raw frames.
+//! into 5 bytes (4 x 10 bits). The IR CMOS (an MT9M001) transmits
+//! `height + 8` wire rows in every resolution except SXGA; frames are
+//! validated against the wire size and cropped back to `height` visible
+//! rows (see `wire_extra_rows` / `ir_wire_size` / `decode_ir_frame`).
+//! The reference driver keeps the firmware IR-mirror off and mirrors
+//! host-side; this port returns raw frames.
 
 use crate::error::{Result, XtionError};
 use crate::protocol::Resolution;
@@ -60,6 +64,52 @@ impl IrFrame {
 /// (`XN_INPUT_ELEMENT_SIZE` / `XN_OUTPUT_ELEMENT_SIZE` in XnIRProcessor).
 const INPUT_ELEMENT_SIZE: usize = 5;
 
+/// Depth CMOS types as reported in the fixed params (`nDepthCmosType`);
+/// enum `XnDepthCMOSType`, Include/PS1080.h:418-423.
+pub const DEPTH_CMOS_NONE: i32 = 0;
+pub const DEPTH_CMOS_MT9M001: i32 = 1;
+pub const DEPTH_CMOS_AR130: i32 = 2;
+
+/// Extra wire rows the IR CMOS transmits beyond the configured Y
+/// resolution.
+///
+/// C reference `XnIRProcessor.cpp:244-271`: "there are additional 8 rows
+/// (this is how the CMOS is configured)" — the MT9M001 transmits
+/// `height + 8` rows in every resolution except SXGA. At SXGA an AR130
+/// loses 64 rows. Any other CMOS type transmits exactly `height` rows.
+///
+/// Hardware-confirmed (0.2.2 diagnostics run): VGA frames close at
+/// 390,400 bytes = 488 rows x 800 B, i.e. 8 extra rows, not 480.
+pub fn wire_extra_rows(depth_cmos_type: i32, resolution: Resolution) -> i32 {
+    if resolution == Resolution::Sxga {
+        if depth_cmos_type == DEPTH_CMOS_AR130 {
+            -64
+        } else {
+            0
+        }
+    } else if depth_cmos_type == DEPTH_CMOS_MT9M001 {
+        8
+    } else {
+        0
+    }
+}
+
+/// Expected wire size of one IR frame:
+/// `(height + extra CMOS rows) x width` packed-10 pixels.
+///
+/// The reference does the same accounting host-side: "in IR, in all
+/// resolutions except SXGA, we get additional 8 lines"
+/// (`XnSensorIRStream::CalcRequiredSize`, XnSensorIRStream.cpp:411-422).
+pub fn ir_wire_size(
+    width: u32,
+    height: u32,
+    depth_cmos_type: i32,
+    resolution: Resolution,
+) -> usize {
+    let rows = height as i64 + wire_extra_rows(depth_cmos_type, resolution) as i64;
+    expected_wire_size((width as usize) * rows.max(0) as usize)
+}
+
 /// Expected wire size of one IR frame for `pixels` pixels.
 pub fn expected_wire_size(pixels: usize) -> usize {
     pixels * 10 / 8
@@ -85,19 +135,45 @@ pub fn unpack_packed10(input: &[u8], out: &mut Vec<u16>) {
     }
 }
 
-/// Decode one assembled IR frame payload into an [`IrFrame`], validating
-/// the wire size the same way the depth path does.
-pub fn decode_ir_frame(data: &[u8], width: u32, height: u32, timestamp: u32) -> Result<IrFrame> {
-    let pixels = (width * height) as usize;
-    let expected = expected_wire_size(pixels);
-    if data.len() != expected {
+/// Decode one assembled IR frame payload into an [`IrFrame`].
+///
+/// The wire carries `height + wire_extra_rows(...)` rows. The reference
+/// validates the (unpacked) frame against the extra-rows height and then
+/// crops the trailing rows off the delivered frame — "don't report
+/// additional rows out" (XnIRProcessor.cpp:273-282): the FIRST `height`
+/// rows are kept, the last `extra` rows are discarded. We mirror that
+/// exactly: validate the wire size, then unpack only the first `height`
+/// rows.
+pub fn decode_ir_frame(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    resolution: Resolution,
+    depth_cmos_type: i32,
+    timestamp: u32,
+) -> Result<IrFrame> {
+    let wire = ir_wire_size(width, height, depth_cmos_type, resolution);
+    if data.len() != wire {
+        let rows = height as i32 + wire_extra_rows(depth_cmos_type, resolution);
         return Err(XtionError::BadConfig(format!(
-            "ir frame is corrupt: {} bytes != expected {expected}",
+            "ir frame is corrupt: {} bytes != expected {wire} ({width}x{rows} packed-10, depth cmos {depth_cmos_type})",
             data.len()
         )));
     }
+    let pixels = (width * height) as usize;
+    let visible = expected_wire_size(pixels);
+    if wire < visible {
+        // Only reachable for the AR130-at-SXGA combination, where the
+        // CMOS transmits FEWER rows than the frame reports. The reference
+        // would report more pixels than it gathered (a bug); we refuse
+        // instead of fabricating rows.
+        return Err(XtionError::BadConfig(format!(
+            "ir wire ({wire} bytes) smaller than the visible frame ({visible} bytes): \
+             depth cmos {depth_cmos_type} cannot serve {width}x{height} IR"
+        )));
+    }
     let mut values = Vec::with_capacity(pixels);
-    unpack_packed10(data, &mut values);
+    unpack_packed10(&data[..visible], &mut values);
     Ok(IrFrame {
         width,
         height,
@@ -171,11 +247,64 @@ mod tests {
         assert_eq!(out, vec![0x3FF, 0x3FF, 0x3FF, 0x3FF, 0, 0, 0, 0]);
     }
 
+    /// Inverse of `unpack_packed10` for one row of 10-bit values
+    /// (width must be a multiple of 4): used to build synthetic wires.
+    fn pack_row(width: u32, value: u16) -> Vec<u8> {
+        debug_assert!(value < 0x400);
+        let mut out = Vec::with_capacity(width as usize * 10 / 8);
+        for _ in (0..width).step_by(4) {
+            let p0 = value;
+            let p1 = value;
+            let p2 = value;
+            let p3 = value;
+            out.push((p0 >> 2) as u8);
+            out.push(((((p0 & 0x3) << 6) | (p1 >> 4)) & 0xFF) as u8);
+            out.push(((((p1 & 0xF) << 4) | (p2 >> 6)) & 0xFF) as u8);
+            out.push(((((p2 & 0x3F) << 2) | (p3 >> 8)) & 0xFF) as u8);
+            out.push((p3 & 0xFF) as u8);
+        }
+        out
+    }
+
+    #[test]
+    fn extra_rows_follow_cmos_type_matrix() {
+        // MT9M001: +8 rows in every resolution except SXGA
+        // (XnIRProcessor.cpp:256-263).
+        assert_eq!(wire_extra_rows(DEPTH_CMOS_MT9M001, Resolution::Vga), 8);
+        assert_eq!(wire_extra_rows(DEPTH_CMOS_MT9M001, Resolution::Qvga), 8);
+        assert_eq!(wire_extra_rows(DEPTH_CMOS_MT9M001, Resolution::Qqvga), 8);
+        assert_eq!(wire_extra_rows(DEPTH_CMOS_MT9M001, Resolution::Sxga), 0);
+        // AR130: only at SXGA, and it LOSES 64 rows (lines 264-271).
+        assert_eq!(wire_extra_rows(DEPTH_CMOS_AR130, Resolution::Sxga), -64);
+        assert_eq!(wire_extra_rows(DEPTH_CMOS_AR130, Resolution::Vga), 0);
+        // Unknown/none: no adjustment (C checks the exact type).
+        assert_eq!(wire_extra_rows(DEPTH_CMOS_NONE, Resolution::Vga), 0);
+    }
+
+    #[test]
+    fn vga_mt9m001_wire_frame_is_488_rows() {
+        // Hardware-observed in the 0.2.2 diagnostics run: frames close
+        // at exactly 390,400 bytes (488 rows x 800 B packed-10).
+        let wire = ir_wire_size(640, 480, DEPTH_CMOS_MT9M001, Resolution::Vga);
+        assert_eq!(wire, 390_400);
+        assert_eq!(wire - expected_wire_size(640 * 480), 6_400); // 8 rows
+                                                                 // Without an MT9M001 the old 384,000-byte expectation applies.
+        assert_eq!(
+            ir_wire_size(640, 480, DEPTH_CMOS_NONE, Resolution::Vga),
+            384_000
+        );
+        // QVGA MT9M001: 248 rows x 400 B.
+        assert_eq!(
+            ir_wire_size(320, 240, DEPTH_CMOS_MT9M001, Resolution::Qvga),
+            99_200
+        );
+    }
+
     #[test]
     fn decode_validates_size_and_decodes() {
-        // 8x2 frame = 16 pixels = 20 wire bytes
+        // 8x2 frame = 16 pixels = 20 wire bytes (no extra CMOS rows)
         let wire: Vec<u8> = (0..4).flat_map(|_| vec![0xFFu8; 5]).collect();
-        let frame = decode_ir_frame(&wire, 8, 2, 77).unwrap();
+        let frame = decode_ir_frame(&wire, 8, 2, Resolution::Vga, DEPTH_CMOS_NONE, 77).unwrap();
         assert_eq!(frame.width, 8);
         assert_eq!(frame.data.len(), 16);
         assert!(frame.data.iter().all(|&v| v == 0x3FF));
@@ -183,11 +312,51 @@ mod tests {
         assert_eq!(frame.value_range(), Some((0x3FF, 0x3FF)));
     }
 
+    /// The 0.2.2 on-camera failure, as a regression test: an MT9M001
+    /// transmits `height + 8` rows; frames closed at 390,400 bytes and
+    /// the old 384,000-byte expectation rejected every frame.
+    #[test]
+    fn decode_accepts_hardware_wire_and_crops_extra_rows() {
+        let (width, height) = (8u32, 2u32);
+        // Wire: 10 rows (2 visible + 8 CMOS rows), row r carries 0x100+r.
+        let mut wire = Vec::new();
+        for row in 0..10u16 {
+            wire.extend(pack_row(width, 0x100 + row));
+        }
+        assert_eq!(
+            wire.len(),
+            ir_wire_size(width, height, DEPTH_CMOS_MT9M001, Resolution::Vga)
+        );
+        let frame =
+            decode_ir_frame(&wire, width, height, Resolution::Vga, DEPTH_CMOS_MT9M001, 5).unwrap();
+        // Only the FIRST `height` rows survive (XnIRProcessor.cpp:281-282
+        // "don't report additional rows out").
+        assert_eq!(frame.width, width);
+        assert_eq!(frame.height, height);
+        assert_eq!(frame.data.len(), (width * height) as usize);
+        assert!(frame.data[..8].iter().all(|&v| v == 0x100));
+        assert!(frame.data[8..16].iter().all(|&v| v == 0x101));
+        assert!(frame.data.iter().all(|&v| v < 0x102), "extra rows leaked");
+    }
+
     #[test]
     fn decode_rejects_wrong_size() {
-        let err = decode_ir_frame(&[0xFF; 15], 8, 2, 0).unwrap_err();
+        let err =
+            decode_ir_frame(&[0xFF; 15], 8, 2, Resolution::Vga, DEPTH_CMOS_NONE, 0).unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("expected 20"), "{msg}");
+        // The hardware failure signature: 390,400 bytes against the old
+        // 384,000-byte expectation must now be VALID for an MT9M001.
+        let ok = decode_ir_frame(
+            &vec![0x7Fu8; 390_400],
+            640,
+            480,
+            Resolution::Vga,
+            DEPTH_CMOS_MT9M001,
+            0,
+        )
+        .unwrap();
+        assert_eq!(ok.data.len(), 640 * 480);
     }
 
     #[test]

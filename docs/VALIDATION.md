@@ -110,6 +110,13 @@ documented API. Every check lists the expected observation.
   error message now carries the actual frame size plus assembler
   counters (starts/buffers/ends seen), which distinguishes "frames
   close at the wrong size" from "framing never completes".
+- **IR SOLVED (0.2.3):** the 0.2.2 run showed frames closing at
+  390,400 bytes = 488 rows x 800 B — the MT9M001 IR CMOS transmits
+  `height + 8` rows (XnIRProcessor.cpp:244-282; see PROTOCOL.md
+  section 8). The driver now expects the 488-row wire size and crops to
+  the first 480 rows like the reference. If a future run still fails
+  with a DIFFERENT size, the message now prints the depth CMOS type and
+  the row math — compare against `ir_wire_size` and wire_extra_rows.
 - `emitter toggle skipped: ...`: expected on some 5.8.x builds — the
   reference driver only issues opcode 42 on fw >= 5.8.15 and even then
   some builds NACK it (BadParams). Runtime state only; the default

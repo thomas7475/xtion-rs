@@ -148,7 +148,12 @@ mod tests {
     #[test]
     fn blanking_request_layout_and_parse() {
         // the request must be algorithm 0x06 for the given mode
-        let payload = build_request(super::super::algorithm_ids::BLANKING, Resolution::Vga, 30, 0);
+        let payload = build_request(
+            super::super::algorithm_ids::BLANKING,
+            Resolution::Vga,
+            30,
+            0,
+        );
         assert_eq!(payload.len(), 10);
         assert_eq!(u16::from_le_bytes([payload[0], payload[1]]), 0x06);
         assert_eq!(u16::from_le_bytes([payload[6], payload[7]]), 30);

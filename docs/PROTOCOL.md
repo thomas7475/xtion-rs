@@ -254,7 +254,35 @@ C = (Y - 16) * 298 + 128;  D = U - 128;  E = V - 128
 R = clamp((C + 409*E) >> 8);  G = clamp((C - 100*D - 208*E) >> 8);  B = clamp((C + 516*D) >> 8)
 ```
 
-## 8. Identity
+## 8. IR decoding
+
+- IR runs on the **image pipe**: STREAM0_MODE = 3, frames arrive as
+  IMAGE packets (0x8100..0x8500) on the image endpoint, 4 pixels packed
+  into 5 bytes (4 x 10 bits) — `XnIRProcessor::Unpack10to16`
+  (`XN_INPUT_ELEMENT_SIZE` 5 / `XN_OUTPUT_ELEMENT_SIZE` 8).
+- **The IR CMOS transmits 8 more rows than the configured resolution.**
+  `XnIRProcessor::OnEndOfFrame` (XnIRProcessor.cpp:244-282): at SXGA an
+  AR130 loses 64 rows; in every other resolution an **MT9M001 adds 8
+  rows** ("there are additional 8 rows (this is how the CMOS is
+  configured)"). `XnSensorIRStream::CalcRequiredSize`
+  (XnSensorIRStream.cpp:411-422) does the same accounting host-side:
+  "in IR, in all resolutions except SXGA, we get additional 8 lines".
+  The CMOS type is read from the fixed params (`nDepthCmosType`,
+  `XnDepthCMOSType`: 0 none, 1 MT9M001, 2 AR130, Include/PS1080.h:418).
+- **Verified on hardware (0.2.2 diagnostics run):** VGA IR frames close
+  at exactly **390,400 bytes = 488 rows x 800 B**, i.e. 480 visible rows
+  + 8 CMOS rows — while the depth pipe (packed-11) frames close at
+  exactly 480 rows with no extra rows.
+- Expected wire size: `(height + 8) x width x 10 / 8` (390,400 for VGA);
+  the reference validates the frame against that size and then crops the
+  trailing rows off the delivered frame — "don't report additional rows
+  out" (XnIRProcessor.cpp:281-282): the FIRST `height` rows are kept.
+  `xtion-rs` mirrors this in `ir::ir_wire_size` + `decode_ir_frame`.
+- The color/image pipe has NO extra rows
+  (`XnImageProcessor::CalculateExpectedSize` = XRes x YRes x bpp), and
+  the depth pipe packs exactly 480 rows — the +8 quirk is IR-only.
+
+## 9. Identity
 
 - GET_SERIAL_NUMBER (opcode 37): no request payload; reply data is an
   ASCII string, `nDataSize * 2` bytes (XnHostProtocolGetSerialNumber).
@@ -310,7 +338,7 @@ transfer callback so the queue never empties.
   (libusb/rusb behavior); an empty timeout must be retried until the
   caller's deadline — data paces at ~12 MB/s for 640x480@30 packed-11.
 
-## 9. Reference file map
+## 10. Reference file map
 
 | Topic | File in OpenNI 2.2.0 |
 |---|---|

@@ -1,6 +1,6 @@
 [package]
 name = "xtion-rs"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 rust-version = "1.75"
 description = "Pure-Rust userspace driver for the ASUS Xtion / PrimeSense PS1080 depth camera"
@@ -36,3 +36,7 @@ path = "examples/depth_dump.rs"
 [[example]]
 name = "raw_dump"
 path = "examples/raw_dump.rs"
+
+[[example]]
+name = "ir_dump"
+path = "examples/ir_dump.rs"

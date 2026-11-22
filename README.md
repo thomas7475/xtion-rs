@@ -22,13 +22,13 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Bulk-stream frame assembly | done, unit-tested incl. chunk splits |
 | Depth stream (VGA@30, packed-11 or raw 16-bit) | **hardware-validated** (87% valid pixels @ 29.97 fps) |
 | Color stream (YUV422 -> RGB888) | implemented; on-camera validation pending |
-| IR stream (16-bit grayscale, image pipe) | implemented in 0.2.0; on-camera validation pending |
+| IR stream (16-bit grayscale, image pipe) | implemented in 0.2.0; wire-size fix in 0.2.3 (MT9M001 sends `height + 8` rows — hardware-measured, see docs/PROTOCOL.md section 8); on-camera validation pending |
 | Hardware registration, emitter on/off, OVERHEAT/PROJECTOR_FAULT events | implemented in 0.2.0 |
 | Runtime options: mirror, hole filter, AGC, close range, GMC mode, exposure, white balance, gain, quality, flicker | implemented in 0.2.0 |
 | Cropping, depth AGC bins, GMC data, audio, firmware log | not yet (Phase 3-4 of docs/FEATURE_PLAN.md) |
 | Pre-3.0 firmware (bulk control endpoints) | not supported (explicit error) |
 
-Everything that can be verified without the camera **is** verified: 84
+Everything that can be verified without the camera **is** verified: 85
 tests pass on a bare CI machine (`cargo test`), and the numerical cores
 (packed-11 depth, 10-bit IR, shift-to-depth) are proven equal to the
 original C++ implementation by golden vectors generated from a verbatim C
@@ -106,6 +106,28 @@ driver (Apache-2.0, PrimeSense Ltd.); see `NOTICE.md`. The decode cores
 are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
+
+- **0.2.3 — IR wire-size fix (the fourth on-hardware failure)** - the
+  0.2.2 diagnostics run finally produced the IR failure signature the
+  fail-fast logic was built for: `frame #5 390400 bytes (expected
+  384000 for 640x480 packed-10)` with the assembler closing 5 full
+  frames and the ring perfectly healthy (100 completions, 0 failures).
+  390,400 = 488 rows x 800 B: **the MT9M001 IR CMOS transmits 8 more
+  rows than the configured resolution**, exactly as the reference
+  driver handles it ("there are additional 8 rows (this is how the
+  CMOS is configured)", XnIRProcessor.cpp:244-282; "in IR, in all
+  resolutions except SXGA, we get additional 8 lines",
+  XnSensorIRStream.cpp:411-422). The fix reads the depth CMOS type from
+  the fixed params (already parsed since 0.1.2 — none/MT9M001/AR130,
+  Include/PS1080.h:418), expects `(height + 8) x width x 10/8` on the
+  wire for MT9M001 non-SXGA modes, and crops the trailing rows off the
+  decoded frame exactly like the reference ("don't report additional
+  rows out", XnIRProcessor.cpp:281-282 — the FIRST `height` rows are
+  kept). Depth (packed-11) and color (YUV422) have no extra rows and
+  are untouched. Regression tests encode the hardware signature
+  (390,400-byte wire accepted, rows 480-487 dropped); new `ir_dump`
+  example streams IR and saves a PGM for visual checks. 85 tests green
+  (82 lib incl. the CMOS-type matrix, 2 golden, 1 doc).
 
 - **0.1.5 — HARDWARE VALIDATED** - after 0.1.4 assembled full 307,200-pixel
   frames at 30 fps

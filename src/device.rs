@@ -11,7 +11,7 @@ use crate::color::yuv422_to_rgb888;
 use crate::depth::packed11::unpack_packed11;
 use crate::depth::shift_to_depth::{ShiftToDepthConfig, ShiftToDepthTables};
 use crate::error::{Result, XtionError};
-use crate::ir::{decode_ir_frame, expected_wire_size, IrConfig, IrFrame};
+use crate::ir::{decode_ir_frame, ir_wire_size, wire_extra_rows, IrConfig, IrFrame};
 use crate::protocol::algorithm::{read_cmos_blanking, read_depth_information};
 use crate::protocol::command::{CommandLink, ControlTransport, ProtocolVersion};
 use crate::protocol::fixed_params::{read_fixed_params, FixedParams};
@@ -368,7 +368,9 @@ impl Xtion {
         match read_usb_core_type(&mut self.link, &mut self.usb, COMMAND_TIMEOUT) {
             Ok(core) => Ok(core),
             Err(err) => {
-                log::warn!("usb core probe failed ({err}); assuming Jango core like the reference driver");
+                log::warn!(
+                    "usb core probe failed ({err}); assuming Jango core like the reference driver"
+                );
                 Ok(UsbCore::Jango)
             }
         }
@@ -573,7 +575,13 @@ impl Xtion {
         // CMOS timing: the reference depth stream ends its configuration
         // with SetCmosConfig(XN_CMOS_TYPE_DEPTH, ...) — a blanking read
         // for the requested mode (XnSensorDepthStream::ConfigureStreamImpl).
-        read_cmos_blanking(&mut self.link, &mut self.usb, config.resolution, config.fps, COMMAND_TIMEOUT)?;
+        read_cmos_blanking(
+            &mut self.link,
+            &mut self.usb,
+            config.resolution,
+            config.fps,
+            COMMAND_TIMEOUT,
+        )?;
         self.set_param(Param::Stream1Mode, STREAM_MODE_DEPTH)?;
 
         // Start the async URB ring BEFORE the device begins to stream:
@@ -632,7 +640,13 @@ impl Xtion {
         // CMOS timing: the reference image stream arms the color CMOS with
         // a blanking read before the mode is written
         // (XnSensorImageStream::ConfigureStreamImpl -> SetCmosConfig).
-        read_cmos_blanking(&mut self.link, &mut self.usb, resolution, fps, COMMAND_TIMEOUT)?;
+        read_cmos_blanking(
+            &mut self.link,
+            &mut self.usb,
+            resolution,
+            fps,
+            COMMAND_TIMEOUT,
+        )?;
         self.set_param(Param::Stream0Mode, STREAM_MODE_COLOR)?;
 
         self.color_ring = Some(crate::ring::BulkRing::start(
@@ -870,7 +884,14 @@ impl Xtion {
     pub fn read_ir_frame(&mut self, timeout: Duration) -> Result<IrFrame> {
         let config = self.ir_config.ok_or(XtionError::StreamNotRunning)?;
         let (width, height) = config.dimensions();
-        let expected = expected_wire_size((width * height) as usize);
+        // The IR CMOS (an MT9M001 on every Xtion) transmits `height + 8`
+        // rows in every resolution except SXGA — see ir::wire_extra_rows
+        // (XnIRProcessor.cpp:244-282). Frames are validated against the
+        // WIRE size and cropped back to `height` rows when decoded.
+        let cmos = self.fixed_params.depth_cmos_type;
+        let extra = wire_extra_rows(cmos, config.resolution);
+        let expected = ir_wire_size(width, height, cmos, config.resolution);
+        let wire_rows = height as i32 + extra;
         let deadline = Instant::now() + timeout;
         let mut unusable = 0u32;
 
@@ -880,7 +901,8 @@ impl Xtion {
                     Some("corrupted".to_string())
                 } else if frame.data.len() != expected {
                     Some(format!(
-                        "{} bytes (expected {expected} for {width}x{height} packed-10)",
+                        "{} bytes (expected {expected} for {width}x{wire_rows} packed-10: \
+                         {height} visible + {extra} CMOS rows, depth cmos {cmos})",
                         frame.data.len()
                     ))
                 } else {
@@ -888,7 +910,14 @@ impl Xtion {
                 };
                 match reason {
                     None => {
-                        return decode_ir_frame(&frame.data, width, height, frame.timestamp);
+                        return decode_ir_frame(
+                            &frame.data,
+                            width,
+                            height,
+                            config.resolution,
+                            cmos,
+                            frame.timestamp,
+                        );
                     }
                     Some(reason) => {
                         unusable += 1;
