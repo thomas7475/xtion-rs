@@ -1,0 +1,30 @@
+[package]
+name = "xtion-rs"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Pure-Rust userspace driver for the ASUS Xtion / PrimeSense PS1080 depth camera"
+license = "Apache-2.0"
+repository = "https://github.com/thomas7475/xtion-rs"
+keywords = ["xtion", "primesense", "ps1080", "depth-camera", "usb"]
+categories = ["hardware-support", "multimedia::video"]
+
+[lib]
+name = "xtion"
+path = "src/lib.rs"
+
+[dependencies]
+rusb = "0.9"
+thiserror = "2"
+log = "0.4"
+
+[dev-dependencies]
+env_logger = "0.11"
+
+[[example]]
+name = "list"
+path = "examples/list.rs"
+
+[[example]]
+name = "depth_dump"
+path = "examples/depth_dump.rs"
