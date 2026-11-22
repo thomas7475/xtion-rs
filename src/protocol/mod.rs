@@ -6,8 +6,10 @@ pub mod algorithm;
 pub mod command;
 pub mod fixed_params;
 pub mod identity;
+pub mod presets;
 
 pub use command::CommandLink;
+pub use presets::CmosPreset;
 
 /// ASUS / PrimeSense USB vendor id.
 pub const USB_VID: u16 = 0x1d27;
@@ -43,6 +45,9 @@ pub enum Opcode {
     GetUsbCoreType = 40,
     SetLedState = 41,
     EnableEmitter = 42,
+    /// Supported stream modes of one CMOS. Source: XnHostProtocol.h
+    /// `EPsProtocolOpCodes` (fw >= 5.3.29; XnHostProtocol.cpp:585-589).
+    CmosPresets = 36,
 }
 
 impl Opcode {

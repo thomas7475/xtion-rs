@@ -84,8 +84,27 @@ the first on-camera run (firmware 5.3, Xtion Pro Live):
 
 Opcodes (`EPsProtocolOpCodes`): GET_VERSION=0, KEEP_ALIVE=1, GET_PARAM=2,
 SET_PARAM=3, GET_FIXED_PARAMS=4, GET_MODE=5, SET_MODE=6, GET_LOG=7,
-ALGORITHM_PARAMS=22, GET_SERIAL_NUMBER=37, GET_PLATFORM_STRING=39,
-GET_USB_CORE_TYPE=40, SET_LED_STATE=41, ENABLE_EMITTER=42.
+ALGORITHM_PARAMS=22, GET_CMOS_PRESETS=36, GET_SERIAL_NUMBER=37,
+GET_PLATFORM_STRING=39, GET_USB_CORE_TYPE=40, SET_LED_STATE=41,
+ENABLE_EMITTER=42.
+
+### CMOS presets (GET_CMOS_PRESETS, opcode 36, fw >= 5.3.29)
+
+- Request payload: ONE big-endian u16 CMOS id (`XnCMOSType`:
+  IMAGE=0, DEPTH=1 — Include/PS1080.h:245-246).
+- Reply data: an array of big-endian `{u16 format, u16 resolution,
+  u16 fps}` triples (`XnCmosPreset`, XnStreamParams.h:251-256). Unlike
+  most replies these fields arrive byte-swapped — the C applies
+  `XN_PREPARE_VAR16_IN_BUFFER` to the request payload and to every reply
+  field individually (XnHostProtocol.cpp:3253-3296).
+- Firmware quirk: one extra preset with FPS 0 is appended — the C drops
+  it; so do we.
+- Purpose: the reference validates every stream mode against this list
+  before configuring it (XnSensorImageStream::Init for the image CMOS);
+  a mode outside the list is rejected by the firmware with
+  NACK(BadParams). Verified on hardware 2026-11-22: requesting the
+  PS-compressed Yuv422 format at VGA@30 is NACKed, the driver now
+  queries the presets and fails fast with the supported list instead.
 
 ## 3. Parameters (GET_PARAM / SET_PARAM)
 
@@ -245,8 +264,15 @@ output:     0,  1,    2,  3,  4,    5,  6,  7
 
 ## 7. Color decoding
 
-- Default input: uncompressed YUV422, byte order `[U, Y1, V, Y2]`
-  (`YUV.h`: `YUV422_U=0, YUV422_Y1=1, YUV422_V=2, YUV422_Y2=3`).
+- Input: **uncompressed** YUV422 only (format id 5), byte order
+  `[U, Y1, V, Y2]` (`YUV.h`: `YUV422_U=0, YUV422_Y1=1, YUV422_V=2,
+  YUV422_Y2=3`). Format id 1 (`Yuv422`) is the PS-COMPRESSED variant
+  (`XnPSCompressedImageProcessor` -> `XnStreamUncompressYUVImagePS`, a
+  4-bit state-machine decompressor) and is rejected by `start_color` —
+  implementing that decompressor is a possible future feature.
+- The requested (resolution, fps, format) mode is validated against the
+  firmware's CMOS preset list (opcode 36, see section 2) exactly like
+  the reference; the color CMOS presets come from the device itself.
 - BT.601 integer conversion (`YUV.cpp::YUV444ToRGB888`):
 
 ```text

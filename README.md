@@ -21,7 +21,7 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Packed-11 depth decode | done, **byte-identical to the C reference** (golden vectors) |
 | Bulk-stream frame assembly | done, unit-tested incl. chunk splits |
 | Depth stream (VGA@30, packed-11 or raw 16-bit) | **hardware-validated** (87% valid pixels @ 29.97 fps) |
-| Color stream (YUV422 -> RGB888) | implemented; hardware test `color_stream_roundtrip` added in 0.2.4; on-camera validation pending |
+| Color stream (YUV422 -> RGB888) | implemented — uncompressed YUV422 (format 5) only; mode validated against the firmware's CMOS presets (opcode 36) since 0.2.5; on-camera validation pending |
 | IR stream (16-bit grayscale, image pipe) | implemented in 0.2.0; wire-size fix in 0.2.3 (MT9M001 sends `height + 8` rows — hardware-measured, see docs/PROTOCOL.md section 8); **hardware-validated 2026-11-22, all four tests green** |
 | Hardware registration, emitter on/off, OVERHEAT/PROJECTOR_FAULT events | implemented in 0.2.0 |
 | Runtime options: mirror, hole filter, AGC, close range, GMC mode, exposure, white balance, gain, quality, flicker | implemented in 0.2.0 |
@@ -107,6 +107,27 @@ are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
 
+- **0.2.5 — color BadParams root cause + CMOS presets (opcode 36)** - the
+  first color hardware run failed at `start color: Nack(BadParams)`
+  (tests/hardware.rs:192). Root cause (C reference): the image stream
+  mode must be one of the presets the FIRMWARE reports via
+  GET_CMOS_PRESETS (opcode 36, fw >= 5.3.29;
+  `XnHostProtocolGetCmosPresets` -> `XnSensorImageStream::Init`
+  validates and adapts its defaults to that list), and
+  `ImageFormat::Yuv422` (1) is the PS-COMPRESSED variant
+  (`XnPSCompressedImageProcessor` -> `XnStreamUncompressYUVImagePS`)
+  that this driver does not decode — the plain-UYVY decoder matches
+  `UncompressedYuv422` (5). Changes: opcode 36 implemented (BE u16 CMOS
+  id request, BE {format,res,fps} triples reply, fw fps-0-entry
+  workaround — XnHostProtocol.cpp:3253-3296); `image_presets()`
+  accessor; `start_color` validates the requested mode against the
+  presets and fails fast with the supported list in the message, and
+  every step names itself in the error; `ImageFormat::Yuv422` now
+  rejected up front with an explanation. The hardware test prints the
+  device's preset list and picks VGA@30 or QVGA@30 uncompressed
+  automatically. Unit tests: BE request payload, multi-entry parse +
+  fps-0 skip, malformed-size error. 88 tests green (85 lib, 2 golden,
+  1 doc), clippy 0, fmt clean.
 - **0.2.4 — color stream hardware test + color fail-fast** - the 0.2.3
   run validated IR on camera (all four hardware tests green; the
   "emitter toggle skipped" line is benign). Next image-pipe feature:

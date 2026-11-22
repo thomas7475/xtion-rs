@@ -129,6 +129,14 @@ documented API. Every check lists the expected observation.
   the color CMOS was never armed (blanking fetch missing / wrong image
   params), and 5 unusable frames fail fast with assembler + ring
   counters in the message.
+- **Color BadParams at start (0.2.4 run, solved in 0.2.5):** `start
+  color: Nack(BadParams)` — the requested mode was outside the
+  firmware's CMOS preset list (and the PS-compressed Yuv422 format was
+  requested, which this driver cannot decode). Since 0.2.5 the driver
+  queries the presets (opcode 36) first and fails fast with the full
+  supported list before writing anything; the hardware test prints the
+  list and picks a supported uncompressed-YUV422 mode automatically
+  (VGA@30 preferred, QVGA@30 fallback).
 - `emitter toggle skipped: ...`: expected on some 5.8.x builds — the
   reference driver only issues opcode 42 on fw >= 5.8.15 and even then
   some builds NACK it (BadParams). Runtime state only; the default

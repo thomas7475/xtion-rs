@@ -188,7 +188,44 @@ fn color_stream_roundtrip() {
     let _lock = lock_device();
     let mut cam = Xtion::open().expect("open");
 
-    cam.start_color(xtion::Resolution::Vga, 30, xtion::ImageFormat::Yuv422)
+    // ground truth: which color modes does THIS camera support? The
+    // firmware reports the list (opcode 36) and start_color validates
+    // against it — a mode outside it is NACKed BadParams.
+    let presets = cam.image_presets().expect("image presets");
+    println!("image presets ({}):", presets.len());
+    for preset in &presets {
+        println!("  {preset}");
+    }
+
+    // this driver decodes raw UYVY only (uncompressed YUV422, format 5);
+    // prefer VGA@30 (matches the depth stream), fall back to QVGA@30
+    let uncompressed = xtion::ImageFormat::UncompressedYuv422.as_u16();
+    let mode = presets
+        .iter()
+        .find(|p| p.format == uncompressed && p.resolution == 1 && p.fps == 30)
+        .or_else(|| {
+            presets
+                .iter()
+                .find(|p| p.format == uncompressed && p.resolution == 0 && p.fps == 30)
+        });
+    let (resolution, fps) = match mode {
+        Some(preset) => {
+            let resolution = if preset.resolution == 1 {
+                xtion::Resolution::Vga
+            } else {
+                xtion::Resolution::Qvga
+            };
+            (resolution, preset.fps)
+        }
+        None => panic!(
+            "this camera offers no uncompressed-YUV422 color mode (see presets above); \
+             the PS-compressed YUV decoder is not implemented"
+        ),
+    };
+    let (width, height) = resolution.dimensions();
+    println!("testing {resolution:?}@{fps} uncompressed YUV422");
+
+    cam.start_color(resolution, fps, xtion::ImageFormat::UncompressedYuv422)
         .expect("start color");
 
     // color and IR share firmware stream0 (the image pipe): while color
@@ -212,10 +249,10 @@ fn color_stream_roundtrip() {
             panic!("one color frame: {err}");
         }
     };
-    assert_eq!(frame.width, 640);
-    assert_eq!(frame.height, 480);
-    // RGB888 decoded from 640x480 YUV422
-    assert_eq!(frame.data.len(), 640 * 480 * 3);
+    assert_eq!(frame.width, width);
+    assert_eq!(frame.height, height);
+    // RGB888 decoded from the YUV422 wire frame
+    assert_eq!(frame.data.len(), (width * height * 3) as usize);
     // a live scene must produce non-constant color
     let min = *frame.data.iter().min().unwrap();
     let max = *frame.data.iter().max().unwrap();

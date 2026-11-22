@@ -16,6 +16,7 @@ use crate::protocol::algorithm::{read_cmos_blanking, read_depth_information};
 use crate::protocol::command::{CommandLink, ControlTransport, ProtocolVersion};
 use crate::protocol::fixed_params::{read_fixed_params, FixedParams};
 use crate::protocol::identity::{read_platform_string, read_usb_core_type, set_emitter_state};
+use crate::protocol::presets::{read_cmos_presets, CmosPreset, CMOS_TYPE_IMAGE};
 use crate::protocol::{
     DepthFormat, ImageFormat, Opcode, Param, Resolution, UsbCore, SHIFTS_PARAM_COEFFICIENT,
     SHIFTS_SHIFT_SCALE, STREAM_MODE_COLOR, STREAM_MODE_DEPTH, STREAM_MODE_IR, STREAM_MODE_OFF,
@@ -612,9 +613,15 @@ impl Xtion {
     }
 
     /// Configure and start the color stream (stream0 in firmware terms).
-    /// Only YUV422 input formats are supported in 0.1. The color camera
-    /// and the IR stream share firmware stream0, so they cannot run at
-    /// the same time (stop one before starting the other).
+    ///
+    /// Only the UNCOMPRESSED YUV422 input format is supported: format 1
+    /// (`ImageFormat::Yuv422`) is the PS-compressed variant that needs the
+    /// `XnStreamUncompressYUVImagePS` decompressor, which this driver does
+    /// not implement. The requested (resolution, fps, format) mode is
+    /// validated against the preset list the firmware reports (opcode 36)
+    /// exactly like the reference driver. The color camera and the IR
+    /// stream share firmware stream0, so they cannot run at the same time
+    /// (stop one before starting the other).
     pub fn start_color(
         &mut self,
         resolution: Resolution,
@@ -627,16 +634,70 @@ impl Xtion {
             ));
         }
         match format {
-            ImageFormat::UncompressedYuv422 | ImageFormat::Yuv422 => {}
+            ImageFormat::UncompressedYuv422 => {}
+            ImageFormat::Yuv422 => {
+                return Err(XtionError::BadConfig(format!(
+                    "input format {} (Yuv422) is the PS-compressed variant \
+                     (XnPSCompressedImageProcessor), which this driver does not decode; \
+                     use ImageFormat::UncompressedYuv422",
+                    format.as_u16()
+                )));
+            }
             _ => {
                 return Err(XtionError::BadConfig(
-                    "only YUV422 input formats are supported in 0.1".into(),
+                    "only uncompressed YUV422 input is supported".into(),
                 ))
             }
         }
-        self.set_param(Param::ImageFormat, format.as_u16())?;
-        self.set_param(Param::ImageResolution, resolution.as_u16())?;
-        self.set_param(Param::ImageFps, fps)?;
+        // C parity: the reference validates the requested image mode
+        // against the preset list the firmware reports (opcode 36,
+        // XnHostProtocolGetCmosPresets -> XnSensorImageStream::Init) and
+        // never writes a mode outside it — the firmware rejects such a
+        // write with NACK(BadParams) (observed on fw 5.8.22, 2026-11-22).
+        let presets = read_cmos_presets(
+            &mut self.link,
+            &mut self.usb,
+            CMOS_TYPE_IMAGE,
+            COMMAND_TIMEOUT,
+        )
+        .map_err(|err| XtionError::BadConfig(format!("start_color: get image presets: {err}")))?;
+        if presets.is_empty() {
+            return Err(XtionError::BadConfig(
+                "start_color: the device reports no color (image CMOS) presets".into(),
+            ));
+        }
+        let list = presets
+            .iter()
+            .map(|preset| preset.to_string())
+            .collect::<Vec<_>>()
+            .join("; ");
+        if !presets
+            .iter()
+            .any(|p| p.resolution == resolution.as_u16() && p.fps == fps)
+        {
+            return Err(XtionError::BadConfig(format!(
+                "start_color: {resolution:?}@{fps} fps is not a color mode of this camera; \
+                 supported modes: {list}"
+            )));
+        }
+        if !presets.iter().any(|p| {
+            p.resolution == resolution.as_u16() && p.fps == fps && p.format == format.as_u16()
+        }) {
+            return Err(XtionError::BadConfig(format!(
+                "start_color: input format {} is not offered at {resolution:?}@{fps} fps; \
+                 supported modes: {list}",
+                format.as_u16()
+            )));
+        }
+
+        self.set_param(Param::ImageFormat, format.as_u16())
+            .map_err(|err| XtionError::BadConfig(format!("start_color: image format: {err}")))?;
+        self.set_param(Param::ImageResolution, resolution.as_u16())
+            .map_err(|err| {
+                XtionError::BadConfig(format!("start_color: image resolution: {err}"))
+            })?;
+        self.set_param(Param::ImageFps, fps)
+            .map_err(|err| XtionError::BadConfig(format!("start_color: image fps: {err}")))?;
         // CMOS timing: the reference image stream arms the color CMOS with
         // a blanking read before the mode is written
         // (XnSensorImageStream::ConfigureStreamImpl -> SetCmosConfig).
@@ -646,8 +707,10 @@ impl Xtion {
             resolution,
             fps,
             COMMAND_TIMEOUT,
-        )?;
-        self.set_param(Param::Stream0Mode, STREAM_MODE_COLOR)?;
+        )
+        .map_err(|err| XtionError::BadConfig(format!("start_color: cmos blanking: {err}")))?;
+        self.set_param(Param::Stream0Mode, STREAM_MODE_COLOR)
+            .map_err(|err| XtionError::BadConfig(format!("start_color: stream0 mode: {err}")))?;
 
         self.color_ring = Some(crate::ring::BulkRing::start(
             self.usb.raw_context(),
@@ -736,6 +799,17 @@ impl Xtion {
     /// (diagnostics; the color stream uses the same image pipe as IR).
     pub fn color_ring_stats(&self) -> Option<crate::ring::RingStats> {
         self.color_ring.as_ref().map(|ring| ring.stats())
+    }
+
+    /// Stream modes the color (image) CMOS supports, as reported by the
+    /// firmware (opcode 36). `start_color` validates against this list.
+    pub fn image_presets(&mut self) -> Result<Vec<CmosPreset>> {
+        read_cmos_presets(
+            &mut self.link,
+            &mut self.usb,
+            CMOS_TYPE_IMAGE,
+            COMMAND_TIMEOUT,
+        )
     }
 
     /// Counters of the depth bulk ring, if streaming (diagnostics).
