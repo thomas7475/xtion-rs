@@ -274,3 +274,119 @@ fn color_stream_roundtrip() {
 
     cam.stop_color().expect("stop color");
 }
+
+/// Diagnostic for the color-start NACK (0.2.6 hardware run: with the
+/// (format 5, res 1, fps 30) mode written and ACKed, the final
+/// STREAM0_MODE=COLOR write is rejected BadParams — sometimes even the
+/// first image-format write, right after a previous failed attempt).
+///
+/// This probe REPORTS what the device accepts instead of gating on it:
+/// 1. GET_MODE + the image-pipe parameter state before any write
+/// 2. a reference-init soft reset (SET_MODE 6 = SOFT_RESET) and the
+///    state afterwards — the C does this at EVERY startup and we never
+///    did
+/// 3. the full C-parity write sequence with readback after each step
+///    (format -> resolution -> fps -> flicker -> mirror -> stream0)
+/// 4. one full start_color attempt through the driver
+#[test]
+fn color_start_probe() {
+    if !hardware_present() {
+        eprintln!("skipped: no Xtion attached");
+        return;
+    }
+    let _lock = lock_device();
+    let mut cam = Xtion::open().expect("open");
+
+    use xtion::Param;
+
+    println!("== device mode: {:?}", cam.get_mode());
+
+    // depth-CMOS presets cross-check the preset mechanism against a
+    // second CMOS (id 1)
+    match cam.cmos_presets(1) {
+        Ok(presets) => {
+            println!("depth cmos presets ({}):", presets.len());
+            for preset in &presets {
+                println!("  {preset}");
+            }
+        }
+        Err(e) => println!("depth cmos presets: {e}"),
+    }
+
+    let watched = [
+        (Param::Stream0Mode, "stream0"),
+        (Param::ImageFormat, "format"),
+        (Param::ImageResolution, "res"),
+        (Param::ImageFps, "fps"),
+        (Param::ImageAgc, "agc"),
+        (Param::ImageFlickerDetection, "flicker"),
+        (Param::ImageMirror, "mirror"),
+    ];
+    println!("== image-pipe params BEFORE any write:");
+    for (p, name) in &watched {
+        println!("   {name:<8} ({}) = {:?}", p.as_u16(), cam.get_param(*p));
+    }
+
+    println!("== soft reset (reference init does this every start) ==");
+    match cam.soft_reset() {
+        Ok(()) => println!("   device answered keep-alive again"),
+        Err(e) => println!("   soft reset/liveness failed: {e:?}"),
+    }
+    println!("mode after reset: {:?}", cam.get_mode());
+    println!("== image-pipe params AFTER reset:");
+    for (p, name) in &watched {
+        println!("   {name:<8} = {:?}", cam.get_param(*p));
+    }
+
+    println!("== C-parity write sequence with readbacks ==");
+    let steps = [
+        (Param::ImageFormat, "format=5", 5u16),
+        (Param::ImageResolution, "res=1", 1),
+        (Param::ImageFps, "fps=30", 30),
+        (Param::ImageFlickerDetection, "flicker=0", 0),
+        (Param::ImageMirror, "mirror=0", 0),
+        (Param::Stream0Mode, "stream0=1 (COLOR)", 1),
+    ];
+    for (p, name, value) in &steps {
+        match cam.set_param(*p, *value) {
+            Ok(()) => println!("   set {name}: ACK"),
+            Err(e) => println!("   set {name}: REJECTED ({e})"),
+        }
+        println!("      readback {:?} = {:?}", p, cam.get_param(*p));
+    }
+    // leave stream0 off before the driver attempt
+    match cam.set_param(Param::Stream0Mode, 0) {
+        Ok(()) => println!("   set stream0=0 (OFF): ACK"),
+        Err(e) => println!("   set stream0=0 (OFF): REJECTED ({e})"),
+    }
+
+    println!("== full driver start_color attempt ==");
+    match cam.start_color(
+        xtion::Resolution::Vga,
+        30,
+        xtion::ImageFormat::UncompressedYuv422,
+    ) {
+        Ok(()) => {
+            println!("   start_color: OK");
+            match cam.read_color_frame(Duration::from_secs(5)) {
+                Ok(frame) => {
+                    let min = *frame.data.iter().min().unwrap();
+                    let max = *frame.data.iter().max().unwrap();
+                    println!(
+                        "   frame {}x{} len {} bytes {min}..{max}",
+                        frame.width,
+                        frame.height,
+                        frame.data.len()
+                    );
+                }
+                Err(e) => println!(
+                    "   read_color_frame: {e} (ring {:?})",
+                    cam.color_ring_stats()
+                ),
+            }
+            let _ = cam.stop_color();
+        }
+        Err(e) => println!("   start_color: {e}"),
+    }
+    println!("== done; mode now: {:?}", cam.get_mode());
+}

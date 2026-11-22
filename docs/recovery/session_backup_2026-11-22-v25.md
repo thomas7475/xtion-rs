@@ -1,0 +1,379 @@
+# Chat Session Backup — ASUS Xtion Linux research
+
+**Version:** 25 (2026-11-22, turn 24): 0.2.7 color-start NACK diagnostics
+(GET_MODE/SET_MODE + color_start_probe) pushed. Previous: 24 (turn 23):
+0.2.6 preset endianness (0441b40). **Status: PRESET FIX CONFIRMED ON
+HARDWARE; COLOR START STILL NACKed — now inside start_color, probing.
+The 0.2.6 hardware run: 4 known tests green; the preset table decodes
+correctly (25 entries incl. format 5 @ res 1 @ 30 fps = uncompressed-
+UYVY VGA@30) and the test picks "Vga@30 uncompressed YUV422"; BUT
+start_color now fails at the FW WRITE layer: full-suite + one isolated
+run NACKed the FINAL STREAM0_MODE=COLOR write ("start_color: stream0
+mode: device NACK BadParams (5)") AFTER format/res/fps/blanking ACKed;
+one isolated run (immediately after a failed attempt) NACKed the FIRST
+image-format write instead — suspected redundant-write rejection (the
+params are already stored from the previous attempt). C-reference
+verified write-for-write identical this turn: XnSensorImageStream::
+ConfigureStreamImpl/OpenStreamImpl order (format→res→fps→flicker→
+mirror→blanking→stream0→crop→AE/AWB), plain values (no conversion
+callbacks in MapFirmwareProperty), no version gates on params 12/13/14/5
+(AddFirmwareParam defaults), SetAlwaysSet(TRUE) = always written,
+ValidateMode = host-side preset check only, CheckClaimStream host-side,
+no image-CMOS I2C init in the open path (I2C only via the property API).
+So the difference is DEVICE STATE. THE BIG C DIVERGENCE FOUND: the
+reference SOFT-RESETS the firmware at EVERY init (XnSensorFirmware::Init,
+bResetOnStartup=TRUE default: GetMode → KeepAlive →
+XnHostProtocolReset(SOFT_FIRST) → SET_MODE(SOFT_RESET) with the reply
+discarded ("there is nobody to ACK", XnHostProtocol.cpp:1849) → 800 ms
+(nUSBDelaySoftReset) → KeepAlive x10 → GetMode + SAFE_MODE check) —
+xtion-rs never did (SET_MODE=6 was on the turn-16 exclusion list).
+Firmware RE notes: CPU is ARM926 THUMB (not Nios); image == file (no
+counter overhead; 'MG'/'BR' magic pair confirmed at image 0xc14/0xc16);
+opcode dispatcher ≈ image 0x216d2+ (cmp-immediate chain, opcodes 21/22/
+26/27/28/29...); the 25-entry preset table is NOT stored statically —
+the firmware builds the reply at runtime. Modes enum:
+XN_HOST_PROTOCOL_MODE WEBCAM=0/PS=1/MAINTENANCE=2/SOFT_RESET=3/REBOOT=4/
+SUSPEND=5/RESUME=6/INIT=7/SYSTEM_RESTORE=8 (XnHostProtocol.h:169-177) —
+GET_MODE/SET_MODE valid fw >= 3.0. 0.2.7 ships: HostMode enum,
+get_mode(), soft_reset() (fire-and-forget SET_MODE + 800 ms + 10x
+keep-alive liveness), cmos_presets(cmos) accessor, and the
+**color_start_probe** hardware test that REPORTS (mode + image-pipe
+params before/after soft reset, full C-parity write sequence WITH
+readbacks incl. flicker=0/mirror=0, raw stream0=1 attempt, then one
+driver start_color + frame read). 88 checks green (85 lib, 2 golden,
+1 doc), clippy 0 (-D warnings), fmt clean, hardware target compiles.
+NEXT RUN: `cargo test --test hardware -- color_start_probe --nocapture`
+— paste the WHOLE output; it answers: current device mode (WEBCAM(0)?),
+param power-on state, whether the soft reset changes what the firmware
+accepts, which write NACKs with readbacks, and whether start_color then
+succeeds. If the probe shows color starting after the soft reset, the
+fix is to port the C init (soft reset in open() before fixed params).**
+
+> Purpose: upload this file in a new chat to restore full context. It records
+> the standing rules, the task, everything that was found and decided, every
+> file that was produced, and the state of the current workspace.
+
+## 1. Standing user rules (apply to EVERY future turn)
+
+1. **Communicate in English only** (all replies, all document content).
+2. **Zip backup of generated files to `download/`** every turn.
+3. **Do NOT run full cargo builds of the complete project — the sandbox does
+   not have enough RAM.** Use targeted invocations: `cargo test --lib -j 2`,
+   `cargo test --test golden -j 2`, `cargo clippy --lib -j 2`; never
+   `cargo build`/`cargo test` over all targets, no release builds.
+4. **Produce a downloadable session backup** (this file, refreshed with a new
+   version/date each turn) so the chat can be continued/resumed later.
+
+## 2. Task history (condensed)
+
+- **Sessions 1-2, turns 1-5 (2026-11-19..21):** research report on the Xtion
+  (1d27:0601) on CachyOS; NOT UVC — only the OpenNI2 PS1080 stack works;
+  test + setup scripts; AUR openni2 PKGBUILD audited **clean**; delivered
+  `openni2-nojava` package.
+- **Turn 6:** Rust-stack options report; Option A verified end-to-end.
+- **Turn 7:** Option D chosen — pure-Rust driver, 44 tests, pushed (deeb688).
+- **Turn 8:** first on-hardware run: handshake fails — replies SPLIT across
+  control-IN transfers; ported Execute/ReceiveReply semantics. 0.1.1.
+- **Turn 9:** control path works (fw 5.8.22, PS1080-A6, serial 1408090603,
+  ZPD 120 mm, ZPPS 0.1052 mm); whole-frame-buffer EOVERFLOW → 40xmaxpacket
+  chunks; parallel-test Busy → mutex. 0.1.2.
+- **Turn 10:** fragments (736..45424 px) → ported the C's async 16-URB ring.
+  0.1.3.
+- **Turn 11:** frames exactly 24560/307200 px → buf_size BIG-ENDIAN quirk +
+  zero-payload dispatch bug. 0.1.4.
+- **Turn 12:** full frames, 0 valid pixels → shift LUT max_shift 2047 +
+  corrupt-frame drop. 0.1.5.
+- **Turn 13:** SIXTH RUN GREEN — depth validated (87.4% valid, 12.17 MiB/s,
+  29.97 fps). Driver overview PDF delivered.
+- **Turn 15:** firmware decompiled (Ghidra, 165 functions); ASUS fw 5.8.22
+  mirrored to xtion-rs/firmware/. Firmware analysis PDF.
+- **Turn 16:** 0.2.0 — identity opcodes, IR stream (STREAM0 mode 3,
+  packed-10), DeviceEvent capture, +20 methods; hardware.rs gained
+  phase1 + ir tests. PERMANENT EXCLUSIONS: flash FS 13-25, I2C/AHB writes,
+  calibrations 29/31/33, TAKE_SNAPSHOT 12, SET_MODE 6.
+- **Turn 17:** beyond-OpenNI analysis + VALIDATION.md test plan (4 automated
+  hw tests, 10 manual checks); next spec = cropping (params 46-60).
+- **Turn 18:** 0.2.1 — usb-core Nack → Jango fallback; IR ControlTimeout →
+  MISSING CMOS blanking fetch (ALGORITHM_PARAMS type 0x06) →
+  read_cmos_blanking added to all stream starts.
+- **Turn 19:** 0.2.2 — blanking fix CONFIRMED (image endpoint 11.6 MB/s);
+  IR frames silently dropped → AssemblerStats + read_ir_frame fail-fast
+  after 5 unusable frames; emitter gated to fw >= 5.8.15 (NACK tolerated).
+- **Turn 20:** 0.2.3 — IR ROOT CAUSE: the MT9M001 IR CMOS transmits
+  height + 8 rows (390,400 = 488 x 800 at VGA; XnIRProcessor.cpp:244-282);
+  wire_extra_rows + ir_wire_size + first-height-rows crop; ir_dump example.
+  Depth/color have NO extra rows (XnImageProcessor::CalculateExpectedSize).
+- **Turn 21:** 0.2.4 — user CONFIRMS all four hardware tests pass (IR
+  hardware-validated). Color step: read_color_frame fail-fast (expected =
+  w*h*2 YUV422, 5-unusable-frames limit, timeout ring counters),
+  color_ring_stats(), color_stream_roundtrip test. 85 tests green. 2ccd1d1.
+- **Turn 23 (this turn):** 0.2.6 — PRESET-TABLE ENDIANNESS FIX. The
+  user's 0.2.5 run: 4 tests green; color test aborted at hardware.rs:220
+  with "no uncompressed-YUV422 color mode"; the printed presets were all
+  shifted by 256 (format 256/1280/1792/1536/2304, res 0/256/512/3584/
+  3840, fps 3840/7680/15360). Diagnosis: wire bytes per 6-byte entry are
+  [fmt 00] [res 00] [fps 00] — three LITTLE-endian u16s; the 0.2.5 BE
+  parse shifted everything x256. C-reference proof: XnHostProtocol-
+  GetCmosPresets wraps request + each reply field in XN_PREPARE_VAR16_IN_
+  BUFFER, which is `#define XN_PREPARE_VAR16_IN_BUFFER(var) (var)` —
+  IDENTITY (XnOSLinux-x86.h; XnOSWin32.h same) — Nios II is LE like the
+  whole packet protocol. After LE decode the table is: QVGA(0)/VGA(1) in
+  formats 1/5/7 at 15/30/60 fps; SXGA(2)/720p(14)/1280x960(15)
+  Bayer-only (0/6) at 30 fps; one (9,1,30) unexposed-format entry;
+  (5,1,30) uncompressed-YUV422 VGA@30 EXISTS. FIX: presets.rs parse
+  from_le_bytes, payload to_le_bytes, docs + unit tests rewritten
+  (LE wire [05 00 01 00 1e 00]; DEPTH id 1 payload [01 00] pins byte
+  order), hardware test endianness guard (all fields <= 60/15/15).
+  Verified against C: XnIOImageFormats (PS1080.h:253-261),
+  XnResolutions (XnStreamParams.h:183-202), PARAM_IMAGE_FORMAT=12/
+  RESOLUTION=13/FPS=14 (XnParams.h:41-43), SetCmosConfig = blanking
+  fetch only (XnCmosInfo.cpp), uncompressed processor = UYVY
+  (YUV.h:32-35) + BT.601 limited-range (YUV.cpp YUV444ToRGB888) —
+  color.rs is an exact port. Docs: VALIDATION.md triage entry, README
+  status + 0.2.6 changelog, Cargo.toml 0.2.6. 88 tests green, clippy 0,
+  fmt clean, hardware target compiles. PUSHED (0.2.6).
+- **Turn 24 (this turn):** 0.2.7 — COLOR-START NACK DIAGNOSTICS. The
+  0.2.6 hardware run: 4 tests green; presets decode correctly (25
+  entries; (5,1,30) present; endianness guard passed); start_color
+  NACKs at the WRITE layer: stream0-mode=COLOR rejected after
+  format/res/fps/blanking ACKed (runs 1+3), image-format rejected
+  first when run immediately after a failed attempt (run 2 — suspected
+  redundant-write rejection). This turn verified the C open path
+  write-for-write identical (see header) and identified the init-time
+  SOFT RESET as the one C behavior we never ported. Shipped 0.2.7:
+  protocol/mod.rs HostMode enum (modes 0-8) + re-export;
+  device.rs get_mode() (GET_MODE, opcode 5), soft_reset()
+  (SET_MODE fire-and-forget + 800 ms + 10x keep-alive),
+  cmos_presets(cmos) accessor (image_presets delegates);
+  tests/hardware.rs color_start_probe (REPORTS: mode, depth-preset
+  cross-check, image-pipe params before/after soft reset, C-parity
+  writes format=5/res=1/fps=30/flicker=0/mirror=0/stream0=1 with
+  readbacks, stream0=0 restore, driver start_color + frame read).
+  Scripts: scripts/fw_disasm.py + fw_scan_cmp.py (capstone Thumb RE of
+  source.out.bin.fla — image==file, magic pair at 0xc14, dispatcher
+  ≈0x216d2, preset table not static). Firmware-mode enum + reset flow
+  documented. Docs: README changelog 0.2.7, VALIDATION.md triage
+  ("Stream0Mode=COLOR NACK with valid params"), Cargo.toml 0.2.7.
+  88 checks green (85 lib, 2 golden, 1 doc), clippy 0, fmt clean.
+  PUSHED (0.2.7 + docs).
+- **Turn 22 (previous turn):** 0.2.5 — COLOR NACK ROOT CAUSE. The user's
+  0.2.4 run: 4 tests green, color failed `start color: Nack(BadParams)`
+  at the .expect on start_color. Investigation (OpenNI 2.2.0 re-verified):
+  - Wire ids CORRECT: PARAM_IMAGE_FORMAT=12/RESOLUTION=13/FPS=14
+    (XnParams.h:41-43), STREAM0_MODE=5, STREAM1_MODE=6;
+    XN_VIDEO_STREAM_COLOR=1 (XnStreamParams.h:227) matches our
+    STREAM_MODE_COLOR; XN_RESOLUTION_VGA=1 matches our Resolution::Vga.
+  - XnHostProtocolAlgorithmParams BLANKING=0x06 confirmed
+    (XnHostProtocol.h:162) — blanking call identical to depth/IR.
+  - **GET_CMOS_PRESETS (opcode 36, fw >= 5.3.29):** the firmware itself
+    reports the supported (format,res,fps) presets per CMOS;
+    XnSensorImageStream::Init (lines 125-175) validates the default mode
+    against this list and substitutes aSupportedModes[0]/nValidInputFormat
+    when needed; the C image DEFAULT is QVGA@30 (XnSensorImageStream.h:34)
+    and non-Windows default format = YUV422 (1).
+  - **Format 1 = PS-compressed** (XnPSCompressedImageProcessor →
+    XnStreamUncompressYUVImagePS, Uncomp.cpp); format 5 =
+    UNCOMPRESSED_YUV422 → plain UYVY→RGB (XnUncompressedYUV422toRGB...
+    Processor) — matches our color.rs. Both 2 bpp on the wire (post-decomp).
+  - bImageAdjustmentsSupported = fw >= 5.8.9 (XnHostProtocol.cpp:655-658):
+    the C ALSO writes auto-exposure + auto-white-balance firmware params at
+    every image open (OpenStreamImpl), after the stream0-mode write, plus
+    crop-mode=0 — NOT yet ported (post-mode, cannot explain the NACK).
+  - Image presets request: 2-byte BE CMOS id; reply: BE triples
+    {format,res,fps}, drop fps==0 entries (fw bug) — XnHostProtocol.cpp
+    3253-3296. OPCODE_GET_CMOS_PRESETS = 36 (XnHostProtocol.h:85).
+    CMOS types: IMAGE=0, DEPTH=1 (PS1080.h:245-246).
+  FIX (3d9dc93, 0.2.5): new src/protocol/presets.rs (CmosPreset,
+  CMOS_TYPE_IMAGE/DEPTH, read_cmos_presets + 3 unit tests incl. full-packet
+  fake-transport wire check); Opcode::CmosPresets = 36; lib.rs re-exports
+  CmosPreset; device.rs: start_color rejects Yuv422 up front, queries the
+  image presets, validates (res,fps) and (res,fps,format) with the
+  supported list in the error, per-step error context on all four writes +
+  blanking; image_presets() accessor. tests/hardware.rs color test: prints
+  the preset list, auto-picks (VGA@30 → QVGA@30) uncompressed YUV422,
+  sizes/dims from the chosen mode. Docs: PROTOCOL.md opcode list + new
+  "CMOS presets" subsection + section 7 rewrite; VALIDATION.md triage;
+  README status + changelog; Cargo.toml 0.2.5. 88 tests green (85 lib,
+  2 golden, 1 doc), clippy 0 (-D warnings), fmt clean, hardware target
+  compiles. PUSHED 3d9dc93 (+ docs commit with this backup).
+
+## 3. Hardware test inventory (SIX tests, tests/hardware.rs)
+
+1. `open_handshake_and_identity` — green.
+2. `depth_stream_roundtrip` — green (266,975 valid px, min 529 mm).
+3. `phase1_identity_and_options` — green ("emitter toggle skipped" benign).
+4. `ir_stream_roundtrip` — green (value range 13..1022).
+5. `color_stream_roundtrip` — 0.2.4 run Nack(BadParams); 0.2.5 run
+   aborted with "no uncompressed-YUV422 color mode" because the preset
+   parser was BE (fixed 0.2.6): prints presets + endianness guard,
+   auto-picks (5,1,30) uncompressed VGA@30 (QVGA@30 fallback), then
+   checks IR mutual exclusion, reads a frame, asserts 640x480x3 RGB +
+   non-constant, drains events, stops.
+
+Run all: `cargo test --test hardware -- --nocapture`
+Run one: `cargo test --test hardware -- color_stream_roundtrip --nocapture`
+Diagnostic: `cargo test --test hardware -- color_start_probe --nocapture`
+6. `color_start_probe` — NEW in 0.2.7, always REPORTS (no stream
+   pass/fail gate): GET_MODE, depth-CMOS presets cross-check,
+   image-pipe params before/after soft reset, C-parity write sequence
+   with readbacks, driver start_color attempt.
+
+## 4. Deliverables (all under /home/z/my-project/download/)
+
+| File | What it is |
+|---|---|
+| `session_backup_2026-11-22-v25.md` | This file (v25, CURRENT). |
+| `asus_xtion_workspace_backup_2026-11-22_v25.zip` | Turn-24 zip (repo with .git at 0.2.7 + this backup). |
+| `xtion_rs_driver_overview.pdf` | Turn-13 driver overview (13 pages). |
+| `xtion_rs_next_steps_and_validation.pdf` | Turn-17 validation plan (9 pages). |
+| `xtion_rs_firmware_analysis.pdf` | Turn-15 firmware analysis (11 pages). |
+| `asus_xtion_rust_stack_options.pdf` | Turn-6 options report. |
+
+The driver lives in the git repo `/home/z/my-project/xtion-rs` (remote
+origin = https://github.com/thomas7475/xtion-rs.git, branch main,
+**HEAD = 0.2.7 "color-start NACK diagnostics"**; history: 0441b40
+(0.2.6) → 0.2.7 commit; a docs commit with this backup follows).
+
+## 5. Workspace state (2026-11-22, after turn 24)
+
+- `/home/z/my-project/xtion-rs/` — full clone WITH .git at 0.2.7
+  (+ docs commit), 88 checks green (85 lib, 2 golden, 1 doc), clippy 0,
+  fmt clean, hardware target compiles. This turn changed:
+  src/protocol/mod.rs (HostMode enum), src/device.rs (get_mode,
+  soft_reset, cmos_presets), src/lib.rs (re-export),
+  tests/hardware.rs (color_start_probe), Cargo.toml (0.2.7), README.md,
+  docs/VALIDATION.md. Scripts: scripts/fw_disasm.py,
+  scripts/fw_scan_cmp.py (capstone Thumb analysis of the firmware).
+- Decompiled-firmware artifacts (uploaded by the user as
+  asus_xtion_workspace_backup_2026-11-21_v17.zip) live at
+  /home/z/my-project/upload/; extracted to /tmp/xtion-ref/ (recycled on
+  session restart): firmware/firmware/5.8.22/*.fla = Ghidra-extracted
+  blobs (ImageCmos.xml.bin.fla = CMOS config TLVs, source.out.bin.fla =
+  Nios binary), openni/ = OpenNI 2.2.0 tree. XN_PREPARE_VAR16_IN_BUFFER
+  identity proof: ThirdParty/PSCommon/XnLib/Include/Linux-x86/
+  XnOSLinux-x86.h.
+- Rust toolchain: `.cargo/` + `.rustup/` in my-project root (stable,
+  minimal profile + clippy + rustfmt). Use
+  `export RUSTUP_HOME=/home/z/my-project/.rustup
+  CARGO_HOME=/home/z/my-project/.cargo
+  PATH=/home/z/my-project/.cargo/bin:$PATH`.
+- OpenNI 2.2.0 reference source: tarball verified at
+  `firmware_dl/openni_ref/v2.2.0-debian.tar.gz`; extract after recycle:
+  `mkdir -p /tmp/xtion-verify && tar -xzf firmware_dl/openni_ref/
+  v2.2.0-debian.tar.gz -C /tmp/xtion-verify --strip-components=1`
+  (key files: Source/Drivers/PS1080/Sensor/*, Include/PS1080.h,
+  Source/Drivers/PS1080/Include/XnStreamParams.h).
+- GitHub token: `/home/z/my-project/.gh-token` (chmod 600, gitignored,
+  never printed/committed). Push via
+  `umask 077 && printf 'https://thomas7475:%s@github.com\n'
+  "$(cat /home/z/my-project/.gh-token)" > /tmp/gh-creds` then
+  `git -c credential.helper='store --file=/tmp/gh-creds' push origin main`.
+- The user clones to `/home/t/Projekte/Photogrammetrie/cameras/xtion-rs`.
+
+## 6. Gotchas learned (cumulative, new first)
+
+- **The C soft-resets the firmware at EVERY init** (bResetOnStartup=
+  TRUE default): GetMode → KeepAlive → SET_MODE(SOFT_RESET) with the
+  reply DISCARDED ("there is nobody to ACK", XnHostProtocol.cpp:1849) →
+  800 ms → KeepAlive x10 → GetMode + SAFE_MODE refusal. xtion-rs never
+  did this (SET_MODE=6 was wrongly excluded in turn 16). Modes:
+  WEBCAM=0/PS=1/MAINTENANCE=2/SOFT_RESET=3/REBOOT=4/... (XnHostProtocol.h:
+  169-177); GET/SET_MODE valid fw >= 3.0.
+- **The 0.2.6 color NACK moved INSIDE start_color**: STREAM0_MODE=COLOR
+  rejected BadParams with the (5,1,30) params ACKed; immediately after a
+  failed attempt even PARAM_IMAGE_FORMAT re-writing is rejected
+  (redundant-write rejection suspected). The C open path is
+  write-for-write identical — no version gates, no conversion
+  callbacks, SetAlwaysSet(TRUE); CheckClaimStream/ValidateMode are
+  host-side; no image-CMOS I2C init in the open path.
+- **Firmware binary facts**: the CPU is ARM926 THUMB (NOT Nios II);
+  source.out.bin.fla maps 1:1 at base 0 (Packer header is metadata);
+  'MG'/'BR' protocol magic at image 0xc14/0xc16; opcode dispatcher ≈
+  image 0x216d2+ (cmp-immediate chain); the 25-entry CMOS preset table
+  is NOT stored statically — the firmware builds the reply at runtime.
+  Capstone (pip install capstone) + scripts/fw_disasm.py reproduce this.
+- **The firmware NACKs BadParams any stream mode outside its CMOS preset
+  list** — query opcode 36 first and validate (the C does this at Init;
+  start_color does it). The list comes from the DEVICE.
+- **ImageFormat::Yuv422 (1) is PS-COMPRESSED** (XnPSCompressedImage-
+  Processor); uncompressed is format 5. The image stream default
+  resolution is QVGA, not VGA (XnSensorImageStream.h:34).
+- **GET_CMOS_PRESETS wire format (CORRECTED in turn 23):** request =
+  ONE LITTLE-endian u16 CMOS id (IMAGE=0, DEPTH=1); reply = plain LE
+  {format,res,fps} u16 triples — XN_PREPARE_VAR16_IN_BUFFER is the
+  IDENTITY on x86/Windows (XnOSLinux-x86.h), an earlier backup wrongly
+  claimed byte-swapping; plus a bogus fps-0 entry to drop. An 0.2.5-era
+  BE parse shifts every field by 256 (format 256 = real 1, fps 7680 =
+  real 30) — the hardware test's <= 60/15/15 endianness guard catches
+  this. ALGORITHM_PARAMS replies are plain LE blobs like everywhere
+  else in this little-endian (Nios II) protocol.
+- **bImageAdjustmentsSupported (fw >= 5.8.9):** the C writes auto-exposure
+  (PARAM 80) + auto-white-balance (PARAM 77) firmware params at EVERY
+  image stream open (OpenStreamImpl, AFTER the stream0-mode write), plus
+  crop-mode 50 = disabled — not yet ported; do it if color misbehaves.
+- The IR CMOS (MT9M001) transmits `height + 8` wire rows in every
+  resolution except SXGA (AR130: -64 at SXGA; color and depth pipes have
+  NO extra rows). VGA IR wire frame = 390,400 B = 488 x 800; crop keeps
+  the FIRST height rows (XnIRProcessor.cpp:281-282).
+- Color wire size is exactly width x height x 2 (YUV422), no extra rows;
+  since 0.2.4 read_color_frame fail-fasts on any deviation (VGA
+  expected 614,400 B).
+- rustup minimal profile lacks clippy/rustfmt — `rustup component add
+  clippy rustfmt` after a fresh toolchain install.
+- XN_SHIFTS_MAX_SHIFT = 2047 — the shift LUT covers the full packed-11
+  range; 2047 = no-depth marker, 0 = invalid.
+- A frame whose assembled size != expected must be dropped (partial
+  first frame after stream start), per the C's OnEndOfFrame check.
+- buf_size in the 12-byte stream packet header is BIG-ENDIAN (the only
+  BE field there; the C swaps it alone).
+- Zero-payload packets must be dispatched immediately when their header
+  completes at a chunk boundary.
+- PS1080 stream needs HIGH speed USB, ~12.7 MB/s payload (depth
+  packed-11) / ~11.7 MB/s (IR packed-10); device clock ~60 MHz.
+- Sync bulk reads are not enough: always keep the async 16-URB ring.
+- rusb 0.9 has no async API; use libusb1-sys with raw pointers; keep the
+  Context alive in a struct field.
+- Bulk-IN read lengths must be a multiple of wMaxPacketSize (EOVERFLOW).
+- Device replies can be SPLIT across multiple control-IN transfers;
+  XnVersions wire quirks (minor/major first, 12-byte base authoritative);
+  v2.6 replies have NO CRC; new request id per exchange (starting at 0);
+  NOT_READY retries keep the id; the 12-byte bulk packet header INCLUDES
+  the fw magic; EOF closes the frame on its last byte; packed-11 on the
+  wire; ignore one chunk of garbage per endpoint on fw < 5.0.
+- Xtion Pro Live: fw 5.8.22, chip 0x00212020 (PS1080-A6), FPGA 0x0005
+  (RD1082), serial 1408090603; VGA@30 needs high-speed USB.
+- GET_USB_CORE_TYPE (opcode 40) NACKed by some 5.x builds → assume Jango
+  (XnDeviceSensorInit.cpp:233); the driver does the same.
+- The CMOS blanking fetch (ALGORITHM_PARAMS 0x06) is REQUIRED before any
+  stream produces packets (0.2.1 fix, verified).
+- Opcode 42 (emitter) gated to fw >= 5.8.15, still NACKs BadParams on
+  some builds — BadConfig, hardware test skips; power-cycle restores on.
+- The CommandLink fake-transport unit tests need FULL reply packets
+  (V26 header: magic LE, size words LE counting error word + data words,
+  opcode LE, id LE, then error word, then data) — the first exchange's
+  request id is always 0.
+
+## 7. Open threads (if the user continues)
+
+- **Run the probe (immediate next action):** user pulls 0.2.7 and runs
+  `cargo test --test hardware -- color_start_probe --nocapture`; paste
+  the WHOLE output. It answers: current mode (WEBCAM?), param state,
+  whether the soft reset changes acceptance, which write NACKs with
+  readbacks, whether start_color succeeds. Decision tree: (a) color OK
+  after soft reset → port the C init (soft reset in open() before fixed
+  params) as 0.2.8 and re-run the full suite; (b) still NACKed after
+  reset → try starting at the firmware's own current mode (the probe's
+  readbacks show it) and/or grab a usbmon capture of a real OpenNI color
+  session for a byte-level differential; (c) mode reports something
+  unexpected (WEBCAM/SAFE/MAINTENANCE) → SET_MODE(PS) first.
+- After color passes: M8 cropping (params 46-55 image/depth + 56-60 IR,
+  SizeX → SizeY → OffsetX → OffsetY → Mode last) per the turn-17 spec;
+  optionally port the OpenStreamImpl extras (crop-mode 50=0 write,
+  auto-exposure 80 / auto-white-balance 77 writes) for full C parity.
+- Visual checks if not yet done: `cargo run --example ir_dump -- 10`
+  (ir_frame.pgm) and `cargo run --example depth_dump -- 10`.
+- Pushing again: `cd /home/z/my-project/xtion-rs && git -c
+  credential.helper='store --file=/tmp/gh-creds' push origin main`
+  (recreate /tmp/gh-creds from /home/z/my-project/.gh-token if /tmp was
+  recycled; never print or commit the token).
+- Golden vectors: `cargo test --test golden`.

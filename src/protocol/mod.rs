@@ -56,6 +56,50 @@ impl Opcode {
     }
 }
 
+/// Firmware operating modes read with GET_MODE (opcode 5) and written
+/// with SET_MODE (opcode 6). Source: Sensor/XnHostProtocol.h
+/// `XnHostProtocolMode` (0-8). The reference driver reads the mode at
+/// every init (XnSensorFirmware.cpp:44-46), refuses SAFE_MODE, and soft-
+/// resets the device "to start clean" (bResetOnStartup defaults to TRUE,
+/// XnSensor.cpp:68); SET_MODE is its transport
+/// (XnHostProtocol.cpp:1832-1852, mode 3 = SOFT_RESET).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u16)]
+pub enum HostMode {
+    /// UVC-style webcam mode (the Pro Live's color/mic hardware).
+    Webcam = 0,
+    /// Normal PrimeSense operation (what the reference expects).
+    Ps = 1,
+    Maintenance = 2,
+    /// Boot into a fresh application state (the C's init reset).
+    SoftReset = 3,
+    Reboot = 4,
+    Suspend = 5,
+    Resume = 6,
+    Init = 7,
+    SystemRestore = 8,
+}
+
+impl HostMode {
+    pub fn as_u16(self) -> u16 {
+        self as u16
+    }
+
+    pub fn from_u16(value: u16) -> HostMode {
+        match value {
+            0 => HostMode::Webcam,
+            2 => HostMode::Maintenance,
+            3 => HostMode::SoftReset,
+            4 => HostMode::Reboot,
+            5 => HostMode::Suspend,
+            6 => HostMode::Resume,
+            7 => HostMode::Init,
+            8 => HostMode::SystemRestore,
+            _ => HostMode::Ps,
+        }
+    }
+}
+
 /// Firmware parameters addressable through GET_PARAM / SET_PARAM.
 /// Source: Sensor/XnParams.h `EPsProtocolParams`.
 ///

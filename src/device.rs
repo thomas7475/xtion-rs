@@ -18,8 +18,9 @@ use crate::protocol::fixed_params::{read_fixed_params, FixedParams};
 use crate::protocol::identity::{read_platform_string, read_usb_core_type, set_emitter_state};
 use crate::protocol::presets::{read_cmos_presets, CmosPreset, CMOS_TYPE_IMAGE};
 use crate::protocol::{
-    DepthFormat, ImageFormat, Opcode, Param, Resolution, UsbCore, SHIFTS_PARAM_COEFFICIENT,
-    SHIFTS_SHIFT_SCALE, STREAM_MODE_COLOR, STREAM_MODE_DEPTH, STREAM_MODE_IR, STREAM_MODE_OFF,
+    DepthFormat, HostMode, ImageFormat, Opcode, Param, Resolution, UsbCore,
+    SHIFTS_PARAM_COEFFICIENT, SHIFTS_SHIFT_SCALE, STREAM_MODE_COLOR, STREAM_MODE_DEPTH,
+    STREAM_MODE_IR, STREAM_MODE_OFF,
 };
 use crate::stream::{DeviceEvent, StreamAssembler};
 use crate::usb::UsbDevice;
@@ -565,6 +566,53 @@ impl Xtion {
         set_param_via(&mut self.link, &mut self.usb, param, value, COMMAND_TIMEOUT)
     }
 
+    /// Read the firmware operating mode (GET_MODE, opcode 5).
+    pub fn get_mode(&mut self) -> Result<HostMode> {
+        let data = self
+            .link
+            .exchange(&mut self.usb, Opcode::GetMode, &[], COMMAND_TIMEOUT)?;
+        if data.len() < 2 {
+            return Err(XtionError::BadConfig("mode reply too short".into()));
+        }
+        Ok(HostMode::from_u16(u16::from_le_bytes([data[0], data[1]])))
+    }
+
+    /// Soft-reset the firmware (SET_MODE, opcode 6, mode 3) and wait for
+    /// it to come back. Port of the reference init path
+    /// (XnSensorFirmware::Init with bResetOnStartup=TRUE):
+    /// XnHostProtocolReset -> SetMode(SOFT_RESET) whose reply is discarded
+    /// ("the firmware is changing, there is nobody to ACK" —
+    /// XnHostProtocol.cpp:1849), 800 ms boot delay (nUSBDelaySoftReset,
+    /// XnHostProtocol.cpp:258), then keep-alive until the device answers
+    /// again (up to 10 tries in the C).
+    pub fn soft_reset(&mut self) -> Result<()> {
+        let payload = HostMode::SoftReset.as_u16().to_le_bytes();
+        // The reply may never arrive while the firmware restarts; either
+        // way the reset is fire-and-forget and a late ACK is discarded by
+        // the next exchange (stale-id replies are skipped).
+        let _ = self.link.exchange(
+            &mut self.usb,
+            Opcode::SetMode,
+            &payload,
+            Duration::from_millis(300),
+        );
+        std::thread::sleep(Duration::from_millis(800));
+        // re-establish liveness: keep-alive with retries, like the C's
+        // 10-attempt loop
+        for _ in 0..10 {
+            match self.link.exchange(
+                &mut self.usb,
+                Opcode::KeepAlive,
+                &[],
+                Duration::from_millis(500),
+            ) {
+                Ok(_) => return Ok(()),
+                Err(_) => std::thread::sleep(Duration::from_millis(50)),
+            }
+        }
+        Err(XtionError::ControlTimeout)
+    }
+
     /// Configure and start the depth stream (stream1 in firmware terms).
     ///
     /// Parameter order mirrors the reference driver's property pipeline:
@@ -804,12 +852,13 @@ impl Xtion {
     /// Stream modes the color (image) CMOS supports, as reported by the
     /// firmware (opcode 36). `start_color` validates against this list.
     pub fn image_presets(&mut self) -> Result<Vec<CmosPreset>> {
-        read_cmos_presets(
-            &mut self.link,
-            &mut self.usb,
-            CMOS_TYPE_IMAGE,
-            COMMAND_TIMEOUT,
-        )
+        self.cmos_presets(CMOS_TYPE_IMAGE)
+    }
+
+    /// Read the stream modes one CMOS supports (0 = image, 1 = depth;
+    /// `CMOS_TYPE_*` in `protocol::presets`).
+    pub fn cmos_presets(&mut self, cmos: u16) -> Result<Vec<CmosPreset>> {
+        read_cmos_presets(&mut self.link, &mut self.usb, cmos, COMMAND_TIMEOUT)
     }
 
     /// Counters of the depth bulk ring, if streaming (diagnostics).

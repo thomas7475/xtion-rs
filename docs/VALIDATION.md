@@ -137,6 +137,19 @@ documented API. Every check lists the expected observation.
   supported list before writing anything; the hardware test prints the
   list and picks a supported uncompressed-YUV422 mode automatically
   (VGA@30 preferred, QVGA@30 fallback).
+- **Stream0Mode=COLOR NACK with valid params (0.2.6 run, probing in
+  0.2.7):** the preset table decodes correctly now and (5,1,30) is
+  picked, but the firmware rejects `STREAM0_MODE=1` (COLOR) —
+  sometimes, right after a failed attempt, even the first
+  PARAM_IMAGE_FORMAT write (suspected redundant-write rejection: the
+  values are already stored from the previous attempt). The C open path
+  is write-for-write identical, so the difference is device state; the
+  one C behavior we never ported is the INIT-TIME SOFT RESET
+  (XnSensorFirmware::Init, bResetOnStartup=TRUE: GetMode, KeepAlive,
+  SET_MODE(SOFT_RESET), 800 ms, KeepAlive x10). Run the
+  `color_start_probe` hardware test — it dumps GET_MODE + image-pipe
+  params before/after a soft reset and walks the write sequence with
+  readbacks; paste its output.
 - **Preset table byte-swapped (0.2.5 run, solved in 0.2.6):** the
   0.2.5 hardware run printed `format 256 @ res 0 @ 7680 fps`-style
   presets and aborted with "no uncompressed-YUV422 color mode" — every

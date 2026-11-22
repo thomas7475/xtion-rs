@@ -107,6 +107,28 @@ are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
 
+- **0.2.7 — color-start NACK diagnostics (GET_MODE/SET_MODE + probe)** -
+  the 0.2.6 run validated the preset fix (the camera reports
+  `format 5 @ res 1 @ 30 fps` = uncompressed-YUV422 VGA@30 and the test
+  picks it), but the NACK moved inside start_color: with the image
+  params written and ACKed, the final `STREAM0_MODE=COLOR` write is
+  rejected BadParams (occasionally, right after a failed attempt, even
+  the first image-format write). The C-reference open path was verified
+  write-for-write identical (plain values, PARAM ids 12/13/14/5, no
+  version gates, SetAlwaysSet(TRUE), no conversion callbacks,
+  CheckClaimStream is host-side only) — so the gap must be DEVICE STATE.
+  The biggest divergence found: the reference soft-resets the firmware
+  at EVERY init (XnSensorFirmware::Init with bResetOnStartup=TRUE:
+  GetMode, KeepAlive, SetMode(SOFT_RESET), 800 ms, KeepAlive x10,
+  GetMode + safe-mode check) and xtion-rs never did. New in 0.2.7:
+  `HostMode` enum (XnHostProtocol.h modes 0-8, WEBCAM=0), `get_mode()`,
+  `soft_reset()` (fire-and-forget SET_MODE + 800 ms + keep-alive liveness
+  loop — the C discards the SET_MODE reply: "there is nobody to ACK"),
+  `cmos_presets(cmos)` accessor (depth cross-check), and the
+  `color_start_probe` hardware test that REPORTS instead of gating: mode
+  + image-pipe params before/after the soft reset, the full C-parity
+  write sequence with readbacks, and one driver start_color attempt.
+  85 lib tests + 2 golden + 1 doc green, clippy 0, fmt clean.
 - **0.2.6 — preset-table endianness fix (the color mode now matches)** -
   the 0.2.5 hardware run printed the camera's preset list as
   `format 256 @ res 0 @ 7680 fps` — every field shifted by 256 — so the
