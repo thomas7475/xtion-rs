@@ -56,6 +56,32 @@ v2.6 (fw >= 1.2): u16 magic "MG" 0x4d47 | u16 size_words | u16 opcode | u16 id
 - Firmware >= 5.0 build number quirk: `sprintf("%x", build)` then `atoi()`
   - the build is a hex number re-read as decimal (XnHostProtocolGetVersion).
 
+### Reply transport behavior (verified on hardware)
+
+These behaviors of `XnHostProtocolExecute`/`ReceiveReply` were confirmed by
+the first on-camera run (firmware 5.3, Xtion Pro Live):
+
+- **Replies arrive split across several vendor control-IN transfers.**
+  The first transfer carries the reply header + the first data chunk;
+  Execute's "Get rest of data" loop keeps issuing control reads
+  (512 bytes each for fw >= 5.0, `XN_PROTOCOL_MAX_PACKET_SIZE_V5_0`) and
+  appending until the promised `size_words - 1` words of data are
+  collected. Observed live: GetVersion delivered 22 bytes first (header +
+  ACK + 12 of 34 data bytes), the rest in a second transfer.
+- A reply whose **id does not match** the request (stale answer to an
+  earlier command) is discarded and the receive is repeated.
+- A reply buffer with **no firmware magic** is re-received every 10 ms
+  until the receive budget (20 s `XN_RECEIVE_USB_DATA_TIMEOUT`) expires.
+- A **NACK_NOT_READY** reply causes Execute to re-send the SAME request
+  (same id), up to `XN_HOST_PROTOCOL_NOT_READY_RETRIES` = 3 times, 1 s
+  apart.
+- Timing delays per command: 1 ms before sending
+  (`nUSBDelayExecutePreSend`), 10 ms between send and read
+  (`nUSBDelayExecutePostSend`); firmware >= 5.3.16 with a Jango USB core
+  reduces these to 0.
+- The device **pads odd data lengths up to whole 16-bit words** (e.g. the
+  33-byte XnVersions arrives as 17 words = 34 bytes).
+
 Opcodes (`EPsProtocolOpCodes`): GET_VERSION=0, KEEP_ALIVE=1, GET_PARAM=2,
 SET_PARAM=3, GET_FIXED_PARAMS=4, GET_MODE=5, SET_MODE=6, GET_LOG=7,
 ALGORITHM_PARAMS=22, GET_SERIAL_NUMBER=37, GET_PLATFORM_STRING=39,
@@ -200,6 +226,16 @@ R = clamp((C + 409*E) >> 8);  G = clamp((C - 100*D - 208*E) >> 8);  B = clamp((C
   `u8 major, u8 minor, u16 build, u32 chip, u16 fpga, u16 system_version,
   SDK {u8,u8,u8,u16}, u32 HWVer, u32 FWVer, u32 SensorVer, u32 ChipVer`.
   FPGA values identify the hardware revision (RD1082=0x5 for the Xtion).
+  Wire quirks (XnHostProtocolGetVersion):
+  - The first two bytes on the wire are **minor, major** - the C
+    byte-swaps the struct's first u16 after memcpy
+    (`*((XnUInt16*)&Version) = xnOSEndianSwapUINT16(...)`).
+  - Only the first **12 bytes** carry fields the driver actually uses;
+    SDK/HWVer/FWVer/SensorVer/ChipVer are recomputed host-side (from
+    nFPGA, nChip and the version triple), and the C memcpy's the full
+    struct out of a partially-filled buffer - a reply with only the
+    12-byte base struct is valid.
+  - The device pads the struct to a whole word (33 -> 34 bytes).
 
 ## 9. Reference file map
 

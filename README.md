@@ -14,7 +14,7 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Area | State |
 |---|---|
 | USB transport (rusb), endpoint probing | done, unit-tested |
-| Command protocol (v2.5/v2.6, retry quirks) | done, unit-tested |
+| Command protocol (v2.5/v2.6, retry quirks, split-reply accumulation) | done, unit-tested incl. first-run hardware regression |
 | Version handshake + identity (serial, versions) | done |
 | Calibration (fixed params, depth info) | done |
 | Shift-to-depth tables | done, **byte-identical to the C reference** (golden vectors) |
@@ -25,7 +25,7 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Registration, MJPEG, misc/GMC, keep-alive | not yet (see docs/PLAN.md) |
 | Pre-3.0 firmware (bulk control endpoints) | not supported (explicit error) |
 
-Everything that can be verified without the camera **is** verified: 44
+Everything that can be verified without the camera **is** verified: 53
 tests pass on a bare CI machine (`cargo test`), and the two numerical
 cores are proven equal to the original C++ implementation by golden
 vectors generated from a verbatim C transcription
@@ -73,3 +73,16 @@ udev rule (or run as root) to allow user access to `1d27:0601`.
 The USB protocol implemented here was derived from the OpenNI 2 PS1080
 driver (Apache-2.0, PrimeSense Ltd.); see `NOTICE.md`. The decode cores
 are verified byte-identical to that implementation via golden vectors.
+
+## Changelog
+
+- **0.1.1** - fixed the first on-hardware failure: replies can arrive split
+  across multiple vendor control-IN transfers (the first run of
+  `tests/hardware.rs` got "version reply too short: 12 bytes"); the
+  exchange now accumulates follow-up reads like the C reference. Also
+  ported stale-reply re-receive, NACK_NOT_READY re-send, the 1 ms/10 ms
+  command delays, 512-byte control reads, and the XnVersions wire quirks
+  (minor/major byte order, 12-byte base struct, word padding).
+- **0.1.0** - initial port: USB transport, command protocol, calibration,
+  packed-11 + shift-to-depth decode (C-verified), bulk-stream framing,
+  depth/color streaming API.
