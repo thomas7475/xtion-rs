@@ -7,6 +7,12 @@
 //! outside this list is rejected by the firmware with NACK(BadParams) —
 //! observed on fw 5.8.22 when requesting the PS-compressed Yuv422 format
 //! at VGA@30 (2026-11-22).
+//!
+//! Hardware note (Xtion Pro Live, fw 5.8.22): the image CMOS reports
+//! modes ONLY in formats 1 (PS-compressed Yuv422), 5 (uncompressed
+//! Yuv422) and 7 (uncompressed Yuyv) at QVGA/VGA, plus Bayer 0/6 at the
+//! wide modes — uncompressed Yuv422 VGA@30 (format 5, resolution 1,
+//! fps 30) is offered and is the mode this driver uses.
 
 use std::time::Duration;
 
@@ -23,24 +29,26 @@ pub const CMOS_TYPE_DEPTH: u16 = 1;
 /// Include/XnStreamParams.h:251-256).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CmosPreset {
-    /// Input format id (`XnIOImageFormats` for the image CMOS: 0=Bayer,
-    /// 1=PS-compressed Yuv422, 5=uncompressed Yuv422, 7=uncompressed Yuyv).
+    /// Input format id (`XnIOImageFormats`, Include/PS1080.h:253-261:
+    /// 0=Bayer, 1=PS-compressed Yuv422, 5=uncompressed Yuv422,
+    /// 6=uncompressed Bayer, 7=uncompressed Yuyv).
     pub format: u16,
-    /// Resolution id (`XnResolutions`: 0=QVGA, 1=VGA, 2=SXGA, 4=QQVGA).
+    /// Resolution id (`XnResolutions`, XnStreamParams.h:183-202:
+    /// 0=QVGA, 1=VGA, 2=SXGA, 14=1280x720, 15=1280x960).
     pub resolution: u16,
     /// Frame rate in Hz.
     pub fps: u16,
 }
 
 impl CmosPreset {
-    /// Wire size of one preset: three big-endian u16 fields.
+    /// Wire size of one preset: three little-endian u16 fields.
     const WIRE_SIZE: usize = 6;
 
     fn parse(data: &[u8]) -> CmosPreset {
         CmosPreset {
-            format: u16::from_be_bytes([data[0], data[1]]),
-            resolution: u16::from_be_bytes([data[2], data[3]]),
-            fps: u16::from_be_bytes([data[4], data[5]]),
+            format: u16::from_le_bytes([data[0], data[1]]),
+            resolution: u16::from_le_bytes([data[2], data[3]]),
+            fps: u16::from_le_bytes([data[4], data[5]]),
         }
     }
 }
@@ -57,11 +65,17 @@ impl std::fmt::Display for CmosPreset {
 
 /// Read the stream modes one CMOS supports.
 ///
-/// Wire format (per the C): the request payload is ONE big-endian u16
-/// CMOS id; the reply is an array of big-endian `{format, resolution,
-/// fps}` u16 triples. Unlike most other replies these fields arrive
-/// byte-swapped — the C applies `XN_PREPARE_VAR16_IN_BUFFER` to the
-/// request payload and to every reply field individually.
+/// Wire format: the request payload is ONE little-endian u16 CMOS id;
+/// the reply is an array of little-endian `{format, resolution, fps}`
+/// u16 triples. The C copies the request and every reply field via
+/// `XN_PREPARE_VAR16_IN_BUFFER`, which is the IDENTITY on x86 and Windows
+/// (ThirdParty/PSCommon/XnLib/Include/Linux-x86/XnOSLinux-x86.h) — the
+/// Nios II firmware is little-endian, like the rest of the packet
+/// protocol. An earlier revision of this parser read the fields
+/// big-endian, shifting every value by 256: the hardware table looked
+/// like `format 256 @ res 0 @ 7680 fps` instead of
+/// `format 1 @ res 0 @ 30 fps`, so the requested mode never matched
+/// (found on camera, 2026-11-22).
 /// `XnHostProtocolGetCmosPresets` also works around a firmware bug that
 /// appends one extra preset with FPS 0 — such entries are skipped here
 /// too.
@@ -71,7 +85,7 @@ pub fn read_cmos_presets<T: ControlTransport>(
     cmos: u16,
     timeout: Duration,
 ) -> Result<Vec<CmosPreset>> {
-    let payload = cmos.to_be_bytes().to_vec();
+    let payload = cmos.to_le_bytes().to_vec();
     let data = link.exchange(transport, Opcode::CmosPresets, &payload, timeout)?;
     if data.len() % CmosPreset::WIRE_SIZE != 0 {
         return Err(XtionError::BadConfig(format!(
@@ -123,13 +137,13 @@ mod tests {
 
     /// A full GET_CMOS_PRESETS reply packet: V26 header (magic, size
     /// words, opcode, id — the first exchange always uses request id 0),
-    /// the ACK/error word, then the big-endian preset triples.
+    /// the ACK/error word, then the little-endian preset triples.
     fn preset_reply(entries: &[(u16, u16, u16)]) -> Vec<u8> {
         let mut payload = Vec::new();
         for (format, res, fps) in entries {
-            payload.extend_from_slice(&format.to_be_bytes());
-            payload.extend_from_slice(&res.to_be_bytes());
-            payload.extend_from_slice(&fps.to_be_bytes());
+            payload.extend_from_slice(&format.to_le_bytes());
+            payload.extend_from_slice(&res.to_le_bytes());
+            payload.extend_from_slice(&fps.to_le_bytes());
         }
         let mut v = Vec::new();
         v.extend_from_slice(&FW_MAGIC_V26.to_le_bytes());
@@ -142,15 +156,18 @@ mod tests {
     }
 
     #[test]
-    fn request_payload_is_big_endian_cmos_id() {
-        let mut link = link();
-        let mut transport = FakeTransport {
+    fn parses_real_camera_first_entry() {
+        // the first entry the Xtion Pro Live actually sends, as raw wire
+        // bytes: (format 5 = uncompressed Yuv422, resolution 1 = VGA,
+        // fps 30) little-endian
+        let mut link1 = link();
+        let mut transport1 = FakeTransport {
             replies: vec![preset_reply(&[(5, 1, 30)])],
             sent: Vec::new(),
         };
         let presets = read_cmos_presets(
-            &mut link,
-            &mut transport,
+            &mut link1,
+            &mut transport1,
             CMOS_TYPE_IMAGE,
             Duration::from_secs(1),
         )
@@ -164,10 +181,24 @@ mod tests {
                 fps: 30
             }
         );
-        // the 2-byte request payload must be the CMOS id big-endian
-        let sent = &transport.sent[0];
+        // the 2-byte request payload is the CMOS id little-endian; use a
+        // non-symmetric id so the byte order is actually pinned (id 0
+        // would pass either way)
+        let mut link2 = link();
+        let mut transport2 = FakeTransport {
+            replies: vec![preset_reply(&[(5, 1, 30)])],
+            sent: Vec::new(),
+        };
+        read_cmos_presets(
+            &mut link2,
+            &mut transport2,
+            CMOS_TYPE_DEPTH,
+            Duration::from_secs(1),
+        )
+        .expect("depth presets");
+        let sent = &transport2.sent[0];
         let tail = &sent[sent.len() - 2..];
-        assert_eq!(tail, &[0x00, 0x00], "CMOS_TYPE_IMAGE (0) as BE u16");
+        assert_eq!(tail, &[0x01, 0x00], "CMOS_TYPE_DEPTH (1) as LE u16");
     }
 
     #[test]
@@ -177,8 +208,8 @@ mod tests {
         let mut transport = FakeTransport {
             replies: vec![preset_reply(&[
                 (5, 1, 30),
-                (1, 0, 30),
-                (1, 0, 60),
+                (1, 1, 30),
+                (7, 1, 30),
                 (5, 0, 30),
                 (0, 0, 0), // the buggy entry — must be dropped
             ])],
@@ -193,7 +224,8 @@ mod tests {
         .expect("presets");
         assert_eq!(presets.len(), 4);
         assert_eq!(presets[0].format, 5);
-        assert_eq!(presets[1].resolution, 0);
+        assert_eq!(presets[1].resolution, 1);
+        assert_eq!(presets[3].resolution, 0);
         assert_eq!(presets[3].fps, 30);
     }
 

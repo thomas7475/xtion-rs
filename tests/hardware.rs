@@ -196,6 +196,16 @@ fn color_stream_roundtrip() {
     for preset in &presets {
         println!("  {preset}");
     }
+    // endianness guard: real fps/res/format codes are tiny (fps <= 60,
+    // resolution ids <= 15, format ids <= 15). If the parser ever swaps
+    // bytes again, every field shifts by 256 and this fails instead of
+    // producing a confusing "no matching mode" below.
+    for preset in &presets {
+        assert!(
+            preset.fps <= 60 && preset.resolution <= 15 && preset.format <= 15,
+            "preset {preset} looks byte-swapped (fields must be little-endian)"
+        );
+    }
 
     // this driver decodes raw UYVY only (uncompressed YUV422, format 5);
     // prefer VGA@30 (matches the depth stream), fall back to QVGA@30

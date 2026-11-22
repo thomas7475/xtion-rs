@@ -137,6 +137,21 @@ documented API. Every check lists the expected observation.
   supported list before writing anything; the hardware test prints the
   list and picks a supported uncompressed-YUV422 mode automatically
   (VGA@30 preferred, QVGA@30 fallback).
+- **Preset table byte-swapped (0.2.5 run, solved in 0.2.6):** the
+  0.2.5 hardware run printed `format 256 @ res 0 @ 7680 fps`-style
+  presets and aborted with "no uncompressed-YUV422 color mode" — every
+  field was shifted by 256 because the parser read the triples
+  big-endian. Ground truth: `XN_PREPARE_VAR16_IN_BUFFER` is the
+  IDENTITY macro on x86/Windows, so the opcode-36 fields are plain
+  little-endian (Nios II firmware; same as the packet header). After
+  the fix the expected on-camera table is: QVGA(0)/VGA(1) in formats
+  1 (PS-compressed Yuv422), 5 (uncompressed Yuv422), 7 (uncompressed
+  Yuyv) at 15/30/60 fps; SXGA(2)/720p(14)/1280x960(15) Bayer-only
+  (formats 0/6) at 30 fps; one extra (9, 1, 30) PS-compressed VGA@30
+  entry with a format id OpenNI never exposes. The color test selects
+  (5, 1, 30) = uncompressed UYVY VGA@30 and asserts every field is
+  <= 60/15/15 so a future byte-swap cannot masquerade as "no matching
+  mode" again.
 - `emitter toggle skipped: ...`: expected on some 5.8.x builds — the
   reference driver only issues opcode 42 on fw >= 5.8.15 and even then
   some builds NACK it (BadParams). Runtime state only; the default

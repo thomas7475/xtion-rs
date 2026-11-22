@@ -21,7 +21,7 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Packed-11 depth decode | done, **byte-identical to the C reference** (golden vectors) |
 | Bulk-stream frame assembly | done, unit-tested incl. chunk splits |
 | Depth stream (VGA@30, packed-11 or raw 16-bit) | **hardware-validated** (87% valid pixels @ 29.97 fps) |
-| Color stream (YUV422 -> RGB888) | implemented — uncompressed YUV422 (format 5) only; mode validated against the firmware's CMOS presets (opcode 36) since 0.2.5; on-camera validation pending |
+| Color stream (YUV422 -> RGB888) | implemented — uncompressed YUV422 (format 5) only; mode validated against the firmware's CMOS presets (opcode 36, little-endian since 0.2.6); on-camera validation pending |
 | IR stream (16-bit grayscale, image pipe) | implemented in 0.2.0; wire-size fix in 0.2.3 (MT9M001 sends `height + 8` rows — hardware-measured, see docs/PROTOCOL.md section 8); **hardware-validated 2026-11-22, all four tests green** |
 | Hardware registration, emitter on/off, OVERHEAT/PROJECTOR_FAULT events | implemented in 0.2.0 |
 | Runtime options: mirror, hole filter, AGC, close range, GMC mode, exposure, white balance, gain, quality, flicker | implemented in 0.2.0 |
@@ -107,6 +107,27 @@ are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
 
+- **0.2.6 — preset-table endianness fix (the color mode now matches)** -
+  the 0.2.5 hardware run printed the camera's preset list as
+  `format 256 @ res 0 @ 7680 fps` — every field shifted by 256 — so the
+  requested (format 5, res 1, fps 30) mode never matched and the test
+  aborted before `start_color`. Root cause: the opcode-36 parser read
+  the `{format, resolution, fps}` triples big-endian, but
+  `XN_PREPARE_VAR16_IN_BUFFER` in the C reference is the IDENTITY on
+  x86 and Windows (ThirdParty/PSCommon/XnLib/Include/Linux-x86/
+  XnOSLinux-x86.h) — the Nios II firmware is little-endian, like the
+  rest of the packet protocol. After the fix the same bytes decode to
+  `format 5 @ res 1 @ 30 fps` = uncompressed-YUV422 VGA@30, exactly the
+  mode the driver requests; the decoded table is QVGA(0)/VGA(1) in
+  formats 1/5/7 at 15/30/60 fps, SXGA(2)/720p(14)/1280x960(15)
+  Bayer-only (0/6), plus one (9, 1, 30) entry with a format id OpenNI
+  never exposes. The request payload is little-endian now too
+  (`cmos.to_le_bytes()` — the old big-endian write was invisible only
+  because CMOS id 0 is byte-symmetric). The hardware test gained an
+  endianness guard (every field <= 60/15/15 or the table is swapped)
+  and the enum meanings are documented from PS1080.h:253-261 and
+  XnStreamParams.h:183-202. 88 tests green (85 lib, 2 golden, 1 doc),
+  clippy 0.
 - **0.2.5 — color BadParams root cause + CMOS presets (opcode 36)** - the
   first color hardware run failed at `start color: Nack(BadParams)`
   (tests/hardware.rs:192). Root cause (C reference): the image stream
