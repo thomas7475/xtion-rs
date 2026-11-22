@@ -40,7 +40,11 @@ onboard stereo processing, marker-coordinate output).
 | `research/idong100-06-usb-vid` | 06 | USB VID 0471 / PID 2600 angle (NXP reference-firmware theory, device databases) |
 | `research/idong100-07-ecosystem` | 07 | Product ecosystem: games, TV/STB integrations, press, manuals, procurement |
 | `research/idong100-08-patents-fcc` | 08 | Patents, academic papers, FCC certifications, trademarks, software copyrights |
+| `research/idong100-09-xeyez-analysis` | 09 | xeyez PC stack decompiled (protocol, firmware, Inno .bin extractor) |
+| `research/idong100-10-rust-driver-draft` | 10 | Rust driver realization draft + skeleton crate (`docs/RUST_DRIVER_DRAFT.md`, `rust/idong/`) |
 
 ## Status
 
-Round 1 launched 2026-11-23 (8 parallel agents). Results: see `SUMMARY.md`.
+Round 1 launched 2026-11-23 (8 parallel agents; 01/02/09 completed, 03-08
+to retry sequentially). Turn 10 added the Rust driver draft. See
+`SUMMARY.md`.

@@ -1,0 +1,38 @@
+[package]
+name = "idong"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Pure-Rust userspace driver for the Toltech idong Sensor V2.6 (idong100 stereo tracking bar, USB 0471:2600 / 0471:2500)"
+license = "Apache-2.0"
+repository = "https://github.com/thomas7475/xtion-rs"
+keywords = ["idong", "toltech", "xeyez", "motion-capture", "usb"]
+categories = ["hardware-support", "multimedia::video"]
+
+[lib]
+name = "idong"
+path = "src/lib.rs"
+
+[dependencies]
+rusb = "0.9"
+thiserror = "2"
+log = "0.4"
+
+[dev-dependencies]
+env_logger = "0.11"
+
+[[example]]
+name = "list"
+path = "examples/list.rs"
+
+[[example]]
+name = "probe_bootloader"
+path = "examples/probe_bootloader.rs"
+
+[[example]]
+name = "upload_firmware"
+path = "examples/upload_firmware.rs"
+
+[[example]]
+name = "dump_frames"
+path = "examples/dump_frames.rs"
