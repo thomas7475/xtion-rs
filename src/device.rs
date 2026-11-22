@@ -383,7 +383,19 @@ impl Xtion {
     /// Runtime firmware state: power-cycling the camera restores the
     /// emitter. The *calibration* opcodes for the emitter are excluded on
     /// purpose (docs/FEATURE_PLAN.md, "Excluded features").
+    ///
+    /// The reference driver only ever issues the emitter opcode on
+    /// firmware >= 5.8.15 (`XnHostProtocol.cpp:660-664` gates the opcode
+    /// assignment); below that the opcode stays invalid and the command
+    /// is never sent. Mirror the gate so unsupported builds get a clean
+    /// error instead of a raw NACK.
     pub fn set_emitter_enabled(&mut self, active: bool) -> Result<()> {
+        if (self.version.major, self.version.minor, self.version.build) < (5, 8, 15) {
+            return Err(XtionError::BadConfig(format!(
+                "runtime emitter toggle needs firmware >= 5.8.15, device reports {}.{}.{}",
+                self.version.major, self.version.minor, self.version.build
+            )));
+        }
         set_emitter_state(&mut self.link, &mut self.usb, active, COMMAND_TIMEOUT)
     }
 
@@ -849,27 +861,48 @@ impl Xtion {
     }
 
     /// Block until one infrared frame is decoded (16-bit grayscale).
-    /// Corrupted frames are dropped and reading continues.
+    ///
+    /// The first frame of a stream can be partial (the bulk ring starts
+    /// just after the stream-mode write), so a few unusable frames are
+    /// dropped — but if the stream keeps producing frames of the wrong
+    /// size, reading fails fast with the actual sizes and counters
+    /// instead of silently looping into a timeout that hides the cause.
     pub fn read_ir_frame(&mut self, timeout: Duration) -> Result<IrFrame> {
         let config = self.ir_config.ok_or(XtionError::StreamNotRunning)?;
         let (width, height) = config.dimensions();
         let expected = expected_wire_size((width * height) as usize);
         let deadline = Instant::now() + timeout;
+        let mut unusable = 0u32;
 
         loop {
             while let Some(frame) = self.ir_assembler.pop_frame() {
-                if frame.corrupted {
-                    log::warn!("corrupted ir frame dropped");
-                    continue;
-                }
-                if frame.data.len() != expected {
-                    log::warn!(
-                        "ir frame is corrupt: {} bytes != expected {expected}, dropped",
+                let reason = if frame.corrupted {
+                    Some("corrupted".to_string())
+                } else if frame.data.len() != expected {
+                    Some(format!(
+                        "{} bytes (expected {expected} for {width}x{height} packed-10)",
                         frame.data.len()
-                    );
-                    continue;
+                    ))
+                } else {
+                    None
+                };
+                match reason {
+                    None => {
+                        return decode_ir_frame(&frame.data, width, height, frame.timestamp);
+                    }
+                    Some(reason) => {
+                        unusable += 1;
+                        log::warn!("dropping unusable ir frame #{unusable}: {reason}");
+                        if unusable >= 5 {
+                            return Err(XtionError::BadConfig(format!(
+                                "ir stream produces unusable frames: frame #{unusable} {reason}; \
+                                 assembler {:?}, ring {:?}",
+                                self.ir_assembler.stats,
+                                self.ir_ring.as_ref().map(|ring| ring.stats()),
+                            )));
+                        }
+                    }
                 }
-                return decode_ir_frame(&frame.data, width, height, frame.timestamp);
             }
             self.pump_misc();
             let chunk = {
@@ -1230,8 +1263,8 @@ mod tests {
     }
 
     /// The IR start sequence must match XnSensorIRStream::ConfigureStreamImpl
-    /// + OpenStreamImpl: IrResolution -> IrFps -> IrMirror forced off ->
-    /// CMOS blanking read (SetCmosConfig parity) -> stream0 into IR mode.
+    /// plus OpenStreamImpl: IrResolution, IrFps, IrMirror forced off, the
+    /// CMOS blanking read (SetCmosConfig parity) and stream0 into IR mode.
     #[test]
     fn configure_ir_sequence_matches_reference() {
         let (mut link, mut fake) = (

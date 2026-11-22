@@ -90,6 +90,25 @@ pub struct StreamAssembler {
     events: VecDeque<DeviceEvent>,
     /// Count of non-frame packets consumed (GMC, audio, ...).
     pub other_packets: u64,
+    /// Diagnostic counters, surfaced when a stream misbehaves: a single
+    /// camera-side log line then pinpoints the framing problem (starts
+    /// seen but no ends = framing never completes, etc.).
+    pub stats: AssemblerStats,
+}
+
+/// Per-kind packet and frame counters of one assembler.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AssemblerStats {
+    /// DEPTH_START packets seen.
+    pub depth_start: u64,
+    /// IMAGE_START packets seen.
+    pub image_start: u64,
+    /// *_BUFFER packets seen.
+    pub buffer: u64,
+    /// *_END packets seen.
+    pub end: u64,
+    /// Frames closed and pushed to the frame queue.
+    pub frames_closed: u64,
 }
 
 impl StreamAssembler {
@@ -119,6 +138,7 @@ impl StreamAssembler {
             frames: VecDeque::new(),
             events: VecDeque::new(),
             other_packets: 0,
+            stats: AssemblerStats::default(),
         }
     }
 
@@ -274,6 +294,11 @@ impl StreamAssembler {
                     // padding pixel counts, not a timestamp
                     self.frame_padding =
                         ((h.timestamp >> 16) as u16, (h.timestamp & 0xffff) as u16);
+                    if h.packet_type == packet_type::DEPTH_START {
+                        self.stats.depth_start += 1;
+                    } else {
+                        self.stats.image_start += 1;
+                    }
                 }
                 self.frame_data.extend_from_slice(data);
             }
@@ -283,6 +308,13 @@ impl StreamAssembler {
             | packet_type::IMAGE_END => {
                 // data is appended; frame completion is handled in feed()
                 // when the packet's last byte has been consumed
+                if h.packet_type == packet_type::DEPTH_BUFFER
+                    || h.packet_type == packet_type::IMAGE_BUFFER
+                {
+                    self.stats.buffer += 1;
+                } else {
+                    self.stats.end += 1;
+                }
                 self.frame_data.extend_from_slice(data);
             }
             other => {
@@ -316,6 +348,7 @@ impl StreamAssembler {
             corrupted: self.frame_corrupted,
         };
         self.frame_open = false;
+        self.stats.frames_closed += 1;
         self.frames.push_back(frame);
     }
 
@@ -507,6 +540,28 @@ mod tests {
         asm.feed(&stream);
         assert_eq!(asm.other_packets, 2);
         assert!(asm.pop_frame().is_none());
+    }
+
+    #[test]
+    fn assembler_counters_track_packet_kinds() {
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        let mut stream = Vec::new();
+        stream.extend(packet(packet_type::IMAGE_START, 1, b"ab", 1));
+        stream.extend(packet(packet_type::IMAGE_BUFFER, 2, b"cd", 2));
+        stream.extend(packet(packet_type::IMAGE_END, 3, b"!", 3));
+        stream.extend(packet(packet_type::GMC, 4, b"x", 4));
+        asm.feed(&stream);
+        assert_eq!(
+            asm.stats,
+            AssemblerStats {
+                depth_start: 0,
+                image_start: 1,
+                buffer: 1,
+                end: 1,
+                frames_closed: 1,
+            }
+        );
+        assert_eq!(asm.pop_frame().unwrap().data, b"abcd!".to_vec());
     }
 
     #[test]
