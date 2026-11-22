@@ -67,6 +67,9 @@ udev rule (or run as root) to allow user access to `1d27:0601`.
   constant cited to its OpenNI 2.2.0 source file.
 - `docs/recovery/` - snapshot of the research workspace for session
   recovery.
+- `firmware/` - the final ASUS firmware release for the camera (FWUpdate
+  5.8.22, the version the validation camera runs), mirrored from ASUS's
+  official download with the flash images extracted and documented.
 
 ## Attribution
 
@@ -76,7 +79,8 @@ are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
 
-- **0.1.5** - after 0.1.4 assembled full 307,200-pixel frames at 30 fps
+- **0.1.5 — HARDWARE VALIDATED** - after 0.1.4 assembled full 307,200-pixel
+  frames at 30 fps
   but every pixel decoded as invalid, audited the whole decode chain
   against the reference driver. Confirmed fix: the shift-to-depth LUT
   must cover the full 0..2047 shift range (`XN_SHIFTS_MAX_SHIFT`) — the
@@ -86,7 +90,11 @@ are verified byte-identical to that implementation via golden vectors.
   corrupt-frame drop (assembled size != expected at EOF, which is how
   the partial first frame of a stream is discarded) and added per-frame
   raw-shift histograms to `depth_dump` (zeros / 2047 markers / valid
-  range buckets) plus `DepthFrame::shift_stats`.
+  range buckets) plus `DepthFrame::shift_stats`. **Validated on hardware
+  (run 6, 2026-11-22): both integration tests pass — 87.4% valid pixels
+  (268,435/307,200), min depth 431 mm, shifts 291-797, 12.17 MiB/s with
+  0 USB failures at 29.97 fps.** Full driver overview with flow diagrams:
+  `xtion_rs_driver_overview.pdf`.
 
 - **0.1.4** - fixed the fourth on-hardware failure: with the async ring
   delivering the full 12 MB/s stream (0 failures), frames still assembled
