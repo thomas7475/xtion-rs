@@ -110,6 +110,27 @@ this 1:1 in `open()`; without it, a session that follows a failed
 stream start sees NACK(BadParams) on plain mode-parameter writes
 (observed on fw 5.8.22, 2026-11-22).
 
+### Stream-mode hygiene (0.2.9)
+
+The stream-mode params (5/6/7) are a state machine, not free registers:
+the reference host layer refuses any change that does not pass through
+OFF ("we require that every change to mode will go through OFF",
+XnSensorFirmwareParams::SetStreamMode, XnSensorFirmwareParams.cpp:
+585-600), and the firmware answers a violating write with
+NACK(BadParams). The reference also writes all three stream modes to
+OFF at the pre-5.2 reset path (XnHostProtocol.cpp:1804-1813) and at
+every clean device shutdown (XnSensor.cpp:315-317), so OpenNI sessions
+never leave a stream set. xtion-rs ports both sides since 0.2.9: every
+`open()`/`soft_reset` kills all three streams (best effort) and
+`Drop` repeats the shutdown kill; `start_depth`/`start_ir`/
+`start_color` go through OFF before their stream-on write. The color
+sequence additionally carries the full reference image-open set:
+flicker (17) + firmware mirror (71) at configure, the blanking fetch
+(0x06) and the device-frequency fetch (0x80, res 0/fps 0,
+XnSensorStreamHelper::Open parity) before stream-on, then crop mode
+(50) disabled, auto exposure (80) and auto white balance (77) with
+their fw >= 5.8.9 reference defaults (both TRUE).
+
 ### CMOS presets (GET_CMOS_PRESETS, opcode 36, fw >= 5.3.29)
 
 - Request payload: ONE LITTLE-endian u16 CMOS id (`XnCMOSType`:

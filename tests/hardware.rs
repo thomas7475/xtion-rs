@@ -235,6 +235,15 @@ fn color_stream_roundtrip() {
     };
     let (width, height) = resolution.dimensions();
     println!("testing {resolution:?}@{fps} PS-compressed YUV422 (the C's Linux/bulk default)");
+    // the two gates the reference driver checks before any color stream:
+    // bImageSupported (fixed params image CMOS type, 0 = NO COLOR SENSOR)
+    // and the firmware operating mode.
+    let image_cmos_type = cam.fixed_params.image_cmos_type;
+    let mode = cam.get_mode();
+    let stream0 = cam.get_param(xtion::Param::Stream0Mode);
+    println!(
+        "image cmos type: {image_cmos_type} (0=none, 1=MT9M112, 2=MT9D131, 3=MT9M114), mode: {mode:?}, stream0: {stream0:?}"
+    );
 
     cam.start_color(resolution, fps, xtion::ImageFormat::Yuv422)
         .expect("start color");
@@ -301,6 +310,30 @@ fn color_start_probe() {
     use xtion::Param;
 
     println!("== device mode: {:?}", cam.get_mode());
+    println!(
+        "== image cmos type: {} (0 = the firmware sees NO color sensor: the C then refuses to\n   create the image stream at all — XnSensorFirmware.cpp:128-140, bImageSupported)",
+        cam.fixed_params.image_cmos_type
+    );
+
+    // the boot self-test log: the color CMOS reports CLR C/V/ND/W/OK
+    // lines at boot (FIRMWARE.md section 3). A failed CLR self-test is
+    // the other way the firmware can reject the color stream-on.
+    match cam.firmware_log() {
+        Ok(log) => {
+            let boot: Vec<&str> = log
+                .lines()
+                .filter(|l| {
+                    let l = l.to_uppercase();
+                    l.contains("CLR") || l.contains("PRJ") || l.contains("TEC") || l.contains("IR ")
+                })
+                .collect();
+            println!("== boot/self-test log lines ({}):", boot.len());
+            for line in boot.iter().take(30) {
+                println!("   {line}");
+            }
+        }
+        Err(e) => println!("firmware log: {e}"),
+    }
 
     // depth-CMOS presets cross-check the preset mechanism against a
     // second CMOS (id 1)
@@ -343,12 +376,16 @@ fn color_start_probe() {
         "== C-parity write sequence with readbacks (compressed mode, the C's Linux default) =="
     );
     let steps = [
-        (Param::ImageFormat, "format=1 (PS-compressed)", 1u16),
+        (Param::Stream0Mode, "stream0=0 (OFF baseline)", 0u16),
+        (Param::ImageFormat, "format=1 (PS-compressed)", 1),
         (Param::ImageResolution, "res=1", 1),
         (Param::ImageFps, "fps=30", 30),
         (Param::ImageFlickerDetection, "flicker=0", 0),
         (Param::ImageMirror, "mirror=0", 0),
         (Param::Stream0Mode, "stream0=1 (COLOR)", 1),
+        (Param::ImageCropMode, "crop=0 (disabled)", 0),
+        (Param::ImageAutoExposureMode, "auto exposure=1", 1),
+        (Param::ImageAutoWhiteBalanceMode, "auto white balance=1", 1),
     ];
     for (p, name, value) in &steps {
         match cam.set_param(*p, *value) {

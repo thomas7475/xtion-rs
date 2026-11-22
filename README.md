@@ -108,6 +108,33 @@ are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
 
+- **0.2.9 — stream hygiene + full image-open C parity** - the 0.2.8
+  color start still NACKed BadParams on the stream-on write on real
+  hardware. Source-level re-audit of the whole reference image path
+  found what the C does that xtion-rs still did not: its stream-mode
+  writes are guarded by "we require that every change to mode will go
+  through OFF" (XnSensorFirmwareParams::SetStreamMode), every C
+  session ends with all three stream modes written OFF (reset path
+  XnHostProtocol.cpp:1804-1813 + shutdown XnSensor.cpp:315-317), and
+  the image-open sequence carries steps xtion-rs skipped. 0.2.9 ports
+  all of it: (a) `open()`/`soft_reset` now kill all three streams
+  after the init reset (best effort); (b) `Drop` for `Xtion` repeats
+  the shutdown stream kill, so a panicked test cannot leave stale
+  stream state behind; (c) `start_depth`/`start_ir`/`start_color` go
+  through stream-mode OFF first; (d) `start_color` writes the full
+  reference sequence — flicker (17) and firmware mirror (71) defaults,
+  the CMOS blanking read, the device-frequency read (algorithm 0x80,
+  `XnSensorStreamHelper::Open` parity, res 0/fps 0), stream-on, crop
+  mode disabled (50), auto exposure (80) and auto white balance (77)
+  on with their reference defaults (fw >= 5.8.9,
+  bImageAdjustmentsSupported); (e) a NACK on the color stream-on now
+  self-reports the device state (stream0 selector + operating mode)
+  in the error; (f) `color_start_probe` walks the full sequence with
+  per-step readbacks, dumps the image CMOS type (the C's
+  bImageSupported gate: 0 = no color sensor) and the boot self-test
+  log lines (CLR/PRJ/TEC). New `Param::ImageCropMode = 50`, new
+  `read_device_frequency` (algorithm 0x80). 106 lib tests.
+
 - **0.2.8 — color uses the C's Linux/bulk mode + read-only system
   commands** - the turn-24/25 decompilation + C cross-read settled the
   color NACK: (a) the reference driver soft-resets the firmware at

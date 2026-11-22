@@ -12,7 +12,9 @@ use crate::depth::packed11::unpack_packed11;
 use crate::depth::shift_to_depth::{ShiftToDepthConfig, ShiftToDepthTables};
 use crate::error::{Result, XtionError};
 use crate::ir::{decode_ir_frame, ir_wire_size, wire_extra_rows, IrConfig, IrFrame};
-use crate::protocol::algorithm::{read_cmos_blanking, read_depth_information};
+use crate::protocol::algorithm::{
+    read_cmos_blanking, read_depth_information, read_device_frequency,
+};
 use crate::protocol::command::{CommandLink, ControlTransport, ProtocolVersion};
 use crate::protocol::fixed_params::{read_fixed_params, FixedParams};
 use crate::protocol::identity::{read_platform_string, read_usb_core_type, set_emitter_state};
@@ -418,6 +420,25 @@ impl Xtion {
         // 6. fresh mode, refuse safe mode
         let mode = HostMode::from_u16(Self::raw_get_mode(link, transport)?);
         refuse_safe_mode(mode)?;
+
+        // 7. kill all three streams (best effort). The reference driver
+        //    writes every stream mode to OFF both in its pre-5.2 reset
+        //    path and at every clean device shutdown
+        //    (XnHostProtocol.cpp:1804-1813, XnSensor.cpp:315-317), so a
+        //    session that ENDS normally always leaves the firmware with
+        //    all streams off. Its own stream-mode writes are guarded by
+        //    "we require that every change to mode will go through OFF"
+        //    (XnSensorFirmwareParams::SetStreamMode) — the firmware side
+        //    of the same rule rejects a stream-on write with
+        //    NACK(BadParams) when it believes the stream is still in
+        //    another mode. Sessions that end abnormally (a panic between
+        //    start and stop, a killed process) leave that stale state
+        //    behind, so every open forces the OFF baseline first. The
+        //    audio param may be unsupported on some units; a rejection
+        //    here must not fail the open.
+        for param in [Param::Stream0Mode, Param::Stream1Mode, Param::Stream2Mode] {
+            let _ = set_param_via(link, transport, param, STREAM_MODE_OFF, COMMAND_TIMEOUT);
+        }
         Ok(())
     }
 
@@ -824,6 +845,10 @@ impl Xtion {
     /// Parameter order mirrors the reference driver's property pipeline:
     /// format -> resolution -> fps -> stream mode.
     pub fn start_depth(&mut self, config: DepthConfig) -> Result<()> {
+        // Stream-mode changes go through OFF first (see
+        // firmware_init_reset step 7; reference guard
+        // XnSensorFirmwareParams::SetStreamMode).
+        self.set_param(Param::Stream1Mode, STREAM_MODE_OFF)?;
         self.set_param(Param::DepthFormat, config.input_format.as_u16())?;
         self.set_param(Param::DepthResolution, config.resolution.as_u16())?;
         self.set_param(Param::DepthFps, config.fps)?;
@@ -960,19 +985,31 @@ impl Xtion {
             })?;
         self.set_param(Param::ImageFps, fps)
             .map_err(|err| XtionError::BadConfig(format!("start_color: image fps: {err}")))?;
-        // CMOS timing: the reference image stream arms the color CMOS with
-        // a blanking read before the mode is written
-        // (XnSensorImageStream::ConfigureStreamImpl -> SetCmosConfig).
-        read_cmos_blanking(
+        configure_color_via(
             &mut self.link,
             &mut self.usb,
             resolution,
             fps,
+            STREAM_MODE_COLOR,
             COMMAND_TIMEOUT,
         )
-        .map_err(|err| XtionError::BadConfig(format!("start_color: cmos blanking: {err}")))?;
-        self.set_param(Param::Stream0Mode, STREAM_MODE_COLOR)
-            .map_err(|err| XtionError::BadConfig(format!("start_color: stream0 mode: {err}")))?;
+        .map_err(|err| {
+            // Self-diagnosing error: a NACK on the stream-mode write is
+            // always about firmware STATE, so report what the device
+            // thinks the stream0 selector and the operating mode are.
+            let stream0 = self
+                .get_param(Param::Stream0Mode)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|_| "?".into());
+            let mode = self
+                .get_mode()
+                .map(|m| format!("{m:?}"))
+                .unwrap_or_else(|_| "?".into());
+            XtionError::BadConfig(format!(
+                "start_color: stream-on rejected: {err}; \
+                 device state at failure: stream0={stream0}, mode={mode}"
+            ))
+        })?;
 
         self.color_ring = Some(crate::ring::BulkRing::start(
             self.usb.raw_context(),
@@ -1434,6 +1471,32 @@ impl Xtion {
     }
 }
 
+impl Drop for Xtion {
+    /// Port of the reference driver's device-shutdown stream kill
+    /// (XnSensor.cpp:315-317): every OpenNI session ends with all three
+    /// stream modes written to OFF, which is what keeps the firmware's
+    /// "stream-mode changes must go through OFF" rule satisfied for the
+    /// NEXT session. Best effort only — if the device is already gone
+    /// the errors are ignored.
+    fn drop(&mut self) {
+        // Cancel the URB rings first so nothing is pending while the
+        // firmware stops sending.
+        self.depth_ring = None;
+        self.color_ring = None;
+        self.ir_ring = None;
+        self.misc_ring = None;
+        for param in [Param::Stream0Mode, Param::Stream1Mode, Param::Stream2Mode] {
+            let _ = set_param_via(
+                &mut self.link,
+                &mut self.usb,
+                param,
+                STREAM_MODE_OFF,
+                Duration::from_millis(500),
+            );
+        }
+    }
+}
+
 /// Write one firmware parameter over any control transport
 /// (the transport-generic core of [`Xtion::set_param`], so the exact
 /// request sequences are unit-testable without hardware).
@@ -1451,6 +1514,68 @@ fn set_param_via<T: ControlTransport>(
     Ok(())
 }
 
+/// Color (image) stream write sequence, transport-generic for testing.
+///
+/// Port of `XnSensorImageStream::ConfigureStreamImpl` +
+/// `XnSensorStreamHelper::Open` + `OpenStreamImpl` write-for-write:
+/// stream0 OFF baseline -> format -> resolution -> fps -> flicker ->
+/// firmware mirror -> CMOS blanking read (SetCmosConfig parity) ->
+/// device-frequency read (helper parity) -> stream-on -> crop mode ->
+/// auto exposure -> auto white balance. The flicker/mirror writes and
+/// the trailing crop/AE/AWB writes are in the reference sequence
+/// (XnSensorImageStream.cpp:298-321, 356-388); the AE/AWB defaults on
+/// fw >= 5.8.9 (bImageAdjustmentsSupported) are TRUE (1).
+fn configure_color_via<T: ControlTransport>(
+    link: &mut CommandLink,
+    transport: &mut T,
+    resolution: Resolution,
+    fps: u16,
+    stream_on_value: u16,
+    timeout: Duration,
+) -> Result<()> {
+    // Stream-mode changes go through OFF first (see firmware_init_reset
+    // step 7; reference guard XnSensorFirmwareParams::SetStreamMode).
+    set_param_via(
+        link,
+        transport,
+        Param::Stream0Mode,
+        STREAM_MODE_OFF,
+        timeout,
+    )?;
+    // ConfigureStreamImpl: flicker (param 17, default 0) and firmware
+    // mirror (param 71, default off) are written on every configure.
+    set_param_via(link, transport, Param::ImageFlickerDetection, 0, timeout)?;
+    set_param_via(link, transport, Param::ImageMirror, 0, timeout)?;
+    // CMOS timing: the reference image stream arms the color CMOS with
+    // a blanking read before the mode is written
+    // (ConfigureStreamImpl -> SetCmosConfig(XN_CMOS_TYPE_IMAGE, ...)).
+    read_cmos_blanking(link, transport, resolution, fps, timeout)?;
+    // The helper reads the device clock between configure and open
+    // (XnSensorStreamHelper::Open).
+    read_device_frequency(link, transport, timeout)?;
+    // The stream-on write.
+    set_param_via(
+        link,
+        transport,
+        Param::Stream0Mode,
+        stream_on_value,
+        timeout,
+    )?;
+    // OpenStreamImpl tail: crop mode is always written (disabled here);
+    // fw >= 5.8.9 also gets auto exposure + auto white balance, whose
+    // reference defaults are TRUE (XnSensorImageStream.h:47-53).
+    set_param_via(link, transport, Param::ImageCropMode, 0, timeout)?;
+    set_param_via(link, transport, Param::ImageAutoExposureMode, 1, timeout)?;
+    set_param_via(
+        link,
+        transport,
+        Param::ImageAutoWhiteBalanceMode,
+        1,
+        timeout,
+    )?;
+    Ok(())
+}
+
 /// IR stream parameter sequence, transport-generic for testing.
 ///
 /// Port of `XnSensorIRStream::ConfigureStreamImpl` + `MapPropertiesToFirmware`:
@@ -1461,6 +1586,15 @@ fn configure_ir_via<T: ControlTransport>(
     config: IrConfig,
     timeout: Duration,
 ) -> Result<()> {
+    // Stream-mode changes go through OFF first (see firmware_init_reset
+    // step 7; reference guard XnSensorFirmwareParams::SetStreamMode).
+    set_param_via(
+        link,
+        transport,
+        Param::Stream0Mode,
+        STREAM_MODE_OFF,
+        timeout,
+    )?;
     set_param_via(
         link,
         transport,
@@ -1678,6 +1812,7 @@ mod tests {
         assert_eq!(Param::IrResolution.as_u16(), 26);
         assert_eq!(Param::IrFps.as_u16(), 27);
         assert_eq!(Param::DepthGmcMode.as_u16(), 36);
+        assert_eq!(Param::ImageCropMode.as_u16(), 50);
         assert_eq!(Param::ImageMirror.as_u16(), 71);
         assert_eq!(Param::IrMirror.as_u16(), 72);
         assert_eq!(Param::ImageAutoWhiteBalanceMode.as_u16(), 77);
@@ -1716,19 +1851,21 @@ mod tests {
     }
 
     /// The IR start sequence must match XnSensorIRStream::ConfigureStreamImpl
-    /// plus OpenStreamImpl: IrResolution, IrFps, IrMirror forced off, the
-    /// CMOS blanking read (SetCmosConfig parity) and stream0 into IR mode.
+    /// plus OpenStreamImpl: stream0 OFF baseline, IrResolution, IrFps,
+    /// IrMirror forced off, the CMOS blanking read (SetCmosConfig parity)
+    /// and stream0 into IR mode.
     #[test]
     fn configure_ir_sequence_matches_reference() {
         let (mut link, mut fake) = (
             CommandLink::new(ProtocolVersion::V26),
             FakeTransport {
                 replies: vec![
-                    setparam_ack_reply(0, 1),
-                    setparam_ack_reply(1, 30),
-                    setparam_ack_reply(2, 0),
-                    algorithm_reply(3, 16),
-                    setparam_ack_reply(4, 3),
+                    setparam_ack_reply(0, 0),
+                    setparam_ack_reply(1, 1),
+                    setparam_ack_reply(2, 30),
+                    setparam_ack_reply(3, 0),
+                    algorithm_reply(4, 16),
+                    setparam_ack_reply(5, 3),
                 ],
                 sent: vec![],
             },
@@ -1743,11 +1880,11 @@ mod tests {
             Duration::from_millis(50),
         )
         .unwrap();
-        assert_eq!(fake.sent.len(), 5);
-        // three SET_PARAMs ...
-        let params: Vec<(u16, u16)> = fake.sent[..3]
+        assert_eq!(fake.sent.len(), 6);
+        // SET_PARAMs ...
+        let params: Vec<(u16, u16)> = fake.sent[..4]
             .iter()
-            .chain(fake.sent[4..5].iter())
+            .chain(fake.sent[5..6].iter())
             .map(|req| {
                 (
                     u16::from_le_bytes([req[8], req[9]]),
@@ -1758,6 +1895,7 @@ mod tests {
         assert_eq!(
             params,
             vec![
+                (5, 0),   // PARAM_GENERAL_STREAM0_MODE = OFF baseline
                 (26, 1),  // PARAM_IR_RESOLUTION = VGA
                 (27, 30), // PARAM_IR_FPS
                 (72, 0),  // PARAM_IR_MIRROR forced off
@@ -1765,7 +1903,7 @@ mod tests {
             ]
         );
         // ... then the CMOS blanking read between mirror and stream mode
-        let req = &fake.sent[3];
+        let req = &fake.sent[4];
         assert_eq!(
             u16::from_le_bytes([req[4], req[5]]),
             Opcode::AlgorithmParams.as_u16()
@@ -1775,5 +1913,76 @@ mod tests {
         assert_eq!(u16::from_le_bytes([req[12], req[13]]), 1); // VGA
         assert_eq!(u16::from_le_bytes([req[14], req[15]]), 30); // fps
         assert_eq!(u16::from_le_bytes([req[16], req[17]]), 0); // offset words
+    }
+
+    /// The color start sequence must match XnSensorImageStream::
+    /// ConfigureStreamImpl + XnSensorStreamHelper::Open + OpenStreamImpl
+    /// write-for-write: stream0 OFF baseline, format, resolution, fps,
+    /// flicker, firmware mirror, CMOS blanking read, device-frequency
+    /// read, stream0 COLOR, crop mode disabled, auto exposure on, auto
+    /// white balance on (fw >= 5.8.9 defaults).
+    #[test]
+    fn configure_color_sequence_matches_reference() {
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![
+                    setparam_ack_reply(0, 0), // OFF baseline
+                    setparam_ack_reply(1, 0), // flicker
+                    setparam_ack_reply(2, 0), // mirror
+                    algorithm_reply(3, 16),   // blanking
+                    algorithm_reply(4, 4),    // frequency
+                    setparam_ack_reply(5, 1), // stream0 = COLOR
+                    setparam_ack_reply(6, 0), // crop mode
+                    setparam_ack_reply(7, 1), // auto exposure
+                    setparam_ack_reply(8, 1), // auto white balance
+                ],
+                sent: vec![],
+            },
+        );
+        configure_color_via(
+            &mut link,
+            &mut fake,
+            Resolution::Vga,
+            30,
+            STREAM_MODE_COLOR,
+            Duration::from_millis(50),
+        )
+        .unwrap();
+        assert_eq!(fake.sent.len(), 9);
+        let mut params: Vec<(u16, u16)> = Vec::new();
+        let mut algorithms = Vec::new();
+        for req in &fake.sent {
+            let opcode = u16::from_le_bytes([req[4], req[5]]);
+            if opcode == Opcode::SetParam.as_u16() {
+                params.push((
+                    u16::from_le_bytes([req[8], req[9]]),
+                    u16::from_le_bytes([req[10], req[11]]),
+                ));
+            } else {
+                assert_eq!(opcode, Opcode::AlgorithmParams.as_u16());
+                algorithms.push(u16::from_le_bytes([req[8], req[9]]));
+            }
+        }
+        assert_eq!(
+            params,
+            vec![
+                (5, 0),  // stream0 OFF baseline
+                (17, 0), // flicker default
+                (71, 0), // firmware mirror off
+                (5, 1),  // stream0 = COLOR (the stream-on write)
+                (50, 0), // crop mode disabled
+                (80, 1), // auto exposure on
+                (77, 1), // auto white balance on
+            ]
+        );
+        // NOTE: format/res/fps (12/13/14) are written by start_color
+        // BEFORE configure_color_via, matching the C where they are
+        // configured as stream properties.
+        assert_eq!(algorithms, vec![0x06, 0x80]); // BLANKING, FREQUENCY
+                                                  // frequency request uses resolution 0 / fps 0 like the C
+        let freq_req = &fake.sent[4];
+        assert_eq!(u16::from_le_bytes([freq_req[12], freq_req[13]]), 0);
+        assert_eq!(u16::from_le_bytes([freq_req[14], freq_req[15]]), 0);
     }
 }

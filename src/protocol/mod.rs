@@ -162,6 +162,7 @@ pub enum Param {
     IrResolution = 26,
     IrFps = 27,
     DepthGmcMode = 36,
+    ImageCropMode = 50,
     ImageMirror = 71,
     IrMirror = 72,
     ImageAutoWhiteBalanceMode = 77,

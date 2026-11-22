@@ -126,6 +126,31 @@ fn parse_blanking(blob: Vec<u8>) -> CmosBlanking {
     }
 }
 
+/// Read the device clock frequency (algorithm 0x80, one f32).
+///
+/// The reference driver's stream-open helper reads this on EVERY stream
+/// open, between the configure writes and the stream-on write, with
+/// resolution 0 / fps 0 (XnSensorStreamHelper::Open ->
+/// XnHostProtocolAlgorithmParams(XN_HOST_PROTOCOL_ALGORITHM_FREQUENCY,
+/// ..., (XnResolutions)0, 0); `Resolution::Qvga` is wire value 0).
+/// Informational for depth/IR, part of the image-open sequence parity.
+pub fn read_device_frequency<T: ControlTransport>(
+    link: &mut CommandLink,
+    transport: &mut T,
+    timeout: Duration,
+) -> Result<f32> {
+    let blob = read_algorithm_params(
+        link,
+        transport,
+        super::algorithm_ids::FREQUENCY,
+        Resolution::Qvga, // the C passes (XnResolutions)0
+        0,
+        4, // sizeof(XnFrequencyInformation) = 1 f32
+        timeout,
+    )?;
+    Ok(f32::from_le_bytes([blob[0], blob[1], blob[2], blob[3]]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

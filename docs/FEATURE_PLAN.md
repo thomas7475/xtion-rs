@@ -11,14 +11,63 @@ project owner's constraint:
 > buses is permanently excluded (see "Excluded features" below). READS
 > of the same surfaces are safe and implemented as of 0.2.8.
 
-**Status after 0.2.8 (2026-11-23):** Phases 1-2 complete and hardware-
+**Status after 0.2.9 (2026-11-23):** Phases 1-2 complete and hardware-
 validated (depth, IR); Phase 3 items 9-11 still open; the read-only
 diagnostics tier (old item 12) shipped early in 0.2.8 together with the
 flash file-system READS, the init soft reset (GET_MODE/SET_MODE) and
-the PS-compressed color path. 0.2.8 is green on CI (105 lib + 2 golden
-tests, clippy clean, hardware target compiles); the on-camera run of
-the compressed color path + `system_commands_readonly` is the immediate
-next action.
+the PS-compressed color path. **0.2.9 adds stream hygiene + the full
+image-open C parity** (see section 0b): the on-camera color run still
+NACKed BadParams on the stream-on write after 0.2.8, and the re-audit
+found the reference guards every stream-mode write with an OFF
+transition, kills all streams at open/shutdown, and writes four more
+params in the image-open sequence. 0.2.9 is green on CI (106 lib +
+2 golden tests, clippy clean); the on-camera run of the new color path
++ `color_start_probe` (now with image-CMOS-type and boot-log dumps) is
+the immediate next action.
+
+## 0b. Stream hygiene + image-open parity (0.2.9)
+
+The 0.2.8 hardware run (camera attached, depth + IR passing) failed
+`color_stream_roundtrip` with NACK(BadParams) on the stream0=COLOR
+write, exactly like the pre-0.2.8 uncompressed attempts. Write-for-write
+re-audit of the reference image path (XnSensorImageStream.cpp,
+XnSensorStreamHelper.cpp, XnSensorFirmwareParams.cpp, XnSensor.cpp)
+found five C behaviours xtion-rs lacked; all are now ported:
+
+1. **Stream-mode writes go through OFF.** The reference guard
+   `SetStreamMode` rejects any mode change that does not pass through
+   OFF ("we require that every change to mode will go through OFF",
+   XnSensorFirmwareParams.cpp:585-600). The firmware enforces the same
+   rule server-side with NACK(BadParams), so a stream left in IR/COLOR
+   mode by an abnormal session poisons the next stream-on.
+   `start_depth`/`start_ir`/`start_color` now write OFF first.
+2. **Every clean session ends with all streams OFF** — the reference
+   writes all three stream modes to OFF in the pre-5.2 reset path
+   (XnHostProtocol.cpp:1804-1813) and at device shutdown
+   (XnSensor.cpp:315-317). Ported: `firmware_init_reset` step 7 (so
+   every `open()`/`soft_reset` starts from the OFF baseline) and a new
+   `Drop` for `Xtion` (best-effort kill on close, panic-proof).
+3. **The image-open sequence has steps xtion-rs skipped**: flicker
+   (param 17) and firmware mirror (param 71) are written on every
+   configure (ConfigureStreamImpl), and OpenStreamImpl always writes
+   crop mode (50, disabled) plus auto exposure (80) and auto white
+   balance (77) with their reference defaults TRUE on fw >= 5.8.9
+   (bImageAdjustmentsSupported). All five writes are now in
+   `configure_color_via`, order-verified by a unit test.
+4. **The device-frequency read** (ALGORITHM_PARAMS 0x80, 4-byte f32,
+   resolution 0 / fps 0) happens in `XnSensorStreamHelper::Open` on
+   EVERY stream open, between configure and stream-on. Ported as
+   `read_device_frequency`, issued by `start_color`.
+5. **bImageSupported** — the reference refuses to create the image
+   stream at all when fixed params report image CMOS type 0
+   (XnSensorFirmware.cpp:128-140). Not yet enforced host-side; the
+   hardware tests now print the value (0 = no color sensor detected)
+   plus the boot self-test log (CLR/PRJ/TEC lines) so the next run
+   decides between "stale-state/sequence" and "no working color CMOS".
+
+If the color start STILL NACKs after 0.2.9, `color_start_probe` output
+now pinpoints the state: per-step readbacks of the whole sequence, the
+image CMOS type, the firmware mode and the boot log.
 
 ## 0. Hardware-validation fixes (0.2.1)
 
