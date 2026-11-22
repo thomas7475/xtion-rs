@@ -78,6 +78,10 @@ pub enum XtionError {
     DeviceNotFound,
     #[error("USB error: {0}")]
     Usb(#[from] rusb::Error),
+    #[error(
+        "USB interface busy: the Xtion is already open in another process — or another handle in this process (e.g. parallel tests); run hardware tests with --test-threads=1 or open the device once"
+    )]
+    DeviceBusy,
     #[error("firmware rejected a command: {0}")]
     Nack(#[from] Nack),
     #[error("protocol error: {0}")]

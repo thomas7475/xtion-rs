@@ -225,12 +225,21 @@ impl Xtion {
         } else {
             UsbDevice::bulk_chunk_size(usb.depth_max_packet_size)
         };
+        // Bulk read buffer: 40 x max packet size (the reference driver's
+        // Linux bulk multiplier). Its length MUST stay a multiple of each
+        // endpoint's max packet size - the Linux USB stack completes
+        // bulk-IN URBs whose length is not a multiple with EOVERFLOW
+        // (observed on hardware when the buffer was whole-frame sized).
+        // Sizing on the larger of the two endpoints keeps it a multiple of
+        // both (max packet sizes are powers of two).
+        let chunk_len =
+            UsbDevice::bulk_chunk_size(usb.depth_max_packet_size.max(usb.image_max_packet_size));
         let fw_magic = link.protocol().fw_magic();
 
         Ok(Xtion {
             depth_assembler: StreamAssembler::new(fw_magic, ignore),
             color_assembler: StreamAssembler::new(fw_magic, ignore),
-            chunk: vec![0u8; UsbDevice::bulk_chunk_size(usb.depth_max_packet_size)],
+            chunk: vec![0u8; chunk_len],
             usb,
             link,
             version,
@@ -316,17 +325,6 @@ impl Xtion {
         self.set_param(Param::DepthFps, config.fps)?;
         self.set_param(Param::Stream1Mode, STREAM_MODE_DEPTH)?;
 
-        // Make sure the bulk read buffer can hold one frame's wire size.
-        let (width, height) = config.dimensions();
-        let pixels = (width * height) as usize;
-        let wire_size = match config.input_format {
-            DepthFormat::Uncompressed16Bit => pixels * 2,
-            _ => pixels * 11 / 8 + 11,
-        };
-        if wire_size > self.chunk.len() {
-            self.chunk.resize(wire_size, 0);
-        }
-
         self.depth_config = Some(config);
         Ok(())
     }
@@ -359,12 +357,6 @@ impl Xtion {
         self.set_param(Param::ImageFps, fps)?;
         self.set_param(Param::Stream0Mode, STREAM_MODE_COLOR)?;
 
-        // one YUV422 frame is 2 bytes/pixel on the wire
-        let (width, height) = resolution.dimensions();
-        let wire_size = (width * height * 2) as usize;
-        if wire_size > self.chunk.len() {
-            self.chunk.resize(wire_size, 0);
-        }
         self.color_config = Some(resolution);
         Ok(())
     }
@@ -374,6 +366,19 @@ impl Xtion {
         self.set_param(Param::Stream0Mode, STREAM_MODE_OFF)?;
         self.color_config = None;
         Ok(())
+    }
+
+    /// One bulk read into the chunk buffer. A USB timeout means "no data
+    /// yet" and maps to 0 — the caller's deadline governs the wait. (rusb
+    /// returns Ok(n) when a timeout still delivered partial data, so no
+    /// stream bytes are lost.)
+    fn bulk_read_slice(&mut self, endpoint: u8, timeout: Duration) -> Result<usize> {
+        match self.usb.bulk_read(endpoint, &mut self.chunk, timeout) {
+            Ok(n) => Ok(n),
+            Err(XtionError::Usb(rusb::Error::Timeout))
+            | Err(XtionError::Usb(rusb::Error::Interrupted)) => Ok(0),
+            Err(e) => Err(e),
+        }
     }
 
     /// Block until one depth frame is decoded. Corrupted frames are
@@ -398,9 +403,7 @@ impl Xtion {
                 return Err(XtionError::ControlTimeout);
             }
             let slice = (deadline - now).min(BULK_POLL_SLICE);
-            let n = self
-                .usb
-                .bulk_read(self.usb.endpoints.depth, &mut self.chunk, slice)?;
+            let n = self.bulk_read_slice(self.usb.endpoints.depth, slice)?;
             if n > 0 {
                 self.depth_assembler.feed(&self.chunk[..n]);
             }
@@ -433,9 +436,7 @@ impl Xtion {
                 return Err(XtionError::ControlTimeout);
             }
             let slice = (deadline - now).min(BULK_POLL_SLICE);
-            let n = self
-                .usb
-                .bulk_read(self.usb.endpoints.image, &mut self.chunk, slice)?;
+            let n = self.bulk_read_slice(self.usb.endpoints.image, slice)?;
             if n > 0 {
                 self.color_assembler.feed(&self.chunk[..n]);
             }

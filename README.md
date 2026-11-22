@@ -25,7 +25,7 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Registration, MJPEG, misc/GMC, keep-alive | not yet (see docs/PLAN.md) |
 | Pre-3.0 firmware (bulk control endpoints) | not supported (explicit error) |
 
-Everything that can be verified without the camera **is** verified: 53
+Everything that can be verified without the camera **is** verified: 56
 tests pass on a bare CI machine (`cargo test`), and the two numerical
 cores are proven equal to the original C++ implementation by golden
 vectors generated from a verbatim C transcription
@@ -75,6 +75,16 @@ driver (Apache-2.0, PrimeSense Ltd.); see `NOTICE.md`. The decode cores
 are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
+
+- **0.1.2** - fixed the second on-hardware failure: every depth bulk read
+  returned `USB error: Overflow` because the read buffer was resized to
+  the whole frame's wire size (422,411 bytes - not a multiple of the
+  512-byte max packet size; the Linux USB stack completes such bulk-IN
+  URBs with EOVERFLOW). Reads now always use 40 x maxpacket chunks like
+  the C reference, read timeouts are retried until the caller's deadline
+  instead of failing, parallel hardware tests are serialized (the
+  `Usb(Busy)` collision), and a busy device now reports a dedicated
+  `DeviceBusy` error with guidance.
 
 - **0.1.1** - fixed the first on-hardware failure: replies can arrive split
   across multiple vendor control-IN transfers (the first run of

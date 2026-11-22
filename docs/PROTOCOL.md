@@ -237,6 +237,22 @@ R = clamp((C + 409*E) >> 8);  G = clamp((C - 100*D - 208*E) >> 8);  B = clamp((C
     12-byte base struct is valid.
   - The device pads the struct to a whole word (33 -> 34 bytes).
 
+### Bulk read buffer sizing (verified on hardware)
+
+- The reference read thread reads in chunks of **40 x max packet size**
+  (`XN_SENSOR_USB_DEPTH_BUFFER_SIZE_MULTIPLIER_BULK` = 40 on Linux,
+  `XnDeviceSensorInit.h`) into a ring of pre-submitted async URBs
+  (`xnUSBInitReadThread`).
+- **Every bulk-IN read length must be a multiple of the endpoint's
+  wMaxPacketSize.** The Linux USB stack completes a bulk-IN URB whose
+  length is not a multiple with `EOVERFLOW` — observed live: a
+  whole-frame-sized buffer of 422,411 bytes (640x480 packed-11 + headers,
+  422,411 % 512 = 11) failed instantly on every frame read, while the
+  regular 40 x 512 = 20,480-byte chunks work.
+- A read timeout with partial data still returns the received bytes
+  (libusb/rusb behavior); an empty timeout must be retried until the
+  caller's deadline — data paces at ~12 MB/s for 640x480@30 packed-11.
+
 ## 9. Reference file map
 
 | Topic | File in OpenNI 2.2.0 |

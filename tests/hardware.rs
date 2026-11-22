@@ -1,10 +1,24 @@
 //! Hardware integration tests. These run only when a real Xtion is
 //! attached; without one they are skipped so `cargo test` stays green on
 //! any machine (CI included).
+//!
+//! The tests must not run in parallel: only one process/handle can claim
+//! the device's USB interface, so a global mutex serializes them (the
+//! same effect as `cargo test -- --test-threads=1`, but foolproof).
 
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use xtion::{DepthConfig, Xtion};
+
+/// Serializes device access across the test threads.
+static DEVICE_LOCK: Mutex<()> = Mutex::new(());
+
+/// Take the device lock; poisoning (a previously panicked test) is
+/// ignored so the remaining tests still run.
+fn lock_device() -> MutexGuard<'static, ()> {
+    DEVICE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 fn hardware_present() -> bool {
     match xtion::list_devices() {
@@ -19,6 +33,7 @@ fn open_handshake_and_identity() {
         eprintln!("skipped: no Xtion attached");
         return;
     }
+    let _lock = lock_device();
     let mut cam = Xtion::open().expect("open");
     println!("version: {}", cam.version);
     assert!(
@@ -44,6 +59,7 @@ fn depth_stream_roundtrip() {
         eprintln!("skipped: no Xtion attached");
         return;
     }
+    let _lock = lock_device();
     let mut cam = Xtion::open().expect("open");
     let config = DepthConfig::default();
     cam.start_depth(config).expect("start depth");

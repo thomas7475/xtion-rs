@@ -20,7 +20,7 @@ file.
 | M2 - Calibration | Fixed params, ALGORITHM_DEPTH_INFO, S2D tables | **done, C-verified** |
 | M3 - Depth stream | Bulk framing, packed-11 decode, shift-to-depth, VGA@30 | **code done, unit+C-verified; on-camera test pending** |
 | M4 - Color stream | YUV422 bulk framing + RGB conversion | **code done, unit-verified; on-camera test pending** |
-| M5 - On-camera validation | Run the integration tests + examples on real hardware | **in progress: first run found the split-reply transport quirk (fixed in 0.1.1, regression-tested); re-run pending** |
+| M5 - On-camera validation | Run the integration tests + examples on real hardware | **in progress: control path verified live (fw 5.8.22 identity/serial/calibration OK); second run found the bulk-buffer EOVERFLOW quirk (fixed in 0.1.2) + parallel-test Busy collision (serialized); depth-frame re-run pending** |
 | M6 - Robustness | Timeouts, error recovery, keep-alive, multi-frame pipelining | pending |
 | M7 - Completeness | Registration, MJPEG, misc/GMC packets, LED/emitter controls | pending |
 | M8 - Ergonomics | Callback API, `std::error` polish, docs.rs, publish to crates.io | pending |
@@ -78,6 +78,7 @@ xtion-rs/
 | Stale wrong-id reply discarded; NOT_READY re-send (same id) | `protocol::command` unit | no | pass |
 | Version parse quirks: minor/major wire swap, hex build, 12-byte base struct | `device` unit | no | pass |
 | Handshake with split version reply (exact hardware scenario) + v2.5 fallback | `device` unit | no | pass |
+| Bulk chunk length is a multiple of wMaxPacketSize (EOVERFLOW regression) | `usb` unit | no | pass |
 | Exchange over fake transport | `protocol::command` unit | no | pass |
 | Fixed-params blob parsing at documented offsets | `protocol::fixed_params` unit | no | pass |
 | Algorithm-param request layout | `protocol::algorithm` unit | no | pass |
@@ -96,7 +97,7 @@ xtion-rs/
 Run everything without hardware:
 
 ```bash
-cargo test          # 53 tests, all green without a camera attached
+cargo test          # 56 tests, all green without a camera attached
 cargo clippy --all-targets   # 0 warnings
 cargo fmt --check
 ```

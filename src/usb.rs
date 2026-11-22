@@ -103,7 +103,10 @@ impl UsbDevice {
             return Err(XtionError::UnsupportedFirmware);
         }
 
-        handle.claim_interface(0)?;
+        handle.claim_interface(0).map_err(|e| match e {
+            rusb::Error::Busy => XtionError::DeviceBusy,
+            other => other.into(),
+        })?;
 
         let (depth_mps, image_mps) = Self::max_packet_sizes(&handle)?;
         Ok(UsbDevice {
@@ -248,5 +251,39 @@ mod tests {
     #[test]
     fn bulk_chunk_size_uses_linux_multiplier() {
         assert_eq!(UsbDevice::bulk_chunk_size(512), 40 * 512);
+    }
+
+    /// Regression for the on-hardware "USB error: Overflow": every bulk
+    /// read length must be a multiple of the endpoint's max packet size.
+    #[test]
+    fn bulk_chunk_size_is_multiple_of_max_packet() {
+        for mps in [64u32, 512, 1024] {
+            let chunk = UsbDevice::bulk_chunk_size(mps);
+            assert_eq!(chunk % mps as usize, 0, "mps {mps}");
+        }
+    }
+
+    /// The device-level chunk buffer is sized on the larger endpoint so it
+    /// is a valid multiple for BOTH bulk-in endpoints (max packet sizes
+    /// are powers of two, so the larger is a multiple of the smaller).
+    #[test]
+    fn shared_chunk_size_is_multiple_for_both_endpoints() {
+        for (depth_mps, image_mps) in [(512u32, 512), (512, 1024), (64, 512), (1024, 64)] {
+            let chunk = UsbDevice::bulk_chunk_size(depth_mps.max(image_mps));
+            assert_eq!(chunk % depth_mps as usize, 0, "depth mps {depth_mps}");
+            assert_eq!(chunk % image_mps as usize, 0, "image mps {image_mps}");
+        }
+    }
+
+    /// The old whole-frame sizes were NOT valid multiples - this is what
+    /// produced EOVERFLOW on every frame read.
+    #[test]
+    fn whole_frame_sizes_are_not_multiples() {
+        let packed11_frame = 640 * 480 * 11 / 8 + 11; // 422,411
+        assert_ne!(packed11_frame % 512, 0);
+        let yuv422_frame = 640 * 480 * 2; // 614,400
+        assert_eq!(yuv422_frame % 512, 0); // this one *happens* to be one
+        let yuv422_sxga = 1280 * 1024 * 2; // 2,621,440
+        assert_eq!(yuv422_sxga % 512, 0);
     }
 }
