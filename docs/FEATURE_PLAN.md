@@ -1,18 +1,24 @@
 # Feature Plan: Closing the Gap to the OpenNI 2 PS1080 Driver
 
 This plan lists everything the OpenNI 2.2.0 PS1080 driver
-(`Source/Drivers/PS1080`, Apache-2.0) implements that xtion-rs 0.1.5 does
+(`Source/Drivers/PS1080`, Apache-2.0) implements that xtion-rs does
 not, evaluates each feature by implementation effort and **risk to the
 camera**, and schedules them in phases. The guiding safety rule, per the
 project owner's constraint:
 
 > **No write that could delete calibration data or overwrite configs.**
-> Everything that touches device flash, calibration data, or raw sensor
-> buses is permanently excluded (see "Excluded features" below).
+> Everything that WRITES device flash, calibration data, or raw sensor
+> buses is permanently excluded (see "Excluded features" below). READS
+> of the same surfaces are safe and implemented as of 0.2.8.
 
-All Phase 1-2 features are runtime-only firmware state (RAM, lost on
-power-cycle) — the same operations the vendor driver issued for a decade
-of field use.
+**Status after 0.2.8 (2026-11-23):** Phases 1-2 complete and hardware-
+validated (depth, IR); Phase 3 items 9-11 still open; the read-only
+diagnostics tier (old item 12) shipped early in 0.2.8 together with the
+flash file-system READS, the init soft reset (GET_MODE/SET_MODE) and
+the PS-compressed color path. 0.2.8 is green on CI (105 lib + 2 golden
+tests, clippy clean, hardware target compiles); the on-camera run of
+the compressed color path + `system_commands_readonly` is the immediate
+next action.
 
 ## 0. Hardware-validation fixes (0.2.1)
 
@@ -127,40 +133,79 @@ that reuses the already-proven image pipe:
    exclusive (same firmware stream slot); IR+depth run together fine and
    that is exactly the pairing hardware registration is designed for.
 
-### Phase 3 — medium effort, still zero-risk (next minor release)
+### Phase 3 — medium effort, still zero-risk (NEXT)
 
-9. Cropping (PARAMs 46-60): firmware crop size/offset/mode per stream,
-   with the reference driver's "bigger crop first, then shrink" protocol
-   for changing crop on the fly.
-10. Depth AGC bins (PARAMs 63-70) and wavelength correction (73/74).
-11. GMC motion data (packet 0xa200, up to 100 points per packet) and its
+9. **Cropping (PARAMs 46-60)** — firmware crop size/offset/mode per
+   stream, with the reference driver's "bigger crop first, then shrink"
+   protocol for changing crop on the fly (SizeX -> SizeY -> OffsetX ->
+   OffsetY -> Mode last). The next feature to implement.
+10. **Full C parity at image open** — the reference `OpenStreamImpl`
+    also writes crop-mode 50 = disabled and, on fw >= 5.8.9
+    (bImageAdjustmentsSupported), auto-exposure (80) + auto-white-balance
+    (77) at every image stream open, after the stream0-mode write. Port
+    these three writes for byte-level parity (harmless RAM params).
+11. Depth AGC bins (PARAMs 63-70) and wavelength correction (73/74,
+    ALGORITHM_PARAMS 0x80 FREQUENCY for multi-camera interference
+    avoidance).
+12. GMC motion data (packet 0xa200, up to 100 points per packet) and its
     debug channel; `set_gmc_params` (OPCODE 26) configuration.
-12. Read-only diagnostics: CPU stats (27), TEC/emitter status (30/32/38),
-    firmware log read (7) with log filter/interval params (30/31).
+13. **Depth-to-color registration end-to-end**: `set_registration(true)`
+    (PARAM 2) exists since 0.2.0, but the host-side side — the
+    REGISTRATION algorithm tables (ALGORITHM_PARAMS 0x02) and the
+    on-device frame-size/padding implications — is unported. For a
+    photogrammetry pipeline this is the highest-value remaining feature:
+    it aligns depth onto the color image in firmware, so RGB + depth
+    pixels correspond 1:1.
+
+### Phase 3a — read-only diagnostics (implemented in 0.2.8)
+
+The owner authorized every command that does not write flash, so the
+READ side of surfaces that were once excluded wholesale is now
+implemented (`src/protocol/system.rs`, one `Xtion` method each):
+
+- GET_LOG 7 (text/overflow/structured entries), GET_CPU_STATS 27,
+- GET_TEC_DATA 30 / GET_FAST_CONVERGENCE_TEC 38 (post-5.4 layout),
+- GET_EMITTER_DATA 32, GET_CMOS_BLANKING 35 (direct, distinct from
+  ALGORITHM_PARAMS 0x06),
+- I2C_READ 11 + CMOS register reads via the fixed-params bus/slave
+  (`XnHostProtocolGetCMOSRegisterI2C` parity), READ_AHB 20,
+- flash file-system READS: DOWNLOAD_FILE 16, GET_FLASH_MAP 18,
+  GET_FILE_LIST 19, READ_FLASH 25,
+- BIST 28 (the updater runs it continuously; 300 s-class timeout).
+
+Covered by the `system_commands_readonly` hardware test (reports, does
+not gate). Still excluded: every WRITE on these buses (see section 3).
 
 ### Phase 4 — large surfaces (only on explicit request)
 
-13. Audio (STREAM2_MODE=7 + PARAMs 8-11/33-35 + packets 0x9200): a full
+14. Audio (STREAM2_MODE=7 + PARAMs 8-11/33-35 + packets 0x9200): a full
     USB Audio Class implementation; disabled even in OpenNI 2.2.0.
-14. CMOS blanking (34/35) and presets (36): changes sensor timing; needs
-    on-camera validation against a known-good configuration.
+15. Remaining stream modes as convenience surface: QVGA/60 fps image,
+    SXGA/720p/1280x960 Bayer image, QVGA depth, 25 fps depth/image
+    modes, YUYV/Bayer image inputs — configuration only, the machinery
+    (ring, assembler, decoders) already exists; each needs a preset-
+    validated mode + a hardware test.
+16. NESA debug channel (packet 0xd201) and TEC debug (0xd200) capture —
+    diagnostic curiosity, no product value known.
 
 ## 3. Excluded features (never in this driver)
 
-Per the safety rule, these are **not planned**, not merely deferred:
+Per the safety rule, these are **not planned**, not merely deferred.
+Since 0.2.8 the exclusion list covers only the WRITE side; the matching
+reads are implemented (Phase 3a).
 
 | Feature | Opcodes/params | Why excluded |
 |---|---|---|
-| Flash file system (upload/download/delete/execute/read/attributes) | 13-19, 23-25, PARAM 85 | writes firmware, parameter images and calibration files to device flash; a bug here can brick the camera or wipe per-sensor calibration |
+| Flash file system WRITES (upload/delete/execute/attributes) | 13, 14, 15, 17, 23, 24, PARAM 85 | writes firmware, parameter images and calibration files to device flash; a bug here can brick the camera or wipe per-sensor calibration |
+| TAKE_SNAPSHOT | 12 | writes a frame to device flash |
 | Raw I2C bus writes | 10 | direct CMOS register writes can leave a sensor in a bad state |
 | Raw AHB bus writes | 21 | writes arbitrary SoC memory |
 | TEC calibration | 29 | writes calibration data |
 | Emitter calibration | 31 | writes emitter power calibration |
 | Projector-fault calibration | 33 | writes safety-threshold calibration |
-| Take snapshot | 12 | writes a frame to device flash |
-| SET_MODE | 6 | changes firmware mode; the read side (5) may be added later |
+| SET_MODE (all modes except SOFT_RESET) | 6 | REBOOT/MAINTENANCE/SYSTEM_RESTORE change persistent device state; only the fire-and-forget SOFT_RESET (mode 3) of the C's init path is issued (0.2.7) |
 | SET_LED_STATE | 41 | harmless but pointless: the Xtion has no LED |
-| Reset sensor | XN_MODULE_PROPERTY_RESET | forces a device reset |
+| Reset sensor (power/reboot property) | XN_MODULE_PROPERTY_RESET | forces a device reset; the soft reset covers the need |
 
 The vendor's own updater is the right tool for anything in this table.
 
