@@ -1,6 +1,6 @@
 # Chat Session Backup — ASUS Xtion Linux research
 
-**Version:** 11 (2026-11-22, turn 10) · **Status: Third on-hardware failure diagnosed and fixed — after the EOVERFLOW fix the depth stream ran, but every assembled frame was a FRAGMENT (736..45424 of 307200 pixels, ~4% of stream bytes surviving): sync bulk reads (one URB at a time) lose data in the gaps between reads because the Xtion's FPGA FIFO drops data when no URB is queued; ported the C's async 16×40×maxpacket pre-submitted URB ring (src/ring.rs via libusb1-sys, since rusb 0.9 has no async API) with in-callback resubmit + event thread + leak-safe Drop; added bus-speed/mps/ring-stats diagnostics; pushed as 0.1.3 (commit 00909ed); user should pull and re-run**
+**Version:** 12 (2026-11-22, turn 11) · **Status: Fourth on-hardware failure diagnosed and fixed — 0.1.3's async ring worked perfectly (12.05 MB/s = full stream, 0 failures, High speed, mps 512) but frames assembled at EXACTLY 24560/307200 px @30fps: buf_size is the ONE BIG-ENDIAN field in the otherwise little-endian 12-byte stream packet header (the C's parse applies an extra UNCONDITIONAL xnOSEndianSwapUINT16 to nBufSize alone); LE-read made 512-B packets parse as buf_size 2 → payload 0 → frames filled with false-magic junk; ALSO fixed a second real bug (zero-payload EOF packets not dispatched at chunk end); added raw_dump example + fw_magic/tap_depth_stream diagnostics; pushed as 0.1.4 (commit 6720e97); user should pull and re-run**
 
 > Purpose: upload this file in a new chat to restore full context. It records
 > the standing rules, the task, everything that was found and decided, every
@@ -35,76 +35,60 @@
   hFOV 58.59°). Fixed: whole-frame buffer (422,411 % 512 = 11) → EOVERFLOW
   → permanent 40×maxpacket chunks; parallel-test Usb(Busy) → mutex +
   DeviceBusy error. 0.1.2 (ca85e8e) + recovery (7b84d21).
-- **Turn 10 (2026-11-22, this turn):** third on-hardware run: stream runs,
-  `Busy`/`Overflow` gone, but frames are FRAGMENTS (see status). Ported the
-  C's async URB ring. 0.1.3 (00909ed). Full-frame validation pending.
+- **Turn 10 (2026-11-22):** third on-hardware run: stream runs, no
+  Overflow/Busy, but frames were fragments (736..45424 px, ~4% bytes
+  surviving) → ported the C's async 16-URB ring. 0.1.3 (00909ed).
+- **Turn 11 (2026-11-22, this turn):** fourth run: ring perfect
+  (12.05 MB/s, 0 failures) but frames EXACTLY 24560/307200 px @ 30 fps
+  → buf_size big-endian quirk + zero-payload dispatch bug. 0.1.4
+  (6720e97). Full-frame validation pending.
 
-## 3. Turn-10 evidence, root cause and fix (the important part)
+## 3. Turn-11 evidence, root cause and fix (the important part)
 
-**Run 3 output (user's machine):** both hardware tests serialize fine now;
-`open_handshake_and_identity` passes; `depth_dump` starts the stream
-("640x480 @ 30 fps (Uncompressed11Bit)") and completes SOF→EOF groups, but
-each assembled "frame" carries only a slice: `61/23072`, `102/40208`,
-`3/1480`, `112/45424` valid/total pixels, min ≈ 315 mm (real close-range
-data), timestamps advancing by EXACTLY 2,002,155 units (~60 frame periods
-at 30 fps) per assembled frame; the hardware test got 14,888 px (≈ one
-20 KB read-chunk of payload) instead of 307,200. Total surviving bytes
-across 30 "frames" ≈ 2.3 real frames (~4%).
+**Run 4 output (user's machine):** `list` shows usb speed High, mps 512
+depth+image. `depth_dump 30`: every frame EXACTLY 24560/307200 px (first
+frame 25312), ~55-67 valid, min 315 mm, timestamps advancing by EXACTLY
+2,002,155 ticks/frame; ring: 634 completions, 12,804,988 B in 1.01 s =
+12.05 MB/s, **0 failures** — the FULL stream arrives. 2,002,155 ticks per
+33.33 ms frame ⇒ ~60 MHz device clock (frame timestamps come from the EOF
+packet header, matching the C's CreateTimestampFromDevice in
+OnEndOfFrame).
 
-**Diagnosis:** not a parser bug — the framing port was re-verified against
-`XnDeviceSensorProtocol.cpp::XnDeviceSensorProtocolUsbEpCb` (ignore-garbage
-→ magic scan → 12-byte header → data; header includes the magic; buf_size
-includes the header) and `XnFrameStreamProcessor.cpp::ProcessPacketChunk`
-(SOF starts a frame at packet-chunk offset 0; frame closes when the LAST
-chunk of an EOF packet arrives; SOF+data+EOF payloads concatenate into the
-frame buffer; double-SOF is JPEG-image-only, correctly not ported). The
-fragments are genuine DEVICE-SIDE DATA LOSS: with a sync read loop there is
-a gap between reaping one 20 KiB URB and submitting the next; the Xtion's
-small FPGA FIFO drops stream data whenever no URB is ready. The C driver's
-read design exists precisely for this: `xnUSBInitReadThread` /
-`XnUSBReadThreadMain` (XnLinuxUSB.cpp) pre-submit 16 async transfers
-(XN_SENSOR_USB_DEPTH_BUFFERS, Linux) of 40 × maxpacket each, re-submit
-each immediately after its completion is processed, run the thread at
-CRITICAL priority, and warn "might cause loss of data" otherwise.
+**Diagnosis path:** transport ruled out → parser must be dropping 92% of
+payload. Re-checked the C's response header struct (XnDeviceSensorProtocol.h:
+magic, type, packetID, bufSize, timestamp) — my field order was already
+correct. Then the C's parse in XnDeviceSensorProtocol.cpp: all fields pass
+XN_PREPARE_VAR16_IN_BUFFER (verified: no-op on Linux-x86 LE), but nBufSize
+alone gets an additional UNCONDITIONAL xnOSEndianSwapUINT16 (verified in
+XnLinuxMemory.cpp: plain byteswap, no host check) ⇒ **buf_size is
+BIG-ENDIAN on the wire**; everything else little-endian. My LE read of a
+512-B packet's field bytes [02, 00] = 2 → payload 2−12 → 0 → every real
+data packet contributed NOTHING; a bare 12-B EOF (BE 12 = [00, 0C]) parsed
+as 3072 → injected ~3 KB junk per frame; false magics inside payload
+added the rest. Steady scene → identical packed bytes each frame →
+IDENTICAL junk count (24560) every frame — the regularity was the tell.
 
-**Fix (0.1.3):** new `src/ring.rs` — `BulkRing`:
-- 16 pre-submitted libusb bulk-IN transfers, 40×maxpacket each, infinite
-  timeout, submitted BEFORE the stream mode is switched on.
-- Completion callback (on the event thread) copies `actual_length` bytes
-  to a queue, notifies a condvar, and RE-SUBMITS INSIDE the callback, so
-  queued URBs never drop to zero.
-- Dedicated event thread: `libusb_handle_events_timeout_completed` with a
-  10 ms tick; exits on kill && in-flight == 0; marks events dead on fatal
-  errors.
-- Drop: kill flag → cancel loop until in-flight drains (handles a callback
-  racing the flag) → join → free; if the event loop died with transfers
-  in flight, LEAKS them like the C does on disconnect.
-- Consumer: `pop(deadline)` (condvar), errors surface through the queue
-  wake; read_depth_frame/read_color_frame feed popped chunks into the
-  existing StreamAssembler.
-- Integration: rings are Xtion fields declared BEFORE `usb` (drop order);
-  start_depth/start_color start the ring after SET_MODE; stop_* drops the
-  ring before SET_MODE off; UsbDevice now owns the rusb Context (raw
-  pointer lifetime) and records bus speed.
-- Diagnostics: Xtion::usb_speed / usb_max_packet_sizes /
-  depth_ring_stats(RingStats); list example prints speed + mps;
-  depth_dump prints ring config, expected-vs-got pixels per frame, and
-  ring completions/bytes/MB/s + "needs ~12.7 MB/s" note; hardware test
-  prints speed + mps. A full-speed bus (~1.2 MB/s ceiling) would now be
-  visible immediately.
-
-libusb1-sys 0.7 (rusb's own backend) + libc are direct deps now.
-Rust notes hit this turn: rusb::Error variants are `Io`/`Other` (not
-IoError); `libusb_transfer_cb_fn` is NOT Option-wrapped; raw pointers
-can't cross `thread::spawn` — pass as `usize` (edition-2021 disjoint
-capture defeats Send-wrapper field access); clippy vec_box allow is
-load-bearing (Box = stable user_data addresses); XtionError now Clone.
+**Fix (0.1.4):** `PacketHeader::parse` reads buf_size via
+`u16::from_be_bytes`; stream.rs test builder writes it BE; new regression
+test encodes a real 512-B wire packet and asserts 500-B payload survives
+assembly. That test exposed a SECOND real bug: a zero-payload packet whose
+header completed at the END of a read chunk was never dispatched until the
+next chunk (feed loop exits on empty chunk) — delayed every frame close by
+one chunk and would lose the final frame on stop. Fixed: zero-payload
+packets dispatch immediately after header completion; EOF close check
+extracted to close_if_eof(). New ground-truth tooling: examples/raw_dump.rs
+(captures raw stream via new Xtion::tap_depth_stream, decodes headers
+standalone showing buf_size BOTH ways, per-type counts, px estimate) +
+Xtion::fw_magic(); new XtionError::Io variant. Verified against C while at
+it: packet types 0x7100/0x7200/0x7500/0x8100/0x8200/0x8500 match
+XnDeviceSensorProtocol.h exactly; SOF-padding and EOF-timestamp semantics
+match XnDepthProcessor/XnFrameStreamProcessor.
 
 ## 4. Deliverables (all under /home/z/my-project/download/)
 
 | File | What it is |
 |---|---|
-| `asus_xtion_workspace_backup_2026-11-21_v10.zip` | Turn-10 zip (CURRENT). Older zips v1-v9 kept. |
+| `asus_xtion_workspace_backup_2026-11-21_v11.zip` | Turn-11 zip (CURRENT). Older zips v1-v10 kept. |
 | `session_backup_2026-11-21.md` | This file (v11). |
 | `asus_xtion_rust_stack_options.pdf` | Turn-6 options report. |
 | `rust-xtion-check/` | Turn-6 Option-A smoke-test crate. |
@@ -120,8 +104,8 @@ Its docs/recovery/ holds a copy of this backup + the v6 workspace zip.
 
 ## 5. Workspace state (2026-11-22, after turn 10)
 
-- `/home/z/my-project/xtion-rs/` — 0.1.3, 59 tests green, clippy 0, fmt
-  clean. This turn added `src/ring.rs` and touched: device.rs (rings,
+- `/home/z/my-project/xtion-rs/` — 0.1.4, 60 tests green, clippy 0, fmt
+  clean. Turn 11 changed: protocol/mod.rs (BE buf_size), stream.rs (zero-payload dispatch, close_if_eof, BE tests), error.rs (Io variant), device.rs (fw_magic, tap_depth_stream), examples/raw_dump.rs (new), Cargo.toml 0.1.4. Turn 10 added `src/ring.rs` and touched: device.rs (rings,
   ring-based read loops, diagnostics accessors, BULK_POLL_SLICE removed),
   usb.rs (context+speed owned, raw_context/raw_handle pub(crate)),
   error.rs (Clone), lib.rs (ring exports), both examples, tests/hardware.rs,
@@ -142,6 +126,12 @@ Its docs/recovery/ holds a copy of this backup + the v6 workspace zip.
 
 ## 6. Gotchas learned (cumulative, new first)
 
+- **buf_size in the 12-byte stream packet header is BIG-ENDIAN** (the only BE
+  field; the C applies an unconditional xnOSEndianSwapUINT16 to it alone).
+- Zero-payload packets must be dispatched immediately when their header
+  completes at a chunk boundary, or frame closes lag/lose the last frame.
+- The PS1080 stream works on HIGH speed USB at ~12.7 MB/s payload; the device
+  clock ticks ~60 MHz (≈2,002,155 ticks per 30 fps frame period).
 - **Sync bulk reads are not enough for PS1080 streams**: the device drops
   data when no URB is queued. Always keep a ring of pre-submitted async
   URBs (16 × 40 × maxpacket, re-submit in the callback).
@@ -174,18 +164,16 @@ Its docs/recovery/ holds a copy of this backup + the v6 workspace zip.
 
 ## 7. Open threads (if the user continues)
 
-- **Re-run on hardware (the immediate next action):** user pulls 00909ed
-  and runs, Xtion on a USB 2.0 (high-speed) port:
-  `cargo run --example list` (now prints usb speed + max packet sizes —
-  MUST say High; if Full, the port/cable is the problem),
-  `cargo test --test hardware -- --nocapture`,
+- **Re-run on hardware (the immediate next action):** user pulls 6720e97
+  and runs:
+  `cargo test --test hardware -- --nocapture` and
   `cargo run --example depth_dump -- 30`.
-  Expected now: full 307,200-pixel frames with mostly-valid pixels, and
-  the ring summary showing ~12+ MB/s. If frames are STILL short but the
-  ring shows ≥12 MB/s and 0 failures → the loss is elsewhere (then dump
-  raw packet headers: add an env-gated hexdump in ring/assembler);
-  if ring throughput caps at ~1.2 MB/s → bus negotiated full speed
-  (port/cable/hub issue, not a driver bug).
+  Expected now: full 307,200-pixel frames, high valid-pixel ratio (point
+  the camera at a normal scene), ring ~12 MB/s, 0 failures.
+  If anything is still off, run `cargo run --example raw_dump` — it
+  captures the raw stream to /tmp/xtion_raw.bin and decodes packet
+  headers standalone (type/id/size BE + LE-misread/ts + payload hex,
+  per-type counts) — paste that output; it is definitive ground truth.
 - After depth works: color stream (YUV422→RGB888 implemented, untested on
   hardware), then M6-M8 (registration, MJPEG, COMPRESSED_PS, keep-alive,
   timestamps, LED/emitter) per docs/PLAN.md.
