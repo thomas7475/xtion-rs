@@ -1,6 +1,6 @@
 # Chat Session Backup — ASUS Xtion Linux research
 
-**Version:** 12 (2026-11-22, turn 11) · **Status: Fourth on-hardware failure diagnosed and fixed — 0.1.3's async ring worked perfectly (12.05 MB/s = full stream, 0 failures, High speed, mps 512) but frames assembled at EXACTLY 24560/307200 px @30fps: buf_size is the ONE BIG-ENDIAN field in the otherwise little-endian 12-byte stream packet header (the C's parse applies an extra UNCONDITIONAL xnOSEndianSwapUINT16 to nBufSize alone); LE-read made 512-B packets parse as buf_size 2 → payload 0 → frames filled with false-magic junk; ALSO fixed a second real bug (zero-payload EOF packets not dispatched at chunk end); added raw_dump example + fw_magic/tap_depth_stream diagnostics; pushed as 0.1.4 (commit 6720e97); user should pull and re-run**
+**Version:** 13 (2026-11-22, turn 12) · **Status: Fifth on-hardware run: buf_size fix CONFIRMED — full 307200-px frames at 30 fps, 12.13 MB/s, 0 failures — but every pixel decoded 0/invalid. Full decode-chain audit vs the C found ONE confirmed bug: shift LUT was built with device_max_shift=1024 instead of XN_SHIFTS_MAX_SHIFT=2047 (packed-11 spans 0..2047; valid window for this calibration = shifts 1..1052 = 315..9870 mm; old table zeroed all >= 1024 i.e. 5.5-9.9 m). BUT the exact Python simulation shows a normal 0.5-4 m scene sits at shifts 403..1001 — INSIDE the old table — so max_shift alone cannot explain 0 valid pixels; remaining suspects: all-invalid stream (scene > 5.5 m / too close < 31.5 cm / occluded / emitter) or something not yet found. Added per-frame raw-shift histogram (DepthFrame::shift_stats + depth_dump) — the NEXT RUN's histogram line decides. Also ported the C's corrupt-frame drop (partial first frames like 150024 px). 0.1.5 (3948f07); user pulls, points camera at a wall ~1-2 m, re-runs depth_dump**
 
 > Purpose: upload this file in a new chat to restore full context. It records
 > the standing rules, the task, everything that was found and decided, every
@@ -38,57 +38,66 @@
 - **Turn 10 (2026-11-22):** third on-hardware run: stream runs, no
   Overflow/Busy, but frames were fragments (736..45424 px, ~4% bytes
   surviving) → ported the C's async 16-URB ring. 0.1.3 (00909ed).
-- **Turn 11 (2026-11-22, this turn):** fourth run: ring perfect
-  (12.05 MB/s, 0 failures) but frames EXACTLY 24560/307200 px @ 30 fps
-  → buf_size big-endian quirk + zero-payload dispatch bug. 0.1.4
-  (6720e97). Full-frame validation pending.
+- **Turn 11 (2026-11-22):** fourth run: ring perfect (12.05 MB/s) but
+  frames EXACTLY 24560/307200 px → buf_size big-endian quirk +
+  zero-payload dispatch bug. 0.1.4 (6720e97).
+- **Turn 12 (2026-11-22, this turn):** fifth run: FULL frames @30fps,
+  0 valid pixels → shift LUT max_shift 1024→2047 + corrupt-frame drop
+  + shift histogram diagnostics. 0.1.5 (3948f07). Validity pending.
 
-## 3. Turn-11 evidence, root cause and fix (the important part)
+## 3. Turn-12 evidence, audit and fix (the important part)
 
-**Run 4 output (user's machine):** `list` shows usb speed High, mps 512
-depth+image. `depth_dump 30`: every frame EXACTLY 24560/307200 px (first
-frame 25312), ~55-67 valid, min 315 mm, timestamps advancing by EXACTLY
-2,002,155 ticks/frame; ring: 634 completions, 12,804,988 B in 1.01 s =
-12.05 MB/s, **0 failures** — the FULL stream arrives. 2,002,155 ticks per
-33.33 ms frame ⇒ ~60 MHz device clock (frame timestamps come from the EOF
-packet header, matching the C's CreateTimestampFromDevice in
-OnEndOfFrame).
+**Run 5 output (user's machine):** depth_dump frames 2-30 assemble at
+EXACTLY 307,200 px @ 30 fps (ts +2,002,155/frame again), ring 676
+completions / 13,655,112 B / 1.07 s = 12.13 MB/s, 0 failures — the
+buf_size fix held; transport + assembly are DONE. Remaining: 0 valid
+pixels, min 0 mm on every full frame. First frame was partial
+(146,184 px; the hw test's first frame 150,024 px) and was DELIVERED
+(the C would drop it).
 
-**Diagnosis path:** transport ruled out → parser must be dropping 92% of
-payload. Re-checked the C's response header struct (XnDeviceSensorProtocol.h:
-magic, type, packetID, bufSize, timestamp) — my field order was already
-correct. Then the C's parse in XnDeviceSensorProtocol.cpp: all fields pass
-XN_PREPARE_VAR16_IN_BUFFER (verified: no-op on Linux-x86 LE), but nBufSize
-alone gets an additional UNCONDITIONAL xnOSEndianSwapUINT16 (verified in
-XnLinuxMemory.cpp: plain byteswap, no host check) ⇒ **buf_size is
-BIG-ENDIAN on the wire**; everything else little-endian. My LE read of a
-512-B packet's field bytes [02, 00] = 2 → payload 2−12 → 0 → every real
-data packet contributed NOTHING; a bare 12-B EOF (BE 12 = [00, 0C]) parsed
-as 3072 → injected ~3 KB junk per frame; false magics inside payload
-added the rest. Steady scene → identical packed bytes each frame →
-IDENTICAL junk count (24560) every frame — the regularity was the tell.
+**Decode-chain audit vs the C (all verified, file:line in PROTOCOL.md):**
+- packed-11 unpack: bit-for-bit identical to
+  XnPacked11DepthProcessor::Unpack11to16.
+- Wire payload 425,367 B/frame ≈ 422,400 + headers = 640x480x11/8 → the
+  device sends packed-11; XN_IO_DEPTH_FORMAT_UNCOMPRESSED_11_BIT = 3 IS
+  the packed format ("uncompressed" = no PS-compression; enum has no
+  separate PACKED_11). My DepthFormat enum matches the C exactly.
+- LUT formula (DDK/XnShiftToDepth.cpp) port verified; config inputs:
+  ZPD 120 / ZPPS 0.1052 / LDDIS 7.5 / ConstShift 200 from the device,
+  ParamCoeff=4 + ShiftScale=10 are driver constants
+  (XnSensorDepthStream.cpp:158-161), pixel_size_factor=1 (reference
+  resolution SXGA; only depth@60fps or IR@QVGA → VGA/2 per
+  RecalculateReferenceResolution + DecidePixelSizeFactor), cutoffs 0 and
+  10000 (XN_DEVICE_SENSOR_MAX_DEPTH_1_MM), no laser/emitter command
+  exists in the PS1080 driver (only projector FAULT calibration).
+- **THE BUG: device_max_shift was 1024; XN_SHIFTS_MAX_SHIFT = 2047**
+  (XnSensorDepthStream.cpp:42). Packed-11 spans 0..2047; a 1024-entry
+  table silently zeroes every shift >= 1024 (plus loop-exclusive entry
+  1024). Fixed to 2047 + regression tests.
+- Exact Python simulation of the C LUT with this calibration: valid
+  window = shifts 1..1052 → 315..9870 mm; shift 1024 → 5460 mm; a
+  0.5-4 m scene = shifts 403..1001 → **inside even the old broken
+  table** → max_shift alone does NOT explain 0 valid pixels. Either the
+  stream is genuinely all-invalid (scene beyond 5.5 m, closer than
+  31.5 cm, occluded/lens cap, or emitter issue) or something not yet
+  found. The new per-frame shift histogram decides in one run:
+  - all 2047/0 → device/scene issue (re-aim at a wall 1-2 m)
+  - spread in 1024-2046 → far scene, NOW fixed by the 2047 table
+  - spread in 1-1023 with still 0 valid → impossible per simulation;
+    would point to a new bug (then dump raw bytes via raw_dump)
 
-**Fix (0.1.4):** `PacketHeader::parse` reads buf_size via
-`u16::from_be_bytes`; stream.rs test builder writes it BE; new regression
-test encodes a real 512-B wire packet and asserts 500-B payload survives
-assembly. That test exposed a SECOND real bug: a zero-payload packet whose
-header completed at the END of a read chunk was never dispatched until the
-next chunk (feed loop exits on empty chunk) — delayed every frame close by
-one chunk and would lose the final frame on stop. Fixed: zero-payload
-packets dispatch immediately after header completion; EOF close check
-extracted to close_if_eof(). New ground-truth tooling: examples/raw_dump.rs
-(captures raw stream via new Xtion::tap_depth_stream, decodes headers
-standalone showing buf_size BOTH ways, per-type counts, px estimate) +
-Xtion::fw_magic(); new XtionError::Io variant. Verified against C while at
-it: packet types 0x7100/0x7200/0x7500/0x8100/0x8200/0x8500 match
-XnDeviceSensorProtocol.h exactly; SOF-padding and EOF-timestamp semantics
-match XnDepthProcessor/XnFrameStreamProcessor.
+**Also ported:** the C's corrupt-frame drop (XnDepthProcessor::
+OnEndOfFrame: assembled size != expected → FrameIsCorrupted → frame
+not delivered; this is what happens to the partial first frame of a
+stream). depth_dump now prints per-frame: `shifts: 0:N 2047:N 1-1023:N
+1024-2046:N min-max a..b` via new DepthFrame::shift_stats (ShiftStats
+computed during decode; tiny, no extra allocation kept).
 
 ## 4. Deliverables (all under /home/z/my-project/download/)
 
 | File | What it is |
 |---|---|
-| `asus_xtion_workspace_backup_2026-11-21_v11.zip` | Turn-11 zip (CURRENT). Older zips v1-v10 kept. |
+| `asus_xtion_workspace_backup_2026-11-21_v12.zip` | Turn-12 zip (CURRENT). Older zips v1-v11 kept. |
 | `session_backup_2026-11-21.md` | This file (v11). |
 | `asus_xtion_rust_stack_options.pdf` | Turn-6 options report. |
 | `rust-xtion-check/` | Turn-6 Option-A smoke-test crate. |
@@ -104,8 +113,8 @@ Its docs/recovery/ holds a copy of this backup + the v6 workspace zip.
 
 ## 5. Workspace state (2026-11-22, after turn 10)
 
-- `/home/z/my-project/xtion-rs/` — 0.1.4, 60 tests green, clippy 0, fmt
-  clean. Turn 11 changed: protocol/mod.rs (BE buf_size), stream.rs (zero-payload dispatch, close_if_eof, BE tests), error.rs (Io variant), device.rs (fw_magic, tap_depth_stream), examples/raw_dump.rs (new), Cargo.toml 0.1.4. Turn 10 added `src/ring.rs` and touched: device.rs (rings,
+- `/home/z/my-project/xtion-rs/` — 0.1.5, 61 tests green, clippy 0, fmt
+  clean. Turn 12 changed: depth/shift_to_depth.rs (max_shift 2047 + tests), device.rs (ShiftStats + corrupt-frame drop + DepthFrame.shift_stats), examples/depth_dump.rs (histogram print), docs, 0.1.5. Turn 11 changed: protocol/mod.rs (BE buf_size), stream.rs, error.rs, device.rs, examples/raw_dump.rs, 0.1.4. Turn 10 added `src/ring.rs`, 0.1.3.
   ring-based read loops, diagnostics accessors, BULK_POLL_SLICE removed),
   usb.rs (context+speed owned, raw_context/raw_handle pub(crate)),
   error.rs (Clone), lib.rs (ring exports), both examples, tests/hardware.rs,
@@ -126,6 +135,11 @@ Its docs/recovery/ holds a copy of this backup + the v6 workspace zip.
 
 ## 6. Gotchas learned (cumulative, new first)
 
+- **XN_SHIFTS_MAX_SHIFT = 2047** — the shift LUT must cover the full 0..2047
+  packed-11 range; 2047 = no-depth marker, 0 = invalid; for the reference
+  calibration valid = shifts 1..1052 (315..9870 mm), 0.5-4 m → 403..1001.
+- **A frame whose assembled size != expected must be dropped** (the partial
+  first frame after stream start), per the C's OnEndOfFrame check.
 - **buf_size in the 12-byte stream packet header is BIG-ENDIAN** (the only BE
   field; the C applies an unconditional xnOSEndianSwapUINT16 to it alone).
 - Zero-payload packets must be dispatched immediately when their header
@@ -164,16 +178,19 @@ Its docs/recovery/ holds a copy of this backup + the v6 workspace zip.
 
 ## 7. Open threads (if the user continues)
 
-- **Re-run on hardware (the immediate next action):** user pulls 6720e97
-  and runs:
-  `cargo test --test hardware -- --nocapture` and
-  `cargo run --example depth_dump -- 30`.
-  Expected now: full 307,200-pixel frames, high valid-pixel ratio (point
-  the camera at a normal scene), ring ~12 MB/s, 0 failures.
-  If anything is still off, run `cargo run --example raw_dump` — it
-  captures the raw stream to /tmp/xtion_raw.bin and decodes packet
-  headers standalone (type/id/size BE + LE-misread/ts + payload hex,
-  per-type counts) — paste that output; it is definitive ground truth.
+- **Re-run on hardware (the immediate next action):** user pulls 3948f07,
+  POINTS THE CAMERA AT A WALL ~1-2 m AWAY (not a far corner, not closer
+  than ~35 cm, no lens cap), and runs:
+  `cargo run --example depth_dump -- 10` and
+  `cargo test --test hardware -- --nocapture`.
+  Expected: full 307,200-px frames with a high valid count. If 0 valid
+  persists, the new `shifts:` histogram line decides:
+  - `0:N 2047:307200-ish` → the device streams no-depth markers:
+    scene/emitter problem (re-aim, check for cover, try another USB
+    port / replug).
+  - `1024-2046:large` → far scene; the 0.1.5 table now decodes these.
+  - `1-1023:large` but valid still 0 → contradicts the verified
+    simulation; run `cargo run --example raw_dump` and paste output.
 - After depth works: color stream (YUV422→RGB888 implemented, untested on
   hardware), then M6-M8 (registration, MJPEG, COMPRESSED_PS, keep-alive,
   timestamps, LED/emitter) per docs/PLAN.md.
