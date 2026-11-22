@@ -152,7 +152,36 @@ Every new code path is covered by tests that run **without hardware**:
 - The on-camera integration tests (`tests/hardware.rs`, run only when a
   device is attached) gain identity + IR + registration checks.
 
-## 5. Sources
+## 5. Firmware capabilities beyond the OpenNI 2.2.0 driver (verified)
+
+Diff of the firmware 5.8.22 command surface against what the OpenNI
+PS1080 driver actually calls (verified by grepping every
+`XnHostProtocol*` function for call sites, not just opcode defines):
+
+| Firmware capability | Surface | OpenNI 2.2.0 status | Evidence |
+|---|---|---|---|
+| Audio capture | STREAM2_MODE=7, params 8-11/33-35, packet 0x9200 | **disabled** — the stream code exists but `CreateStreamModule` refuses audio (`TODO: enable` + `XN_ASSERT(FALSE)`) | XnSensor.cpp ~470 |
+| GMC motion data | packet 0xa200 (up to 100 points/packet), params 37-44, 75 | **unhandled** — only GMC *debug* (0xb200) is routed; plain GMC falls into the default "Unknown packet type" warning | XnFirmwareStreams.cpp switch |
+| File **upload** to flash | opcodes 13/14/15 (INIT/WRITE/FINISH_FILE_UPLOAD) | **never called** (download/read/delete/execute *are* used) | zero call sites |
+| Firmware kill | opcode 999 (`KILL`) | **never called** | zero call sites |
+| Take snapshot to flash | opcode 12 | **never called** — defined, has a body, no caller | XnHostProtocol.cpp:2440 |
+| Params 0/3/4/31/32/85 | CURRENT_MODE, STREAM_PRIORITY, TRIGGER_ACTION, packet/session timeouts, FILE_SYSTEM_LOCK | **never mapped/written** (mode is read via GET_MODE opcode; 85 only appears inside the flash-lock flow) | zero uses outside XnHostProtocol.cpp:2036 |
+| CMOS register access | GET/SET_CMOS_REGISTER (V110-dialect opcodes 8/9) | present in `FWInfo` but unused on modern firmware (5.x configures CMOS via params/presets) | XnHostProtocol.h V110 enum |
+
+Also confirmed: the `EPsProtocolOpCodes_V300`/`_V110`/`_V017` enums in
+the driver are ancient-firmware dialects; firmware 5.8.22 uses the main
+0-42+999 table (matches the reverse-engineered dispatcher in
+`docs/FIRMWARE.md`). Everything else the firmware implements — all 15
+packet types, TEC/emitter/projector calibration, CMOS blanking/presets,
+BIST, CPU stats, the log channel — OpenNI does call.
+
+What xtion-rs should do with these: the **audio runtime** and the
+**plain GMC data stream** are the two genuinely valuable firmware
+capabilities that neither the vendor driver nor this crate exposes yet
+(Phases 3-4). The flash-upload, KILL and TAKE_SNAPSHOT surfaces stay
+excluded per section 3 — OpenNI not calling them is itself a signal.
+
+## 6. Sources
 
 - OpenNI 2.2.0, `Source/Drivers/PS1080`: `XnHostProtocol.cpp` (opcode
   request/reply formats), `XnSensorDepthStream.cpp` (registration,
@@ -160,6 +189,9 @@ Every new code path is covered by tests that run **without hardware**:
   (exposure/WB/gain/quality/flicker mappings), `XnSensorIRStream.cpp`
   (IR configuration: params 26/27/72, STREAM0 mode 3, host-side mirror),
   `XnIRProcessor.cpp` (10-bit unpack), `XnFirmwareStreams.cpp` (event
-  packets → error state), `XnSensorFirmwareParams.cpp` (param ids).
+  packets → error state), `XnSensorFirmwareParams.cpp` (param ids),
+  `XnParams.h` (numeric param ids 0-85).
 - `docs/FIRMWARE.md` — which of these the 5.8.22 firmware really
   implements (all of Phase 1-2 verified present in the binary).
+- `docs/VALIDATION.md` — the on-camera test plan for validating every
+  implemented feature.
