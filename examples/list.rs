@@ -18,8 +18,17 @@ fn main() -> xtion::Result<()> {
 
     // open the first one and print everything the handshake reads
     let mut cam = Xtion::open()?;
+    let (depth_mps, image_mps) = cam.usb_max_packet_sizes();
     println!();
     println!("firmware:       {}", cam.version);
+    println!(
+        "usb speed:      {:?} (640x480@30 depth needs high speed)",
+        cam.usb_speed()
+    );
+    println!(
+        "bulk max packet: depth {} B, image {} B",
+        depth_mps, image_mps
+    );
     println!("serial number:  {}", cam.serial_number()?);
     println!("depth ConstShift: {}", cam.depth_const_shift());
     println!("calibration:");

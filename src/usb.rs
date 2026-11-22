@@ -32,7 +32,13 @@ pub struct Endpoints {
 
 /// An opened Xtion USB device.
 pub struct UsbDevice {
+    /// Kept alive so the raw context pointer used by the async bulk
+    /// rings stays valid for the device's lifetime.
+    context: Context,
     handle: DeviceHandle<Context>,
+    /// Negotiated bus speed (diagnostics: 640x480@30 depth needs ~13 MB/s
+    /// and only fits high speed; full speed caps at ~1.2 MB/s).
+    speed: rusb::Speed,
     pub endpoints: Endpoints,
     /// Max packet size of the depth endpoint.
     pub depth_max_packet_size: u32,
@@ -109,12 +115,33 @@ impl UsbDevice {
         })?;
 
         let (depth_mps, image_mps) = Self::max_packet_sizes(&handle)?;
+        let context = handle.device().context().clone();
+        let speed = handle.device().speed();
         Ok(UsbDevice {
+            context,
             handle,
+            speed,
             endpoints,
             depth_max_packet_size: depth_mps,
             image_max_packet_size: image_mps,
         })
+    }
+
+    /// Negotiated USB bus speed.
+    pub fn speed(&self) -> rusb::Speed {
+        self.speed
+    }
+
+    /// Raw libusb context pointer for the async bulk rings. Valid while
+    /// this UsbDevice is alive (it owns the Context).
+    pub(crate) fn raw_context(&self) -> *mut libusb1_sys::libusb_context {
+        use rusb::UsbContext;
+        self.context.as_raw()
+    }
+
+    /// Raw libusb device-handle pointer for the async bulk rings.
+    pub(crate) fn raw_handle(&self) -> *mut libusb1_sys::libusb_device_handle {
+        self.handle.as_raw()
     }
 
     /// Probe the bulk-in endpoints, mirroring `XnSensorIO::OpenDataEndPoints`:

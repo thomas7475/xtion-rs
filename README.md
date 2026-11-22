@@ -25,7 +25,7 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Registration, MJPEG, misc/GMC, keep-alive | not yet (see docs/PLAN.md) |
 | Pre-3.0 firmware (bulk control endpoints) | not supported (explicit error) |
 
-Everything that can be verified without the camera **is** verified: 56
+Everything that can be verified without the camera **is** verified: 59
 tests pass on a bare CI machine (`cargo test`), and the two numerical
 cores are proven equal to the original C++ implementation by golden
 vectors generated from a verbatim C transcription
@@ -75,6 +75,18 @@ driver (Apache-2.0, PrimeSense Ltd.); see `NOTICE.md`. The decode cores
 are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
+
+- **0.1.3** - fixed the third on-hardware failure: after the EOVERFLOW
+  fix the depth stream ran, but every assembled frame was a fragment
+  (736..45424 of 307200 pixels, ~4% of the stream bytes surviving).
+  Root cause: a synchronous read loop (one bulk URB at a time) leaves
+  gaps between reads in which the device's FPGA FIFO drops data. The
+  C driver avoids this with a ring of 16 pre-submitted async URBs that
+  are re-submitted the moment they complete; this release ports that
+  design (`src/ring.rs`, via `libusb1-sys` since rusb has no async
+  API). The examples now also print USB bus speed, endpoint max packet
+  size, ring throughput stats and expected-vs-got pixel counts, so a
+  mis-negotiated bus speed shows up immediately.
 
 - **0.1.2** - fixed the second on-hardware failure: every depth bulk read
   returned `USB error: Overflow` because the read buffer was resized to

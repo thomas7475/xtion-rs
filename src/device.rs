@@ -28,8 +28,6 @@ const COMMAND_TIMEOUT: Duration = Duration::from_millis(5_000);
 const FIRST_COMMAND_RETRY_DELAY: Duration = Duration::from_millis(2_000);
 /// Firmware version reply is a 33-byte packed `XnVersions`.
 const VERSION_REPLY_LEN: usize = 33;
-/// Bulk read polling slice while waiting for frames.
-const BULK_POLL_SLICE: Duration = Duration::from_millis(100);
 
 /// Firmware/hardware version of an opened device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,6 +173,10 @@ pub struct ColorFrame {
 
 /// An opened, calibrated Xtion device.
 pub struct Xtion {
+    /// Async bulk rings; declared BEFORE `usb` so they are dropped first
+    /// (their transfers must not outlive the device handle).
+    depth_ring: Option<crate::ring::BulkRing>,
+    color_ring: Option<crate::ring::BulkRing>,
     usb: UsbDevice,
     link: CommandLink,
     pub version: DeviceVersion,
@@ -185,7 +187,6 @@ pub struct Xtion {
     color_config: Option<Resolution>,
     depth_assembler: StreamAssembler,
     color_assembler: StreamAssembler,
-    chunk: Vec<u8>,
 }
 
 impl Xtion {
@@ -225,21 +226,13 @@ impl Xtion {
         } else {
             UsbDevice::bulk_chunk_size(usb.depth_max_packet_size)
         };
-        // Bulk read buffer: 40 x max packet size (the reference driver's
-        // Linux bulk multiplier). Its length MUST stay a multiple of each
-        // endpoint's max packet size - the Linux USB stack completes
-        // bulk-IN URBs whose length is not a multiple with EOVERFLOW
-        // (observed on hardware when the buffer was whole-frame sized).
-        // Sizing on the larger of the two endpoints keeps it a multiple of
-        // both (max packet sizes are powers of two).
-        let chunk_len =
-            UsbDevice::bulk_chunk_size(usb.depth_max_packet_size.max(usb.image_max_packet_size));
         let fw_magic = link.protocol().fw_magic();
 
         Ok(Xtion {
+            depth_ring: None,
+            color_ring: None,
             depth_assembler: StreamAssembler::new(fw_magic, ignore),
             color_assembler: StreamAssembler::new(fw_magic, ignore),
-            chunk: vec![0u8; chunk_len],
             usb,
             link,
             version,
@@ -325,12 +318,26 @@ impl Xtion {
         self.set_param(Param::DepthFps, config.fps)?;
         self.set_param(Param::Stream1Mode, STREAM_MODE_DEPTH)?;
 
+        // Start the async URB ring BEFORE the device begins to stream:
+        // pre-submitted transfers mean the FPGA FIFO always has somewhere
+        // to DMA into (a sync read loop loses data in the gaps).
+        self.depth_ring = Some(crate::ring::BulkRing::start(
+            self.usb.raw_context(),
+            self.usb.raw_handle(),
+            self.usb.endpoints.depth,
+            self.usb.depth_max_packet_size,
+            crate::ring::RING_BUFFERS,
+        )?);
+
         self.depth_config = Some(config);
         Ok(())
     }
 
     /// Stop the depth stream.
     pub fn stop_depth(&mut self) -> Result<()> {
+        // Cancel the URB ring first so no transfers are pending when the
+        // firmware stops sending.
+        self.depth_ring = None;
         self.set_param(Param::Stream1Mode, STREAM_MODE_OFF)?;
         self.depth_config = None;
         Ok(())
@@ -357,28 +364,43 @@ impl Xtion {
         self.set_param(Param::ImageFps, fps)?;
         self.set_param(Param::Stream0Mode, STREAM_MODE_COLOR)?;
 
+        self.color_ring = Some(crate::ring::BulkRing::start(
+            self.usb.raw_context(),
+            self.usb.raw_handle(),
+            self.usb.endpoints.image,
+            self.usb.image_max_packet_size,
+            crate::ring::RING_BUFFERS,
+        )?);
+
         self.color_config = Some(resolution);
         Ok(())
     }
 
     /// Stop the color stream.
     pub fn stop_color(&mut self) -> Result<()> {
+        self.color_ring = None;
         self.set_param(Param::Stream0Mode, STREAM_MODE_OFF)?;
         self.color_config = None;
         Ok(())
     }
 
-    /// One bulk read into the chunk buffer. A USB timeout means "no data
-    /// yet" and maps to 0 — the caller's deadline governs the wait. (rusb
-    /// returns Ok(n) when a timeout still delivered partial data, so no
-    /// stream bytes are lost.)
-    fn bulk_read_slice(&mut self, endpoint: u8, timeout: Duration) -> Result<usize> {
-        match self.usb.bulk_read(endpoint, &mut self.chunk, timeout) {
-            Ok(n) => Ok(n),
-            Err(XtionError::Usb(rusb::Error::Timeout))
-            | Err(XtionError::Usb(rusb::Error::Interrupted)) => Ok(0),
-            Err(e) => Err(e),
-        }
+    /// Negotiated USB bus speed (diagnostics).
+    pub fn usb_speed(&self) -> rusb::Speed {
+        self.usb.speed()
+    }
+
+    /// Max packet size of the depth and image bulk endpoints
+    /// (diagnostics; the bulk ring reads 40 x this value per URB).
+    pub fn usb_max_packet_sizes(&self) -> (u32, u32) {
+        (
+            self.usb.depth_max_packet_size,
+            self.usb.image_max_packet_size,
+        )
+    }
+
+    /// Counters of the depth bulk ring, if streaming (diagnostics).
+    pub fn depth_ring_stats(&self) -> Option<crate::ring::RingStats> {
+        self.depth_ring.as_ref().map(|r| r.stats())
     }
 
     /// Block until one depth frame is decoded. Corrupted frames are
@@ -398,14 +420,24 @@ impl Xtion {
                 }
                 return self.decode_depth_frame(&frame, width, height, expected_pixels, config);
             }
-            let now = Instant::now();
-            if now >= deadline {
-                return Err(XtionError::ControlTimeout);
-            }
-            let slice = (deadline - now).min(BULK_POLL_SLICE);
-            let n = self.bulk_read_slice(self.usb.endpoints.depth, slice)?;
-            if n > 0 {
-                self.depth_assembler.feed(&self.chunk[..n]);
+            // take one completed chunk from the ring (borrow ends here)
+            let chunk = {
+                let ring = self
+                    .depth_ring
+                    .as_ref()
+                    .ok_or(XtionError::StreamNotRunning)?;
+                ring.pop(deadline)
+            };
+            match chunk {
+                Some(data) => self.depth_assembler.feed(&data),
+                None => {
+                    if let Some(err) = self.depth_ring.as_ref().unwrap().error() {
+                        return Err(err);
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(XtionError::ControlTimeout);
+                    }
+                }
             }
         }
     }
@@ -431,14 +463,23 @@ impl Xtion {
                     timestamp: frame.timestamp,
                 });
             }
-            let now = Instant::now();
-            if now >= deadline {
-                return Err(XtionError::ControlTimeout);
-            }
-            let slice = (deadline - now).min(BULK_POLL_SLICE);
-            let n = self.bulk_read_slice(self.usb.endpoints.image, slice)?;
-            if n > 0 {
-                self.color_assembler.feed(&self.chunk[..n]);
+            let chunk = {
+                let ring = self
+                    .color_ring
+                    .as_ref()
+                    .ok_or(XtionError::StreamNotRunning)?;
+                ring.pop(deadline)
+            };
+            match chunk {
+                Some(data) => self.color_assembler.feed(&data),
+                None => {
+                    if let Some(err) = self.color_ring.as_ref().unwrap().error() {
+                        return Err(err);
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(XtionError::ControlTimeout);
+                    }
+                }
             }
         }
     }

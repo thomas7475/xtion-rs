@@ -61,6 +61,11 @@ fn depth_stream_roundtrip() {
     }
     let _lock = lock_device();
     let mut cam = Xtion::open().expect("open");
+    println!(
+        "usb speed {:?}, depth max packet {} B",
+        cam.usb_speed(),
+        cam.usb_max_packet_sizes().0
+    );
     let config = DepthConfig::default();
     cam.start_depth(config).expect("start depth");
 

@@ -20,7 +20,7 @@ file.
 | M2 - Calibration | Fixed params, ALGORITHM_DEPTH_INFO, S2D tables | **done, C-verified** |
 | M3 - Depth stream | Bulk framing, packed-11 decode, shift-to-depth, VGA@30 | **code done, unit+C-verified; on-camera test pending** |
 | M4 - Color stream | YUV422 bulk framing + RGB conversion | **code done, unit-verified; on-camera test pending** |
-| M5 - On-camera validation | Run the integration tests + examples on real hardware | **in progress: control path verified live (fw 5.8.22 identity/serial/calibration OK); second run found the bulk-buffer EOVERFLOW quirk (fixed in 0.1.2) + parallel-test Busy collision (serialized); depth-frame re-run pending** |
+| M5 - On-camera validation | Run the integration tests + examples on real hardware | **in progress: control path verified live (fw 5.8.22 identity/serial/calibration OK); third run streamed but frames arrived as fragments — sync bulk reads lose data in the gaps between URBs; 0.1.3 ports the C's async 16-URB ring; full-frame re-run pending** |
 | M6 - Robustness | Timeouts, error recovery, keep-alive, multi-frame pipelining | pending |
 | M7 - Completeness | Registration, MJPEG, misc/GMC packets, LED/emitter controls | pending |
 | M8 - Ergonomics | Callback API, `std::error` polish, docs.rs, publish to crates.io | pending |
@@ -79,6 +79,8 @@ xtion-rs/
 | Version parse quirks: minor/major wire swap, hex build, 12-byte base struct | `device` unit | no | pass |
 | Handshake with split version reply (exact hardware scenario) + v2.5 fallback | `device` unit | no | pass |
 | Bulk chunk length is a multiple of wMaxPacketSize (EOVERFLOW regression) | `usb` unit | no | pass |
+| Ring constants match the C reference (16 buffers x multiplier 40) | `ring` unit | no | pass |
+| libusb error code mapping | `ring` unit | no | pass |
 | Exchange over fake transport | `protocol::command` unit | no | pass |
 | Fixed-params blob parsing at documented offsets | `protocol::fixed_params` unit | no | pass |
 | Algorithm-param request layout | `protocol::algorithm` unit | no | pass |
@@ -97,7 +99,7 @@ xtion-rs/
 Run everything without hardware:
 
 ```bash
-cargo test          # 56 tests, all green without a camera attached
+cargo test          # 59 tests, all green without a camera attached
 cargo clippy --all-targets   # 0 warnings
 cargo fmt --check
 ```

@@ -31,10 +31,12 @@ pub mod depth;
 pub mod device;
 pub mod error;
 pub mod protocol;
+pub mod ring;
 pub mod stream;
 pub mod usb;
 
 pub use device::{ColorFrame, DepthConfig, DepthFrame, DeviceVersion, Xtion};
 pub use error::{Nack, ProtocolError, Result, XtionError};
 pub use protocol::{DepthFormat, ImageFormat, Param, Resolution};
+pub use ring::{RingStats, BULK_MULTIPLIER, RING_BUFFERS};
 pub use usb::{list_devices, UsbDeviceInfo};

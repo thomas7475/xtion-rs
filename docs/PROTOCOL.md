@@ -237,6 +237,27 @@ R = clamp((C + 409*E) >> 8);  G = clamp((C - 100*D - 208*E) >> 8);  B = clamp((C
     12-byte base struct is valid.
   - The device pads the struct to a whole word (33 -> 34 bytes).
 
+### Async URB ring (verified necessary on hardware)
+
+A synchronous read loop — one bulk-IN URB at a time — is NOT sufficient
+for the PS1080 stream endpoints. Between reaping a completed 20 KiB read
+and submitting the next one there is a window with no URB queued; the
+device's small FPGA FIFO drops data in those windows. Observed live
+(0.1.2): every assembled "frame" was a fragment (736..45424 of 307200
+pixels, ~4% of stream bytes surviving, frame timestamps advancing ~60
+frame periods at a time).
+
+The reference driver therefore runs a read *thread* with a ring of
+pre-submitted async transfers (`xnUSBInitReadThread` /
+`XnUSBReadThreadMain`, XnLinuxUSB.cpp): 16 buffers (Linux
+`XN_SENSOR_USB_DEPTH_BUFFERS`) of 40 x max packet size each, all
+submitted up front, each re-submitted immediately after its completion
+is processed, and the thread raised to CRITICAL priority (the code
+warns lower priority "might cause loss of data"). This port
+(`src/ring.rs`) keeps 16 x 40 x maxpacket queued via libusb's async API
+(`libusb1-sys`; rusb does not expose it), re-submitting inside the
+transfer callback so the queue never empties.
+
 ### Bulk read buffer sizing (verified on hardware)
 
 - The reference read thread reads in chunks of **40 x max packet size**

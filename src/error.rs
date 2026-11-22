@@ -72,7 +72,7 @@ pub enum ProtocolError {
 }
 
 /// Top-level error type of the crate.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum XtionError {
     #[error("no ASUS Xtion device found (USB idVendor 0x1d27, expected 1d27:0601 or 1d27:0400)")]
     DeviceNotFound,
