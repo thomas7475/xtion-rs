@@ -103,8 +103,14 @@ documented API. Every check lists the expected observation.
   (some 5.x builds answer NACK(InvalidCommand) even though the platform
   string works); the driver falls back to Jango exactly like the
   reference driver (XnDeviceSensorInit.cpp:233). Not a failure.
-- `ir read failed ... completions == 0`: the device never sent a byte on
-  the image endpoint. On 0.2.1 the stream start fetches the CMOS
-  blanking info (ALGORITHM_PARAMS 0x06) like the reference driver; if
-  this still shows zero completions, report it with the log line.
-  `completions > 0` but no frame would point at packet framing instead.
+- IR: `completions == 0` in the ring stats = the device never sent a
+  byte (sensor timing not armed — pre-0.2.1 behaviour, blanking fetch
+  missing). `completions > 0` with the read failing fast on "unusable
+  frames ... N bytes (expected M)" = framing or wire-size problem; the
+  error message now carries the actual frame size plus assembler
+  counters (starts/buffers/ends seen), which distinguishes "frames
+  close at the wrong size" from "framing never completes".
+- `emitter toggle skipped: ...`: expected on some 5.8.x builds — the
+  reference driver only issues opcode 42 on fw >= 5.8.15 and even then
+  some builds NACK it (BadParams). Runtime state only; the default
+  (emitter on) is restored by power-cycling.

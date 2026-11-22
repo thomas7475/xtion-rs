@@ -1,6 +1,6 @@
 # Chat Session Backup — ASUS Xtion Linux research
 
-**Version:** 19 (2026-11-22, turn 18): 0.2.1 on-camera test fixes pushed (5f7eaa6) - see turn 18. Previous: 18 (turn 17): beyond-OpenNI analysis (c3a5fc9). Previous: 15 (2026-11-22, turn 14): firmware mirrored. Previous: 14 (2026-11-22, turn 13) · **Status: SIXTH RUN GREEN - DRIVER HARDWARE-VALIDATED: both integration tests pass (268,435/307,200 = 87.4% valid pixels, min 431 mm, shift range 291-797 = 430-1,181 mm, 12.7% no-depth markers, 12.17 MiB/s, 0 failures, 29.97 fps). The 0.1.5 LUT fix confirmed; the earlier 0-valid scene was beyond the old table's range. Delivered xtion_rs_driver_overview.pdf (13 pages, 8 chapters, 4 verified flow diagrams). NOTE: sandbox recycled - /tmp/gh-creds gone, no token in .env, so the M5 docs update could NOT be pushed; delivered as xtion-rs-m5-validated.patch instead. Earlier: fifth on-hardware run: buf_size fix CONFIRMED — full 307200-px frames at 30 fps, 12.13 MB/s, 0 failures — but every pixel decoded 0/invalid. Full decode-chain audit vs the C found ONE confirmed bug: shift LUT was built with device_max_shift=1024 instead of XN_SHIFTS_MAX_SHIFT=2047 (packed-11 spans 0..2047; valid window for this calibration = shifts 1..1052 = 315..9870 mm; old table zeroed all >= 1024 i.e. 5.5-9.9 m). BUT the exact Python simulation shows a normal 0.5-4 m scene sits at shifts 403..1001 — INSIDE the old table — so max_shift alone cannot explain 0 valid pixels; remaining suspects: all-invalid stream (scene > 5.5 m / too close < 31.5 cm / occluded / emitter) or something not yet found. Added per-frame raw-shift histogram (DepthFrame::shift_stats + depth_dump) — the NEXT RUN's histogram line decides. Also ported the C's corrupt-frame drop (partial first frames like 150024 px). 0.1.5 (3948f07); user pulls, points camera at a wall ~1-2 m, re-runs depth_dump**
+**Version:** 20 (2026-11-22, turn 19): 0.2.2 diagnostics pushed (89f0671) - see turn 19. Previous: 19 (turn 18): 0.2.1 blanking/Jango fixes (5f7eaa6). Previous: 15 (2026-11-22, turn 14): firmware mirrored. Previous: 14 (2026-11-22, turn 13) · **Status: SIXTH RUN GREEN - DRIVER HARDWARE-VALIDATED: both integration tests pass (268,435/307,200 = 87.4% valid pixels, min 431 mm, shift range 291-797 = 430-1,181 mm, 12.7% no-depth markers, 12.17 MiB/s, 0 failures, 29.97 fps). The 0.1.5 LUT fix confirmed; the earlier 0-valid scene was beyond the old table's range. Delivered xtion_rs_driver_overview.pdf (13 pages, 8 chapters, 4 verified flow diagrams). NOTE: sandbox recycled - /tmp/gh-creds gone, no token in .env, so the M5 docs update could NOT be pushed; delivered as xtion-rs-m5-validated.patch instead. Earlier: fifth on-hardware run: buf_size fix CONFIRMED — full 307200-px frames at 30 fps, 12.13 MB/s, 0 failures — but every pixel decoded 0/invalid. Full decode-chain audit vs the C found ONE confirmed bug: shift LUT was built with device_max_shift=1024 instead of XN_SHIFTS_MAX_SHIFT=2047 (packed-11 spans 0..2047; valid window for this calibration = shifts 1..1052 = 315..9870 mm; old table zeroed all >= 1024 i.e. 5.5-9.9 m). BUT the exact Python simulation shows a normal 0.5-4 m scene sits at shifts 403..1001 — INSIDE the old table — so max_shift alone cannot explain 0 valid pixels; remaining suspects: all-invalid stream (scene > 5.5 m / too close < 31.5 cm / occluded / emitter) or something not yet found. Added per-frame raw-shift histogram (DepthFrame::shift_stats + depth_dump) — the NEXT RUN's histogram line decides. Also ported the C's corrupt-frame drop (partial first frames like 150024 px). 0.1.5 (3948f07); user pulls, points camera at a wall ~1-2 m, re-runs depth_dump**
 
 > Purpose: upload this file in a new chat to restore full context. It records
 > the standing rules, the task, everything that was found and decided, every
@@ -45,7 +45,35 @@
   → shift LUT max_shift 1024→2047 + corrupt-frame drop + histogram.
   0.1.5 (3948f07).
 - **Turn 13 (2026-11-22):** SIXTH RUN GREEN
-- **Turn 18 (2026-11-22, this turn):** ON-CAMERA TEST FAILURES FIXED, PUSHED
+- **Turn 19 (2026-11-22, this turn):** SECOND ON-CAMERA RUN: BLANKING FIX
+  CONFIRMED (1782 chunks / 34.9 MB in 3 s = 11.6 MB/s = exactly packed-10
+  VGA@30 on the image endpoint; previously ZERO bytes). Two failures remain
+  with new signatures: (1) IR - read loop silently dropped every frame
+  until the 3 s timeout ("control transfer timed out after retries" is
+  ControlTimeout's Display text, error.rs:89 - NOT a real control error;
+  pump_misc is pure queue-draining, no control calls). Framing logic
+  verified symmetric (close_if_eof handles IMAGE_END; pop_frame has no
+  kind filter); cause is in actual wire content - either frames close at
+  wrong size (silent drop) or no STARTs seen. FIX: StreamAssembler
+  counters (AssemblerStats: depth/image start, buffer, end, frames_closed)
+  + read_ir_frame fail-fast after 5 unusable frames with actual size,
+  assembler stats and ring stats in the error message (first frame can be
+  partial: ring starts after stream-mode write). (2) phase1 - progressed
+  past usb-core fallback ("usb core: Jango"), then set_emitter_enabled
+  NACK BadParams. Request verified byte-identical to OpenNI
+  (XnVSetEmitterStateRequest = one u16; gate: opcode 42 assigned only on
+  fw >= 5.8.15, XnHostProtocol.cpp:660-664; caller XnSensor.cpp:793).
+  Interpretation: NACK=command EXISTS but params rejected on that build -
+  cannot fix blind; FW gate added to driver (fw < 5.8.15 -> clean
+  BadConfig), hardware test reports skip instead of failing, phase1 now
+  prints cam.version (user's exact fw unknown so far - version print will
+  reveal it). 0.2.2 pushed 89f0671; clippy clean; 86 tests green (79 lib
+  incl. assembler counters test). NEXT RUN OUTCOMES: IR error message
+  shows either "framing never completes" (start/end counters) or actual
+  frame size vs 384000 - the latter is a one-line expected_wire_size fix.
+  Emitter skip line is expected/benign. VALIDATION.md triage updated.
+
+- **Turn 18 (2026-11-22):** ON-CAMERA TEST FAILURES FIXED, PUSHED
   (5f7eaa6). User ran cargo test --test hardware on their machine (fw 5.8.22,
   platform RD108x-112): depth + handshake passed, phase1 FAILED at
   usb_core_type Nack(InvalidCommand), ir FAILED at first frame
