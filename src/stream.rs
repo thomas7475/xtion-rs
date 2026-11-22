@@ -134,6 +134,18 @@ impl StreamAssembler {
                         self.state = State::PacketData;
                         self.missing = header.payload_size();
                         self.packet_data_offset = 0;
+                        if self.missing == 0 {
+                            // Zero-payload packet (a bare SOF/EOF header is
+                            // exactly 12 bytes): dispatch it now. The loop
+                            // below would otherwise not complete it until
+                            // the next chunk arrives, delaying every frame
+                            // close and losing the last frame on stream
+                            // stop.
+                            self.dispatch_packet(&[], true);
+                            self.close_if_eof();
+                            self.state = State::LookingForMagic;
+                            self.missing = 2;
+                        }
                     }
                 }
                 State::PacketData => {
@@ -148,11 +160,7 @@ impl StreamAssembler {
                         // the packet is fully consumed; an EOF packet
                         // completes the frame (C: nDataOffset + nDataSize
                         // == nBufSize -> OnEndOfFrame)
-                        if self.header.packet_type == packet_type::DEPTH_END
-                            || self.header.packet_type == packet_type::IMAGE_END
-                        {
-                            self.close_frame(self.header.timestamp);
-                        }
+                        self.close_if_eof();
                         self.state = State::LookingForMagic;
                         self.missing = 2;
                     }
@@ -203,6 +211,18 @@ impl StreamAssembler {
     fn enter_header_state(&mut self) {
         self.state = State::PacketHeader;
         self.missing = PACKET_HEADER_SIZE;
+    }
+
+    /// Close the open frame if the packet just consumed was an EOF packet
+    /// (the frame timestamp is the EOF packet's header timestamp, matching
+    /// the reference driver's `CreateTimestampFromDevice(pHeader->nTimeStamp)`
+    /// in `OnEndOfFrame`).
+    fn close_if_eof(&mut self) {
+        if self.header.packet_type == packet_type::DEPTH_END
+            || self.header.packet_type == packet_type::IMAGE_END
+        {
+            self.close_frame(self.header.timestamp);
+        }
     }
 
     /// Handle one chunk of a complete packet's payload. `is_packet_start`
@@ -284,10 +304,39 @@ mod tests {
         v.extend_from_slice(&MAGIC.to_le_bytes());
         v.extend_from_slice(&pkt_type.to_le_bytes());
         v.extend_from_slice(&packet_id.to_le_bytes());
-        v.extend_from_slice(&((payload.len() + PACKET_HEADER_SIZE) as u16).to_le_bytes());
+        // buf_size is the one big-endian field (see PacketHeader).
+        v.extend_from_slice(&((payload.len() + PACKET_HEADER_SIZE) as u16).to_be_bytes());
         v.extend_from_slice(&timestamp.to_le_bytes());
         v.extend_from_slice(payload);
         v
+    }
+
+    #[test]
+    fn buf_size_field_is_big_endian_like_the_reference_driver() {
+        // Regression for the 0.1.3 on-hardware failure: a real 512-byte
+        // bulk packet (fw 5.8.22, mps 512) carries buf_size 0x0200 as the
+        // byte pair [02, 00]. Read little-endian this is 2 -> payload 0,
+        // so every data packet silently contributed nothing and frames
+        // assembled from false-magic junk (24560 of 307200 pixels).
+        let mut wire = Vec::new();
+        wire.extend_from_slice(&MAGIC.to_le_bytes());
+        wire.extend_from_slice(&packet_type::DEPTH_BUFFER.to_le_bytes());
+        wire.extend_from_slice(&7u16.to_le_bytes());
+        wire.extend_from_slice(&512u16.to_be_bytes()); // [02, 00]
+        wire.extend_from_slice(&0u32.to_le_bytes());
+        wire.extend_from_slice(&[0xABu8; 500]);
+
+        let header = PacketHeader::parse(&wire).unwrap();
+        assert_eq!(header.buf_size, 512);
+        assert_eq!(header.payload_size(), 500);
+
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        let mut stream = packet(packet_type::DEPTH_START, 1, b"", 0);
+        stream.extend(wire);
+        stream.extend(packet(packet_type::DEPTH_END, 2, b"", 0));
+        asm.feed(&stream);
+        let f = asm.pop_frame().unwrap();
+        assert_eq!(f.data.len(), 500);
     }
 
     #[test]

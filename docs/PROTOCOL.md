@@ -161,9 +161,21 @@ Every bulk read on the depth/image/misc endpoints yields a byte stream of
 u16 magic      = firmware magic ("SP" 0x5350 / "BR" 0x4252)  <- NOT a per-packet magic
 u16 type       = packet type (see below)
 u16 packet_id
-u16 buf_size   = payload + 12 (header included)
+u16 buf_size   = payload + 12 (header included)   *** BIG-ENDIAN ***
 u32 timestamp  = device ticks (see quirk below)
 ```
+
+**Endianness quirk (verified live on fw 5.8.22):** every field above is
+little-endian EXCEPT `buf_size`. The reference driver's parse
+(`XnDeviceSensorProtocol.cpp`) runs all fields through
+`XN_PREPARE_VAR16_IN_BUFFER` — a no-op on little-endian hosts — and then
+applies an additional **unconditional** `xnOSEndianSwapUINT16` to
+`nBufSize` alone, i.e. the firmware writes that one field big-endian.
+Reading it little-endian makes a 512-byte data packet parse with
+`buf_size = 2`, so every real data packet contributes zero payload and
+frames silently assemble from false-magic junk (observed: perfectly
+regular 24560-of-307200-pixel "frames" at 30 fps while the ring delivered
+the full 12 MB/s stream).
 
 Packet types (`XnDeviceSensorProtocol.h`): DEPTH_START 0x7100,
 DEPTH_BUFFER 0x7200, DEPTH_END 0x7500, IMAGE_START 0x8100,

@@ -98,6 +98,8 @@ pub enum XtionError {
     BadConfig(String),
     #[error("stream is not running")]
     StreamNotRunning,
+    #[error("I/O error: {0}")]
+    Io(String),
 }
 
 pub type Result<T> = std::result::Result<T, XtionError>;

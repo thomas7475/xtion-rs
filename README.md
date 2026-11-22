@@ -25,7 +25,7 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Registration, MJPEG, misc/GMC, keep-alive | not yet (see docs/PLAN.md) |
 | Pre-3.0 firmware (bulk control endpoints) | not supported (explicit error) |
 
-Everything that can be verified without the camera **is** verified: 59
+Everything that can be verified without the camera **is** verified: 60
 tests pass on a bare CI machine (`cargo test`), and the two numerical
 cores are proven equal to the original C++ implementation by golden
 vectors generated from a verbatim C transcription
@@ -75,6 +75,18 @@ driver (Apache-2.0, PrimeSense Ltd.); see `NOTICE.md`. The decode cores
 are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
+
+- **0.1.4** - fixed the fourth on-hardware failure: with the async ring
+  delivering the full 12 MB/s stream (0 failures), frames still assembled
+  at exactly 24560 of 307200 pixels. Root cause: `buf_size` is the ONE
+  big-endian field in the otherwise little-endian 12-byte stream packet
+  header — the reference driver applies an extra unconditional
+  `xnOSEndianSwapUINT16` to exactly that field. Read little-endian, a
+  512-byte packet parses as buf_size 2 → zero payload, and frames filled
+  with false-magic junk. Also fixed: zero-payload packets (bare EOF
+  headers) were not dispatched until the next read chunk arrived. New
+  `raw_dump` example captures the raw stream and decodes packet headers
+  independently, plus `Xtion::fw_magic`/`tap_depth_stream` diagnostics.
 
 - **0.1.3** - fixed the third on-hardware failure: after the EOVERFLOW
   fix the depth stream ran, but every assembled frame was a fragment

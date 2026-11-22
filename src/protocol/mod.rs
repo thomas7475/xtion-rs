@@ -216,7 +216,17 @@ use std::time::Duration;
 /// (`XnSensorProtocolResponseHeader`).
 pub const PACKET_HEADER_SIZE: usize = 12;
 
-/// A parsed bulk-stream packet header (little-endian on the wire).
+/// A parsed bulk-stream packet header.
+///
+/// Field order and endianness follow the reference driver's parse in
+/// `Sensor/XnDeviceSensorProtocol.cpp`: on a little-endian host every
+/// `XN_PREPARE_VAR16_IN_BUFFER` is a no-op, and `nBufSize` alone gets an
+/// additional **unconditional** `xnOSEndianSwapUINT16` — i.e. the
+/// firmware writes magic, type, packet id and timestamp little-endian,
+/// but `buf_size` **big-endian**. Verified live on firmware 5.8.22:
+/// reading it little-endian makes 512-byte data packets parse with
+/// `buf_size = 2`, so every real data packet contributes zero payload
+/// and frames fill with junk from false-magic resyncs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PacketHeader {
     /// Always the firmware magic ("SP" 0x5350 / "BR" 0x4252).
@@ -224,7 +234,7 @@ pub struct PacketHeader {
     /// One of [`packet_type`].
     pub packet_type: u16,
     pub packet_id: u16,
-    /// Buffer size **including** the 12-byte header.
+    /// Buffer size **including** the 12-byte header, big-endian.
     pub buf_size: u16,
     pub timestamp: u32,
 }
@@ -244,7 +254,9 @@ impl PacketHeader {
             magic: u16::from_le_bytes([buf[0], buf[1]]),
             packet_type: u16::from_le_bytes([buf[2], buf[3]]),
             packet_id: u16::from_le_bytes([buf[4], buf[5]]),
-            buf_size: u16::from_le_bytes([buf[6], buf[7]]),
+            // Sole big-endian field: the reference driver applies an
+            // unconditional xnOSEndianSwapUINT16 to exactly this field.
+            buf_size: u16::from_be_bytes([buf[6], buf[7]]),
             timestamp: u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]),
         })
     }

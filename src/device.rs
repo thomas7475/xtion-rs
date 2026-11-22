@@ -403,6 +403,41 @@ impl Xtion {
         self.depth_ring.as_ref().map(|r| r.stats())
     }
 
+    /// Firmware magic used by the bulk stream packet headers
+    /// (protocol-version dependent; "BR" 0x4252 on protocol 2.6).
+    pub fn fw_magic(&self) -> u16 {
+        self.link.protocol().fw_magic()
+    }
+
+    /// Capture up to `bytes` of RAW bytes from the depth stream endpoint
+    /// into `path` (diagnostics; the depth stream must be running). The
+    /// data is NOT fed through the frame assembler. Returns the number of
+    /// bytes written.
+    pub fn tap_depth_stream(
+        &mut self,
+        path: &std::path::Path,
+        bytes: usize,
+        timeout: Duration,
+    ) -> Result<usize> {
+        use std::io::Write as _;
+        let deadline = Instant::now() + timeout;
+        let mut file = std::fs::File::create(path)
+            .map_err(|e| XtionError::Io(format!("{}: {e}", path.display())))?;
+        let mut written = 0usize;
+        while written < bytes {
+            let ring = self
+                .depth_ring
+                .as_ref()
+                .ok_or(XtionError::StreamNotRunning)?;
+            let chunk = ring.pop(deadline).ok_or(XtionError::ControlTimeout)?;
+            let take = chunk.len().min(bytes - written);
+            file.write_all(&chunk[..take])
+                .map_err(|e| XtionError::Io(format!("{}: {e}", path.display())))?;
+            written += take;
+        }
+        Ok(written)
+    }
+
     /// Block until one depth frame is decoded. Corrupted frames are
     /// dropped and reading continues.
     pub fn read_depth_frame(&mut self, timeout: Duration) -> Result<DepthFrame> {
