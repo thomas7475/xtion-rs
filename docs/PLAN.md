@@ -20,7 +20,7 @@ file.
 | M2 - Calibration | Fixed params, ALGORITHM_DEPTH_INFO, S2D tables | **done, C-verified** |
 | M3 - Depth stream | Bulk framing, packed-11 decode, shift-to-depth, VGA@30 | **code done, unit+C-verified; on-camera test pending** |
 | M4 - Color stream | YUV422 bulk framing + RGB conversion | **code done, unit-verified; on-camera test pending** |
-| M5 - On-camera validation | Run the integration tests + examples on real hardware | **in progress: fifth run: full 307200-px frames assemble at 30 fps (buf_size fix confirmed) but 0 valid pixels — fixed the shift LUT to cover the full 0..2047 range (XN_SHIFTS_MAX_SHIFT; the old 1024-entry table zeroed every shift >= 1024, i.e. 5.5-9.9 m) and added the C's corrupt-frame drop + per-frame raw-shift histogram to depth_dump; if 0-valid persists the histogram shows whether the stream is all-invalid (2047/0) or the shifts are real — re-run pending** |
+| M5 - On-camera validation | Run the integration tests + examples on real hardware | **COMPLETE (2026-11-22, run 6): both hardware tests PASS. depth_stream_roundtrip: 268,435/307,200 valid pixels (87.4%), min 431 mm; shift histogram 291-797 (= 430-1,181 mm), 12.7% no-depth markers, zero anomalies; ring 12.17 MiB/s, 0 failures; 29.97 fps from 60-MHz EOF timestamps. The 0.1.5 LUT fix (XN_SHIFTS_MAX_SHIFT=2047) confirmed — the earlier 0-valid scene was simply beyond the old 1024-entry table's range. Full analysis in `xtion_rs_driver_overview.pdf`** |
 | M6 - Robustness | Timeouts, error recovery, keep-alive, multi-frame pipelining | pending |
 | M7 - Completeness | Registration, MJPEG, misc/GMC packets, LED/emitter controls | pending |
 | M8 - Ergonomics | Callback API, `std::error` polish, docs.rs, publish to crates.io | pending |
