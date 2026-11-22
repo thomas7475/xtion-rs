@@ -4,15 +4,19 @@
 //! (Sensor/XnHostProtocol.cpp:3253-3296), which the reference driver uses
 //! to validate image stream modes at init (XnSensorImageStream::Init
 //! reads the list and adapts its defaults to a supported entry). A mode
-//! outside this list is rejected by the firmware with NACK(BadParams) —
-//! observed on fw 5.8.22 when requesting the PS-compressed Yuv422 format
-//! at VGA@30 (2026-11-22).
+//! outside this list is rejected by the firmware with NACK(BadParams).
 //!
-//! Hardware note (Xtion Pro Live, fw 5.8.22): the image CMOS reports
-//! modes ONLY in formats 1 (PS-compressed Yuv422), 5 (uncompressed
-//! Yuv422) and 7 (uncompressed Yuyv) at QVGA/VGA, plus Bayer 0/6 at the
-//! wide modes — uncompressed Yuv422 VGA@30 (format 5, resolution 1,
-//! fps 30) is offered and is the mode this driver uses.
+//! Semantics (0.2.8): the list describes the CMOS's capability across
+//! BOTH USB interface styles. On the Xtion's bulk endpoints the vendor
+//! stack uses the PS-COMPRESSED format 1 (the C's non-Windows default,
+//! XnSensorImageStream.h:36-41); the uncompressed modes (5/7) belong to
+//! the Windows/ISO path and their stream starts were rejected on this
+//! device (fw 5.8.22, 2026-11-22).
+//!
+//! Hardware note (Xtion Pro Live, fw 5.8.22): the image CMOS reports 25
+//! modes — formats 1 (PS-compressed Yuv422), 5 (uncompressed Yuv422) and
+//! 7 (uncompressed Yuyv) at QVGA/VGA, Bayer 0/6 at the wide modes, and
+//! one (9, VGA, 30) entry with a format id OpenNI never exposes.
 
 use std::time::Duration;
 

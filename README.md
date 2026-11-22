@@ -21,11 +21,12 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Packed-11 depth decode | done, **byte-identical to the C reference** (golden vectors) |
 | Bulk-stream frame assembly | done, unit-tested incl. chunk splits |
 | Depth stream (VGA@30, packed-11 or raw 16-bit) | **hardware-validated** (87% valid pixels @ 29.97 fps) |
-| Color stream (YUV422 -> RGB888) | implemented — uncompressed YUV422 (format 5) only; mode validated against the firmware's CMOS presets (opcode 36, little-endian since 0.2.6); on-camera validation pending |
+| Color stream (YUV422 -> RGB888) | implemented — **PS-compressed YUV422 (format 1, the C's Linux/bulk default) and uncompressed (format 5)**; mode validated against the firmware's CMOS presets (opcode 36); compressed frames decoded by the ported `XnStreamUncompressYUVImagePS`; on-camera validation pending |
 | IR stream (16-bit grayscale, image pipe) | implemented in 0.2.0; wire-size fix in 0.2.3 (MT9M001 sends `height + 8` rows — hardware-measured, see docs/PROTOCOL.md section 8); **hardware-validated 2026-11-22, all four tests green** |
 | Hardware registration, emitter on/off, OVERHEAT/PROJECTOR_FAULT events | implemented in 0.2.0 |
 | Runtime options: mirror, hole filter, AGC, close range, GMC mode, exposure, white balance, gain, quality, flicker | implemented in 0.2.0 |
-| Cropping, depth AGC bins, GMC data, audio, firmware log | not yet (Phase 3-4 of docs/FEATURE_PLAN.md) |
+| Cropping, depth AGC bins, GMC data, audio | not yet (Phase 3-4 of docs/FEATURE_PLAN.md) |
+| System commands (0.2.8): firmware log, CPU stats, BIST, TEC + emitter telemetry, CMOS blanking/register reads (I2C), AHB read, flash map / file list / file download / raw flash read | implemented — strictly READ-ONLY; the write-side commands stay excluded |
 | Pre-3.0 firmware (bulk control endpoints) | not supported (explicit error) |
 
 Everything that can be verified without the camera **is** verified: 85
@@ -107,6 +108,40 @@ are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
 
+- **0.2.8 — color uses the C's Linux/bulk mode + read-only system
+  commands** - the turn-24/25 decompilation + C cross-read settled the
+  color NACK: (a) the reference driver soft-resets the firmware at
+  EVERY init and xtion-rs never did — after a failed stream start the
+  device rejects even plain mode-parameter writes (NACK BadParams), so
+  `open()` now ports `XnSensorFirmware::Init(bReset=TRUE)` exactly
+  (GET_MODE + safe-mode refusal, KeepAlive x5, fire-and-forget
+  SET_MODE(SOFT_RESET), `nUSBDelaySoftReset` = **1 ms on Jango cores of
+  fw >= 5.3.16** / 800 ms otherwise, KeepAlive x10, safe-mode check
+  again); (b) the C's image default on non-Windows is the
+  **PS-COMPRESSED** YUV422 (format 1, `XnSensorImageStream.h:36-41`:
+  "non win32 works with BULK, so it's better to compress the image") —
+  the uncompressed mode (5) the presets advertise is the Windows/ISO
+  path and its stream start is what this bulk device rejected. New:
+  `uncompress_yuv_image_ps` (port of `XnStreamUncompressYUVImagePS`,
+  4-bit diff/full stream, U/V channel carry, per-line reset; golden
+  tests incl. line-boundary reset), `read_color_frame` decompresses
+  and gates on the DECODED size for compressed frames, `start_color`
+  accepts formats 1 + 5, `IMAGE_DEFAULT_INPUT_FORMAT` = compressed.
+  Also 0.2.8 implements the excluded commands that do NOT write flash
+  (all read-only): GET_LOG 7 (text/overflow/structured entry render),
+  I2C_READ 11 (+ CMOS register convenience via the fixed-params bus/
+  slave, `XnHostProtocolGetCMOSRegisterI2C` parity), DOWNLOAD_FILE 16,
+  GET_FLASH_MAP 18, GET_FILE_LIST 19, READ_AHB 20, READ_FLASH 25,
+  GET_CPU_STATS 27, BIST 28 (300 s-class timeout), GET_TEC_DATA 30 /
+  GET_FAST_CONVERGENCE_TEC 38 (post-5.4 layout), GET_EMITTER_DATA 32,
+  GET_CMOS_BLANKING 35 (direct, distinct from ALGORITHM_PARAMS 0x06);
+  `FixedParams` now exposes the CMOS I2C buses/addresses; HostMode
+  gained WAIT_FOR_ENUM(9)/SAFE_MODE(10); new `system_commands_readonly`
+  hardware test prints log, file list, flash map, ImageCmos download,
+  CPU stats, TEC/emitter telemetry, blanking, CMOS registers, AHB and
+  raw flash. Flash writes, calibrations, I2C/AHB writes, TAKE_SNAPSHOT
+  and file upload/delete/execute remain excluded. 105 lib + 2 golden
+  green, clippy 0, fmt clean, hardware target compiles.
 - **0.2.7 — color-start NACK diagnostics (GET_MODE/SET_MODE + probe)** -
   the 0.2.6 run validated the preset fix (the camera reports
   `format 5 @ res 1 @ 30 fps` = uncompressed-YUV422 VGA@30 and the test

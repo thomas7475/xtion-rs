@@ -7,6 +7,7 @@ pub mod command;
 pub mod fixed_params;
 pub mod identity;
 pub mod presets;
+pub mod system;
 
 pub use command::CommandLink;
 pub use presets::CmosPreset;
@@ -38,16 +39,41 @@ pub enum Opcode {
     GetFixedParams = 4,
     GetMode = 5,
     SetMode = 6,
+    /// Firmware log buffer (fw >= 3.0). XnHostProtocolGetLog.
     GetLog = 7,
     AlgorithmParams = 22,
+    /// Read one I2C bus. XnHostProtocolReadI2C.
+    I2cRead = 11,
+    /// Read a device flash file (READ side only; upload is excluded).
+    DownloadFile = 16,
+    /// Flash-usage table (read-only).
+    GetFlashMap = 18,
+    /// Flash file-system listing (read-only).
+    GetFileList = 19,
+    /// Raw SoC bus read (the WRITE variant is permanently excluded).
+    ReadAhb = 20,
+    /// Raw flash read (read-only).
+    ReadFlash = 25,
+    /// Firmware CPU utilization. XnHostProtocolGetCPUStats.
+    GetCpuStats = 27,
+    /// Built-in self-test (the updater runs it continuously).
+    Bist = 28,
+    /// TEC status, pre-5.4 layout (fw >= 5.4 maps from opcode 38).
+    GetTecData = 30,
+    /// IR emitter status/power.
+    GetEmitterData = 32,
+    /// Current vertical blanking of one CMOS.
+    GetCmosBlanking = 35,
+    /// Supported stream modes of one CMOS. Source: XnHostProtocol.h
+    /// `EPsProtocolOpCodes` (fw >= 5.3.29; XnHostProtocol.cpp:585-589).
+    CmosPresets = 36,
+    /// TEC status, post-5.4 layout.
+    GetFastConvergenceTec = 38,
     GetSerialNumber = 37,
     GetPlatformString = 39,
     GetUsbCoreType = 40,
     SetLedState = 41,
     EnableEmitter = 42,
-    /// Supported stream modes of one CMOS. Source: XnHostProtocol.h
-    /// `EPsProtocolOpCodes` (fw >= 5.3.29; XnHostProtocol.cpp:585-589).
-    CmosPresets = 36,
 }
 
 impl Opcode {
@@ -78,6 +104,11 @@ pub enum HostMode {
     Resume = 6,
     Init = 7,
     SystemRestore = 8,
+    /// Waiting for re-enumeration (XnHostProtocol.h:178).
+    WaitForEnum = 9,
+    /// Boot-loader safe mode: streams refuse to start
+    /// (XnSensorFirmware::Init refuses on this).
+    SafeMode = 10,
 }
 
 impl HostMode {
@@ -88,6 +119,7 @@ impl HostMode {
     pub fn from_u16(value: u16) -> HostMode {
         match value {
             0 => HostMode::Webcam,
+            1 => HostMode::Ps,
             2 => HostMode::Maintenance,
             3 => HostMode::SoftReset,
             4 => HostMode::Reboot,
@@ -95,6 +127,8 @@ impl HostMode {
             6 => HostMode::Resume,
             7 => HostMode::Init,
             8 => HostMode::SystemRestore,
+            9 => HostMode::WaitForEnum,
+            10 => HostMode::SafeMode,
             _ => HostMode::Ps,
         }
     }
@@ -287,7 +321,15 @@ pub const SHIFTS_SHIFT_SCALE: u32 = 10;
 pub const DEPTH_DEFAULT_RESOLUTION: Resolution = Resolution::Vga;
 pub const DEPTH_DEFAULT_FPS: u16 = 30;
 pub const DEPTH_DEFAULT_INPUT_FORMAT: DepthFormat = DepthFormat::Uncompressed11Bit;
-pub const IMAGE_DEFAULT_INPUT_FORMAT: ImageFormat = ImageFormat::UncompressedYuv422;
+/// The C's image default on non-Windows hosts is the PS-COMPRESSED
+/// format: `#define XN_IMAGE_STREAM_DEFAULT_INPUT_FORMAT
+/// XN_IO_IMAGE_FORMAT_YUV422` with the vendor comment "non win32 works
+/// with BULK, so it's better to compress the image"
+/// (XnSensorImageStream.h:36-41). Windows/ISO defaults to the
+/// uncompressed variant. Hardware context (fw 5.8.22, 2026-11-22): the
+/// firmware NACKs stream starts of the uncompressed mode while the
+/// compressed mode is the vendor's bulk path.
+pub const IMAGE_DEFAULT_INPUT_FORMAT: ImageFormat = ImageFormat::Yuv422;
 
 /// Send retries for the control endpoint, and the sleep between them.
 /// Source: Sensor/XnHostProtocol.cpp `XnHostProtocolUSBSend` /

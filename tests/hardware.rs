@@ -207,16 +207,20 @@ fn color_stream_roundtrip() {
         );
     }
 
-    // this driver decodes raw UYVY only (uncompressed YUV422, format 5);
-    // prefer VGA@30 (matches the depth stream), fall back to QVGA@30
-    let uncompressed = xtion::ImageFormat::UncompressedYuv422.as_u16();
+    // Wire input format: the reference driver's non-Windows default is
+    // the PS-COMPRESSED YUV422 (format 1) — "non win32 works with BULK,
+    // so it's better to compress the image" (XnSensorImageStream.h:36-41).
+    // The uncompressed variant (5) is listed in the firmware's preset
+    // table but its stream starts were rejected on this bulk device
+    // (0.2.4-0.2.7 hardware runs). Prefer VGA@30, fall back to QVGA@30.
+    let compressed = xtion::ImageFormat::Yuv422.as_u16();
     let mode = presets
         .iter()
-        .find(|p| p.format == uncompressed && p.resolution == 1 && p.fps == 30)
+        .find(|p| p.format == compressed && p.resolution == 1 && p.fps == 30)
         .or_else(|| {
             presets
                 .iter()
-                .find(|p| p.format == uncompressed && p.resolution == 0 && p.fps == 30)
+                .find(|p| p.format == compressed && p.resolution == 0 && p.fps == 30)
         });
     let (resolution, fps) = match mode {
         Some(preset) => {
@@ -227,15 +231,12 @@ fn color_stream_roundtrip() {
             };
             (resolution, preset.fps)
         }
-        None => panic!(
-            "this camera offers no uncompressed-YUV422 color mode (see presets above); \
-             the PS-compressed YUV decoder is not implemented"
-        ),
+        None => panic!("this camera offers no compressed-YUV422 color mode (see presets above)"),
     };
     let (width, height) = resolution.dimensions();
-    println!("testing {resolution:?}@{fps} uncompressed YUV422");
+    println!("testing {resolution:?}@{fps} PS-compressed YUV422 (the C's Linux/bulk default)");
 
-    cam.start_color(resolution, fps, xtion::ImageFormat::UncompressedYuv422)
+    cam.start_color(resolution, fps, xtion::ImageFormat::Yuv422)
         .expect("start color");
 
     // color and IR share firmware stream0 (the image pipe): while color
@@ -261,7 +262,7 @@ fn color_stream_roundtrip() {
     };
     assert_eq!(frame.width, width);
     assert_eq!(frame.height, height);
-    // RGB888 decoded from the YUV422 wire frame
+    // RGB888 decoded from the PS-compressed YUV422 wire frame
     assert_eq!(frame.data.len(), (width * height * 3) as usize);
     // a live scene must produce non-constant color
     let min = *frame.data.iter().min().unwrap();
@@ -338,9 +339,11 @@ fn color_start_probe() {
         println!("   {name:<8} = {:?}", cam.get_param(*p));
     }
 
-    println!("== C-parity write sequence with readbacks ==");
+    println!(
+        "== C-parity write sequence with readbacks (compressed mode, the C's Linux default) =="
+    );
     let steps = [
-        (Param::ImageFormat, "format=5", 5u16),
+        (Param::ImageFormat, "format=1 (PS-compressed)", 1u16),
         (Param::ImageResolution, "res=1", 1),
         (Param::ImageFps, "fps=30", 30),
         (Param::ImageFlickerDetection, "flicker=0", 0),
@@ -360,12 +363,8 @@ fn color_start_probe() {
         Err(e) => println!("   set stream0=0 (OFF): REJECTED ({e})"),
     }
 
-    println!("== full driver start_color attempt ==");
-    match cam.start_color(
-        xtion::Resolution::Vga,
-        30,
-        xtion::ImageFormat::UncompressedYuv422,
-    ) {
+    println!("== full driver start_color attempt (compressed) ==");
+    match cam.start_color(xtion::Resolution::Vga, 30, xtion::ImageFormat::Yuv422) {
         Ok(()) => {
             println!("   start_color: OK");
             match cam.read_color_frame(Duration::from_secs(5)) {
@@ -388,5 +387,138 @@ fn color_start_probe() {
         }
         Err(e) => println!("   start_color: {e}"),
     }
+    println!("== done; mode now: {:?}", cam.get_mode());
+}
+
+/// The 0.2.8 read-only system commands (flash FS reads, telemetry,
+/// logs, CMOS register reads). Everything here is safe to run at any
+/// time: nothing writes flash, nothing changes device state.
+#[test]
+fn system_commands_readonly() {
+    if !hardware_present() {
+        eprintln!("skipped: no Xtion attached");
+        return;
+    }
+    let _lock = lock_device();
+    let mut cam = Xtion::open().expect("open");
+
+    println!("== firmware log (opcode 7):");
+    match cam.firmware_log() {
+        Ok(log) => {
+            let lines: Vec<&str> = log.lines().collect();
+            println!("   {} entries", lines.len());
+            for line in lines.iter().take(10) {
+                println!("   {line}");
+            }
+            if lines.len() > 10 {
+                println!("   ... {} more", lines.len() - 10);
+            }
+        }
+        Err(e) => println!("   unavailable: {e}"),
+    }
+
+    println!("== flash file list (opcode 19):");
+    match cam.flash_file_list() {
+        Ok(files) => {
+            println!("   {} files:", files.len());
+            for f in &files {
+                println!(
+                    "   id {:<3} type {:#06x} {:<16} ver {}.{}.{} offset {:#x} size {} crc {:#06x}",
+                    f.id,
+                    f.file_type,
+                    xtion::protocol::system::flash_file_type_name(f.file_type),
+                    f.version >> 16 & 0xff,
+                    f.version >> 8 & 0xff,
+                    f.version & 0xffff,
+                    f.offset,
+                    f.size,
+                    f.crc
+                );
+            }
+        }
+        Err(e) => println!("   unavailable: {e}"),
+    }
+
+    println!("== flash map (opcode 18):");
+    match cam.flash_map() {
+        Ok(map) => {
+            println!("   {} entries:", map.len());
+            for entry in &map {
+                println!(
+                    "   type {:#06x} {:<16} offset {:#x} words {} ver {}.{}.{}",
+                    entry.file_type,
+                    xtion::protocol::system::flash_file_type_name(entry.file_type),
+                    entry.offset_in_flash,
+                    entry.size_in_words,
+                    entry.version_major,
+                    entry.version_minor,
+                    entry.version_build
+                );
+            }
+        }
+        Err(e) => println!("   unavailable: {e}"),
+    }
+
+    println!("== download ImageCmos calibration (opcode 16, type 0x0A):");
+    match cam.download_flash_file(0x0A) {
+        Ok(blob) => println!(
+            "   {} bytes (head {:02x?})",
+            blob.len(),
+            &blob[..blob.len().min(16)]
+        ),
+        Err(e) => println!("   unavailable: {e}"),
+    }
+
+    println!("== CPU stats (opcode 27):");
+    match cam.cpu_stats() {
+        Ok(tasks) => {
+            println!("   {} tasks:", tasks.len());
+            for t in tasks.iter().take(8) {
+                println!("   runs {} us {}", t.times_executed, t.time_microseconds);
+            }
+        }
+        Err(e) => println!("   unavailable: {e}"),
+    }
+
+    println!("== TEC data (opcode 38):");
+    match cam.tec_data() {
+        Ok(tec) => println!(
+            "   set point {}.{:02} C, measured {}.{:02} C, duty {}%, mode {}",
+            tec.set_point_temperature / 100,
+            (tec.set_point_temperature % 100).abs(),
+            tec.measured_temperature / 100,
+            (tec.measured_temperature % 100).abs(),
+            tec.tec_duty_cycle,
+            tec.scan_mode
+        ),
+        Err(e) => println!("   unavailable: {e}"),
+    }
+
+    println!("== emitter data (opcode 32):");
+    match cam.emitter_data() {
+        Ok(em) => println!(
+            "   state {} setpoint {} mV pd {} apc {}",
+            em.state, em.set_point_voltage, em.pd_reading, em.is_apc_enabled
+        ),
+        Err(e) => println!("   unavailable: {e}"),
+    }
+
+    println!("== CMOS blanking, direct (opcode 35):");
+    println!("   image: {:?}", cam.cmos_blanking_lines(0));
+    println!("   depth: {:?}", cam.cmos_blanking_lines(1));
+
+    println!("== CMOS register read via I2C (opcode 11):");
+    println!("   image reg 0x00: {:?}", cam.read_cmos_register(0, 0x00));
+    println!("   depth reg 0x00: {:?}", cam.read_cmos_register(1, 0x00));
+
+    println!("== AHB read (opcode 20):");
+    println!("   0x00000000: {:?}", cam.read_ahb(0x0));
+
+    println!("== raw flash read (opcode 25), boot-manager header:");
+    match cam.read_flash(0x2000, 32) {
+        Ok(data) => println!("   {:02x?}", &data),
+        Err(e) => println!("   unavailable: {e}"),
+    }
+
     println!("== done; mode now: {:?}", cam.get_mode());
 }

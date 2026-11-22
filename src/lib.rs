@@ -51,6 +51,9 @@ pub mod usb;
 pub use device::{ColorFrame, DepthConfig, DepthFrame, DeviceVersion, Xtion};
 pub use error::{Nack, ProtocolError, Result, XtionError};
 pub use ir::{IrConfig, IrFrame};
+pub use protocol::system::{
+    bist, CpuTaskStats, EmitterData, FlashEntry, FlashFile, TecFastConvergenceData,
+};
 pub use protocol::{CmosPreset, DepthFormat, HostMode, ImageFormat, Param, Resolution, UsbCore};
 pub use ring::{RingStats, BULK_MULTIPLIER, RING_BUFFERS};
 pub use stream::DeviceEvent;

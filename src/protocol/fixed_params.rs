@@ -20,6 +20,15 @@ pub struct FixedParams {
     pub depth_cmos_type: i32,
     /// Image CMOS type (1 = MT9M112, 2 = MT9D131, 3 = MT9M114).
     pub image_cmos_type: i32,
+    /// I2C bus number of the depth CMOS (`nDepthCmosI2CBus`).
+    pub depth_cmos_i2c_bus: i32,
+    /// I2C slave address of the depth CMOS (`nDepthCmosI2CAddress`).
+    pub depth_cmos_i2c_address: i32,
+    /// I2C bus number of the image (color) CMOS (`nImageCmosI2CBus`).
+    pub image_cmos_i2c_bus: i32,
+    /// I2C slave address of the image (color) CMOS
+    /// (`nImageCmosI2CAddress`).
+    pub image_cmos_i2c_address: i32,
     /// Emitter-to-depth-CMOS distance (LDDIS), in centimeters.
     pub d_cmos_emitter_distance: f32,
     /// Depth-CMOS-to-RGB-CMOS distance, in centimeters.
@@ -63,8 +72,12 @@ impl FixedParams {
             serial_number: i32_at(0),
             // depth CMOS block starts at 48 (11 misc/flash + 1 audio, in words)
             depth_cmos_type: i32_at(48 + 2 * 4),
+            depth_cmos_i2c_address: i32_at(48 + 3 * 4),
+            depth_cmos_i2c_bus: i32_at(48 + 4 * 4),
             // image CMOS block starts at 68
             image_cmos_type: i32_at(68 + 2 * 4),
+            image_cmos_i2c_address: i32_at(68 + 3 * 4),
+            image_cmos_i2c_bus: i32_at(68 + 4 * 4),
             // geometry block starts at 88: ir_cmos_close_to_projector, then 4 floats
             d_cmos_emitter_distance: f32_at(88 + 4),
             d_cmos_r_cmos_distance: f32_at(88 + 8),
@@ -135,6 +148,22 @@ mod tests {
         assert_eq!(fp.reference_pixel_size, 0.1052);
         assert_eq!(fp.pll_value, 42);
         assert_eq!(fp.sensor_type, 5);
+    }
+
+    #[test]
+    fn parses_cmos_i2c_addresses() {
+        let mut buf = vec![0u8; FIXED_PARAMS_V3_SIZE];
+        // depth block at byte 48: horiz, vert, type, i2c address, i2c bus
+        buf[48 + 3 * 4..48 + 4 * 4].copy_from_slice(&0xBA_i32.to_le_bytes());
+        buf[48 + 4 * 4..48 + 5 * 4].copy_from_slice(&2_i32.to_le_bytes());
+        // image block at byte 68
+        buf[68 + 3 * 4..68 + 4 * 4].copy_from_slice(&0x90_i32.to_le_bytes());
+        buf[68 + 4 * 4..68 + 5 * 4].copy_from_slice(&3_i32.to_le_bytes());
+        let fp = FixedParams::parse_v3(&buf).unwrap();
+        assert_eq!(fp.depth_cmos_i2c_address, 0xBA);
+        assert_eq!(fp.depth_cmos_i2c_bus, 2);
+        assert_eq!(fp.image_cmos_i2c_address, 0x90);
+        assert_eq!(fp.image_cmos_i2c_bus, 3);
     }
 
     #[test]

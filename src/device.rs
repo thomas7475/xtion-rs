@@ -17,6 +17,7 @@ use crate::protocol::command::{CommandLink, ControlTransport, ProtocolVersion};
 use crate::protocol::fixed_params::{read_fixed_params, FixedParams};
 use crate::protocol::identity::{read_platform_string, read_usb_core_type, set_emitter_state};
 use crate::protocol::presets::{read_cmos_presets, CmosPreset, CMOS_TYPE_IMAGE};
+use crate::protocol::system as sys;
 use crate::protocol::{
     DepthFormat, HostMode, ImageFormat, Opcode, Param, Resolution, UsbCore,
     SHIFTS_PARAM_COEFFICIENT, SHIFTS_SHIFT_SCALE, STREAM_MODE_COLOR, STREAM_MODE_DEPTH,
@@ -219,6 +220,13 @@ pub struct ColorFrame {
     pub timestamp: u32,
 }
 
+/// Active color-stream configuration (resolution + wire input format).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ColorConfig {
+    resolution: Resolution,
+    format: ImageFormat,
+}
+
 /// An opened, calibrated Xtion device.
 pub struct Xtion {
     /// Async bulk rings; declared BEFORE `usb` so they are dropped first
@@ -236,8 +244,11 @@ pub struct Xtion {
     depth_const_shift: u16,
     shift_to_depth: ShiftToDepthTables,
     depth_config: Option<DepthConfig>,
-    color_config: Option<Resolution>,
+    color_config: Option<ColorConfig>,
     ir_config: Option<IrConfig>,
+    /// USB core of the device (Jango on all known firmware; read at
+    /// open with a documented fallback).
+    usb_core: UsbCore,
     depth_assembler: StreamAssembler,
     color_assembler: StreamAssembler,
     ir_assembler: StreamAssembler,
@@ -246,7 +257,8 @@ pub struct Xtion {
 
 impl Xtion {
     /// Open the first Xtion device and run the full initialization:
-    /// version handshake, fixed params, depth calibration, S2D tables.
+    /// version handshake, the reference driver's init soft reset, fixed
+    /// params, depth calibration, S2D tables.
     pub fn open() -> Result<Xtion> {
         let mut usb = UsbDevice::open_first()?;
 
@@ -256,6 +268,23 @@ impl Xtion {
         let (link, version) = Self::handshake(&mut usb)?;
 
         let mut link = link;
+
+        // USB core (Jango on fw >= 5.3.16). Some 5.x builds NACK the
+        // opcode; the C then assumes Jango (XnDeviceSensorInit.cpp:233).
+        // Read before the reset because the reset delay depends on it.
+        let usb_core =
+            read_usb_core_type(&mut link, &mut usb, COMMAND_TIMEOUT).unwrap_or(UsbCore::Jango);
+
+        // The reference driver SOFT-RESETS the firmware at EVERY init
+        // (XnSensorFirmware::Init, bResetOnStartup=TRUE default) "to
+        // start clean": any state a previous session left behind — half-
+        // configured stream params, an armed image pipe — is discarded,
+        // and every open starts from the firmware's power-on defaults.
+        // Without this, mode-parameter writes after a failed stream
+        // start are rejected with NACK(BadParams) (observed on fw
+        // 5.8.22, 2026-11-22).
+        Self::firmware_init_reset(&mut link, &mut usb, version, usb_core)?;
+
         let fixed = read_fixed_params(&mut link, &mut usb, COMMAND_TIMEOUT)?;
         let depth_info = read_depth_information(&mut link, &mut usb, COMMAND_TIMEOUT)?;
 
@@ -301,10 +330,113 @@ impl Xtion {
             fixed_params: fixed,
             depth_const_shift: depth_info.const_shift,
             shift_to_depth,
+            usb_core,
             depth_config: None,
             color_config: None,
             ir_config: None,
         })
+    }
+
+    /// Port of `XnSensorFirmware::Init(bReset = TRUE)` — the reference
+    /// driver's init-time reset, run at EVERY open (bResetOnStartup
+    /// defaults to TRUE, XnSensor.cpp:68):
+    ///
+    /// 1. GET_MODE, refuse SAFE_MODE (mode 10);
+    /// 2. up to 5 keep-alives to prove liveness;
+    /// 3. SET_MODE(SOFT_RESET) fire-and-forget — "there is nobody to
+    ///    ACK" while the firmware restarts (XnHostProtocol.cpp:1849);
+    /// 4. wait `nUSBDelaySoftReset` — **1 ms** on Jango cores of
+    ///    firmware >= 5.3.16 (XnHostProtocol.cpp:559-564), 800 ms
+    ///    otherwise;
+    /// 5. up to 10 keep-alives (10 ms sleep between failures);
+    /// 6. GET_MODE again, refuse SAFE_MODE.
+    fn firmware_init_reset<T: ControlTransport>(
+        link: &mut CommandLink,
+        transport: &mut T,
+        version: DeviceVersion,
+        usb_core: UsbCore,
+    ) -> Result<()> {
+        let refuse_safe_mode = |mode: HostMode| -> Result<()> {
+            if mode.as_u16() == 10 {
+                return Err(XtionError::BadConfig(
+                    "device is in safe mode; cannot start".into(),
+                ));
+            }
+            Ok(())
+        };
+
+        // 1. current mode
+        let mode = HostMode::from_u16(Self::raw_get_mode(link, transport)?);
+        refuse_safe_mode(mode)?;
+
+        // 2. liveness: up to 5 keep-alives, abort if the last failed
+        let mut alive = Err(XtionError::ControlTimeout);
+        for _ in 0..5 {
+            alive = Self::raw_keep_alive(link, transport);
+            if alive.is_ok() {
+                break;
+            }
+        }
+        alive?;
+
+        // 3. fire-and-forget soft reset (SET_MODE, reply discarded)
+        let _ = link.exchange(
+            transport,
+            Opcode::SetMode,
+            &HostMode::SoftReset.as_u16().to_le_bytes(),
+            Duration::from_millis(300),
+        );
+
+        // 4. the C's reset delay: 1 ms for Jango on fw >= 5.3.16
+        let reset_delay = if version.major > 5
+            || (version.major == 5
+                && (version.minor > 3 || (version.minor == 3 && version.build >= 16)))
+        {
+            if usb_core == UsbCore::Jango {
+                Duration::from_millis(1)
+            } else {
+                Duration::from_millis(800)
+            }
+        } else {
+            Duration::from_millis(800)
+        };
+        std::thread::sleep(reset_delay);
+
+        // 5. liveness again: up to 10 keep-alives, 10 ms between failures
+        let mut ok = false;
+        for _ in 0..10 {
+            if Self::raw_keep_alive(link, transport).is_ok() {
+                ok = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if !ok {
+            return Err(XtionError::ControlTimeout);
+        }
+
+        // 6. fresh mode, refuse safe mode
+        let mode = HostMode::from_u16(Self::raw_get_mode(link, transport)?);
+        refuse_safe_mode(mode)?;
+        Ok(())
+    }
+
+    /// Raw GET_MODE exchange (u16 reply).
+    fn raw_get_mode<T: ControlTransport>(link: &mut CommandLink, transport: &mut T) -> Result<u16> {
+        let data = link.exchange(transport, Opcode::GetMode, &[], COMMAND_TIMEOUT)?;
+        if data.len() < 2 {
+            return Err(XtionError::BadConfig("mode reply too short".into()));
+        }
+        Ok(u16::from_le_bytes([data[0], data[1]]))
+    }
+
+    /// Raw KEEP_ALIVE exchange.
+    fn raw_keep_alive<T: ControlTransport>(
+        link: &mut CommandLink,
+        transport: &mut T,
+    ) -> Result<()> {
+        link.exchange(transport, Opcode::KeepAlive, &[], COMMAND_TIMEOUT)?;
+        Ok(())
     }
 
     /// Version handshake with the documented retry semantics.
@@ -458,6 +590,111 @@ impl Xtion {
     }
 
     // ------------------------------------------------------------------
+    // System / diagnostic commands (Phase 3, 0.2.8). Everything here is
+    // strictly READ-ONLY — flash file-system READS, telemetry and logs;
+    // the write-side commands (file upload/delete/execute, calibrations,
+    // I2C/AHB writes, TAKE_SNAPSHOT) stay excluded per
+    // docs/FEATURE_PLAN.md.
+    // ------------------------------------------------------------------
+
+    /// Read the firmware log (OPCODE_GET_LOG, fw >= 3.0) and render it
+    /// as text. UTF-16 text entries are decoded; overflow and structured
+    /// entries are rendered like the reference driver does.
+    pub fn firmware_log(&mut self) -> Result<String> {
+        sys::read_firmware_log(&mut self.link, &mut self.usb, COMMAND_TIMEOUT)
+    }
+
+    /// List the device's flash file system (OPCODE_GET_FILE_LIST).
+    /// Read-only view of the calibration/parameter files the firmware
+    /// boots with.
+    pub fn flash_file_list(&mut self) -> Result<Vec<sys::FlashFile>> {
+        sys::get_file_list(&mut self.link, &mut self.usb, COMMAND_TIMEOUT)
+    }
+
+    /// Read the device flash map (OPCODE_GET_FLASH_MAP): where each file
+    /// type lives in flash, its size and its version.
+    pub fn flash_map(&mut self) -> Result<Vec<sys::FlashEntry>> {
+        sys::get_flash_map(&mut self.link, &mut self.usb, COMMAND_TIMEOUT)
+    }
+
+    /// Download one flash file by type (OPCODE_DOWNLOAD_FILE), e.g. the
+    /// per-sensor calibration blobs (0x0A ImageCmos, 0x0B DepthCmos).
+    /// This READS the factory data the device was flashed with.
+    pub fn download_flash_file(&mut self, file_type: u16) -> Result<Vec<u8>> {
+        sys::download_file(&mut self.link, &mut self.usb, file_type, COMMAND_TIMEOUT)
+    }
+
+    /// Read raw bytes from device flash (OPCODE_READ_FLASH).
+    pub fn read_flash(&mut self, offset: u32, size: u32) -> Result<Vec<u8>> {
+        sys::read_flash(&mut self.link, &mut self.usb, offset, size, COMMAND_TIMEOUT)
+    }
+
+    /// Read one 32-bit value from the SoC's AHB bus (OPCODE_READ_AHB).
+    /// Diagnostic; the write variant is permanently excluded.
+    pub fn read_ahb(&mut self, address: u32) -> Result<u32> {
+        sys::read_ahb(&mut self.link, &mut self.usb, address, COMMAND_TIMEOUT)
+    }
+
+    /// Firmware CPU utilization per task (OPCODE_GET_CPU_STATS).
+    pub fn cpu_stats(&mut self) -> Result<Vec<sys::CpuTaskStats>> {
+        sys::get_cpu_stats(&mut self.link, &mut self.usb, COMMAND_TIMEOUT)
+    }
+
+    /// Run the built-in self-test for the selected modules
+    /// (OPCODE_BIST). `timeout` should be generous (the C allows 300 s);
+    /// returns the failure bitmask, 0 = all green.
+    pub fn run_bist(&mut self, tests_mask: u16, timeout: Duration) -> Result<u32> {
+        sys::run_bist(&mut self.link, &mut self.usb, tests_mask, timeout)
+    }
+
+    /// TEC (thermoelectric cooler) telemetry. Firmware >= 5.4 answers
+    /// with the fast-convergence layout via opcode 38; this camera's
+    /// 5.8.22 always takes that path.
+    pub fn tec_data(&mut self) -> Result<sys::TecFastConvergenceData> {
+        sys::get_tec_fast_convergence_data(&mut self.link, &mut self.usb, COMMAND_TIMEOUT)
+    }
+
+    /// IR emitter telemetry (OPCODE_GET_EMITTER_DATA): state, set point,
+    /// photodiode reading, APC status.
+    pub fn emitter_data(&mut self) -> Result<sys::EmitterData> {
+        sys::get_emitter_data(&mut self.link, &mut self.usb, COMMAND_TIMEOUT)
+    }
+
+    /// Current vertical blanking of one CMOS, read directly
+    /// (OPCODE_GET_CMOS_BLANKING). `cmos_type`: 0 = image, 1 = depth
+    /// ([`crate::protocol::presets::CMOS_TYPE_IMAGE`] /
+    /// [`crate::protocol::presets::CMOS_TYPE_DEPTH`]).
+    pub fn cmos_blanking_lines(&mut self, cmos_type: u16) -> Result<u32> {
+        sys::get_cmos_blanking_lines(&mut self.link, &mut self.usb, cmos_type, COMMAND_TIMEOUT)
+    }
+
+    /// Read one register of one of the camera CMOS sensors through the
+    /// I2C path (OPCODE_I2C_READ). The bus and slave address come from
+    /// the fixed-params block, like the reference driver's
+    /// `XnHostProtocolGetCMOSRegisterI2C`. `cmos_type`: 0 = image,
+    /// 1 = depth.
+    pub fn read_cmos_register(&mut self, cmos_type: u16, address: u16) -> Result<u16> {
+        let (bus, slave) = match cmos_type {
+            0 => (
+                self.fixed_params.image_cmos_i2c_bus,
+                self.fixed_params.image_cmos_i2c_address,
+            ),
+            _ => (
+                self.fixed_params.depth_cmos_i2c_bus,
+                self.fixed_params.depth_cmos_i2c_address,
+            ),
+        };
+        sys::read_cmos_register(
+            &mut self.link,
+            &mut self.usb,
+            bus as u16,
+            slave as u16,
+            address,
+            COMMAND_TIMEOUT,
+        )
+    }
+
+    // ------------------------------------------------------------------
     // Runtime stream options (Phase 2) — all volatile firmware state,
     // restored to defaults on power-cycle.
     // ------------------------------------------------------------------
@@ -568,49 +805,18 @@ impl Xtion {
 
     /// Read the firmware operating mode (GET_MODE, opcode 5).
     pub fn get_mode(&mut self) -> Result<HostMode> {
-        let data = self
-            .link
-            .exchange(&mut self.usb, Opcode::GetMode, &[], COMMAND_TIMEOUT)?;
-        if data.len() < 2 {
-            return Err(XtionError::BadConfig("mode reply too short".into()));
-        }
-        Ok(HostMode::from_u16(u16::from_le_bytes([data[0], data[1]])))
+        Ok(HostMode::from_u16(Self::raw_get_mode(
+            &mut self.link,
+            &mut self.usb,
+        )?))
     }
 
     /// Soft-reset the firmware (SET_MODE, opcode 6, mode 3) and wait for
     /// it to come back. Port of the reference init path
-    /// (XnSensorFirmware::Init with bResetOnStartup=TRUE):
-    /// XnHostProtocolReset -> SetMode(SOFT_RESET) whose reply is discarded
-    /// ("the firmware is changing, there is nobody to ACK" —
-    /// XnHostProtocol.cpp:1849), 800 ms boot delay (nUSBDelaySoftReset,
-    /// XnHostProtocol.cpp:258), then keep-alive until the device answers
-    /// again (up to 10 tries in the C).
+    /// (XnSensorFirmware::Init with bResetOnStartup=TRUE); `open()` runs
+    /// this automatically via [`Self::firmware_init_reset`].
     pub fn soft_reset(&mut self) -> Result<()> {
-        let payload = HostMode::SoftReset.as_u16().to_le_bytes();
-        // The reply may never arrive while the firmware restarts; either
-        // way the reset is fire-and-forget and a late ACK is discarded by
-        // the next exchange (stale-id replies are skipped).
-        let _ = self.link.exchange(
-            &mut self.usb,
-            Opcode::SetMode,
-            &payload,
-            Duration::from_millis(300),
-        );
-        std::thread::sleep(Duration::from_millis(800));
-        // re-establish liveness: keep-alive with retries, like the C's
-        // 10-attempt loop
-        for _ in 0..10 {
-            match self.link.exchange(
-                &mut self.usb,
-                Opcode::KeepAlive,
-                &[],
-                Duration::from_millis(500),
-            ) {
-                Ok(_) => return Ok(()),
-                Err(_) => std::thread::sleep(Duration::from_millis(50)),
-            }
-        }
-        Err(XtionError::ControlTimeout)
+        Self::firmware_init_reset(&mut self.link, &mut self.usb, self.version, self.usb_core)
     }
 
     /// Configure and start the depth stream (stream1 in firmware terms).
@@ -662,14 +868,28 @@ impl Xtion {
 
     /// Configure and start the color stream (stream0 in firmware terms).
     ///
-    /// Only the UNCOMPRESSED YUV422 input format is supported: format 1
-    /// (`ImageFormat::Yuv422`) is the PS-compressed variant that needs the
-    /// `XnStreamUncompressYUVImagePS` decompressor, which this driver does
-    /// not implement. The requested (resolution, fps, format) mode is
-    /// validated against the preset list the firmware reports (opcode 36)
-    /// exactly like the reference driver. The color camera and the IR
-    /// stream share firmware stream0, so they cannot run at the same time
-    /// (stop one before starting the other).
+    /// Wire input formats (`XnIOImageFormats`, Include/PS1080.h:253-261):
+    ///
+    /// - [`ImageFormat::Yuv422`] (1) is the **PS-compressed** variant —
+    ///   the reference driver's default on non-Windows hosts, with the
+    ///   vendor comment *"non win32 works with BULK, so it's better to
+    ///   compress the image"* (XnSensorImageStream.h:36-41). This is the
+    ///   recommended mode on the Xtion's bulk endpoints and what the
+    ///   hardware accepts on fw 5.8.22 (observed 2026-11-22: starts of
+    ///   the uncompressed mode were rejected with NACK(BadParams) by the
+    ///   same firmware that lists them in its preset table — the presets
+    ///   describe CMOS capability, the bulk USB interface filters them).
+    /// - [`ImageFormat::UncompressedYuv422`] (5) is plain UYVY — the
+    ///   Windows/ISO default. Supported for completeness; may be
+    ///   rejected by the firmware on bulk endpoints.
+    ///
+    /// The requested (resolution, fps, format) mode is validated against
+    /// the preset list the firmware reports (opcode 36) exactly like the
+    /// reference driver. The color camera and the IR stream share
+    /// firmware stream0, so they cannot run at the same time (stop one
+    /// before starting the other). Compressed frames are decoded by
+    /// [`crate::color::uncompress_yuv_image_ps`]
+    /// (`XnStreamUncompressYUVImagePS`).
     pub fn start_color(
         &mut self,
         resolution: Resolution,
@@ -682,18 +902,12 @@ impl Xtion {
             ));
         }
         match format {
-            ImageFormat::UncompressedYuv422 => {}
-            ImageFormat::Yuv422 => {
-                return Err(XtionError::BadConfig(format!(
-                    "input format {} (Yuv422) is the PS-compressed variant \
-                     (XnPSCompressedImageProcessor), which this driver does not decode; \
-                     use ImageFormat::UncompressedYuv422",
-                    format.as_u16()
-                )));
-            }
+            ImageFormat::Yuv422 | ImageFormat::UncompressedYuv422 => {}
             _ => {
                 return Err(XtionError::BadConfig(
-                    "only uncompressed YUV422 input is supported".into(),
+                    "only the Yuv422 (PS-compressed, format 1) and \
+                     UncompressedYuv422 (format 5) input formats are supported"
+                        .into(),
                 ))
             }
         }
@@ -769,7 +983,7 @@ impl Xtion {
         )?);
         self.ensure_misc_ring();
 
-        self.color_config = Some(resolution);
+        self.color_config = Some(ColorConfig { resolution, format });
         Ok(())
     }
 
@@ -970,31 +1184,67 @@ impl Xtion {
     /// (0.2.2), a stream that keeps producing unusable frames fails fast
     /// with the actual sizes and counters instead of looping into a
     /// silent timeout.
+    ///
+    /// The wire format decides the gate: PS-compressed frames
+    /// ([`ImageFormat::Yuv422`]) have a VARIABLE raw size (the C streams
+    /// them through `XnStreamUncompressYUVImagePS` with a carry buffer),
+    /// so any non-corrupted frame is decompressed and the DECODED size
+    /// must be exactly `width * height * 2`; uncompressed frames
+    /// ([`ImageFormat::UncompressedYuv422`]) are gated on the exact wire
+    /// size before the BT.601 conversion.
     pub fn read_color_frame(&mut self, timeout: Duration) -> Result<ColorFrame> {
-        let resolution = self.color_config.ok_or(XtionError::StreamNotRunning)?;
-        let (width, height) = resolution.dimensions();
-        // YUV422 wire size: 2 bytes per pixel, no extra rows
+        let config = self.color_config.ok_or(XtionError::StreamNotRunning)?;
+        let (width, height) = config.resolution.dimensions();
+        // YUV422 decoded size: 2 bytes per pixel, no extra rows
         // (XnImageProcessor.cpp:75-88).
         let expected = (width * height * 2) as usize;
+        let compressed = config.format == ImageFormat::Yuv422;
         let deadline = Instant::now() + timeout;
         let mut unusable = 0u32;
 
         loop {
             while let Some(frame) = self.color_assembler.pop_frame() {
-                let reason = if frame.corrupted {
-                    Some("corrupted".to_string())
-                } else if frame.data.len() != expected {
-                    Some(format!(
-                        "{} bytes (expected {expected} for {width}x{height} YUV422)",
-                        frame.data.len()
-                    ))
-                } else {
+                let decoded = if compressed {
+                    if frame.corrupted {
+                        None
+                    } else {
+                        // XnPSCompressedImageProcessor: the whole frame
+                        // payload flows through the decompressor; a good
+                        // frame yields exactly width*height*2 UYVY bytes.
+                        let mut yuv = Vec::new();
+                        crate::color::uncompress_yuv_image_ps(
+                            &frame.data,
+                            (width * 2) as usize,
+                            &mut yuv,
+                        );
+                        if yuv.len() == expected {
+                            Some(yuv)
+                        } else {
+                            log::warn!(
+                                "compressed color frame decompressed to {} bytes \
+                                 (expected {expected}); raw {} bytes",
+                                yuv.len(),
+                                frame.data.len()
+                            );
+                            None
+                        }
+                    }
+                } else if frame.corrupted {
                     None
+                } else if frame.data.len() != expected {
+                    log::warn!(
+                        "dropping unusable color frame: {} bytes (expected \
+                         {expected} for {width}x{height} YUV422)",
+                        frame.data.len()
+                    );
+                    None
+                } else {
+                    Some(frame.data.clone())
                 };
-                match reason {
-                    None => {
+                match decoded {
+                    Some(yuv) => {
                         let mut rgb = Vec::with_capacity((width * height * 3) as usize);
-                        yuv422_to_rgb888(&frame.data, &mut rgb);
+                        yuv422_to_rgb888(&yuv, &mut rgb);
                         return Ok(ColorFrame {
                             width,
                             height,
@@ -1002,13 +1252,13 @@ impl Xtion {
                             timestamp: frame.timestamp,
                         });
                     }
-                    Some(reason) => {
+                    None => {
                         unusable += 1;
-                        log::warn!("dropping unusable color frame #{unusable}: {reason}");
+                        log::warn!("dropping unusable color frame #{unusable}");
                         if unusable >= 5 {
                             return Err(XtionError::BadConfig(format!(
                                 "color stream produces unusable frames: \
-                                 frame #{unusable} {reason}; assembler {:?}, ring {:?}",
+                                 frame #{unusable}; assembler {:?}, ring {:?}",
                                 self.color_assembler.stats,
                                 self.color_ring.as_ref().map(|ring| ring.stats()),
                             )));

@@ -2,7 +2,7 @@
 
 How to prove xtion-rs works as intended **on real hardware**. Everything
 that can be checked without a camera already runs in CI (`cargo test`,
-84 checks); this document covers the on-camera layer.
+107 checks); this document covers the on-camera layer.
 
 Reference hardware: ASUS Xtion Pro Live, firmware 5.8.22, USB 2.0
 (see the USB 3.0 caveat in section 4).
@@ -32,6 +32,9 @@ Reference hardware: ASUS Xtion Pro Live, firmware 5.8.22, USB 2.0
 | 2 | `depth_stream_roundtrip` | full depth pipeline: stream setup, ring, packed-11 decode, shift-to-depth | >= 80% valid pixels (M5 reference: 87.4%); 29-30.1 fps (reference 29.97); ring `failures == 0`; shift histogram inside the table (reference 291-797); min depth 400-500 mm (reference 431 mm) |
 | 3 | `phase1_identity_and_options` | 0.2.0 identity + runtime options | platform string non-empty (ASUS Xtion: `RD108x-112`-family); USB core parses (Jango=0 expected on 5.8.22); registration GET/SET round-trips true/false; hole filter, depth mirror, close range accept writes; emitter off/on accepts writes |
 | 4 | `ir_stream_roundtrip` | IR stream end-to-end | 640x480, exactly 307,200 values; values not constant (`max > min`) and not black (`max > 0`); `drain_events()` empty on a healthy camera; `stop_ir` succeeds |
+| 5 | `color_stream_roundtrip` | color stream end-to-end in the **PS-compressed YUV422 mode** (format 1, the C's non-Windows/bulk default) | prints the 25-entry preset table + endianness guard; `start_color` ACKed including `STREAM0_MODE=COLOR`; one frame decodes to exactly width x height x 3 RGB, non-constant; IR start refused while color runs; stop clean |
+| 6 | `color_start_probe` | diagnostic (always REPORTS, never gates): mode, image-pipe params before/after the init soft reset, C-parity write sequence with readbacks (compressed mode), one driver `start_color` | informational — paste the output when color misbehaves |
+| 7 | `system_commands_readonly` | the 0.2.8 read-only command surface end-to-end | firmware log, flash file list, flash map, ImageCmos download, CPU stats, TEC + emitter telemetry, direct CMOS blanking, CMOS register reads (I2C), AHB read, raw flash read — each section may report `unavailable: ...` without failing (firmware-dependent surface), but nothing may hang or corrupt the session |
 
 Also run the numerical core regression on-camera data:
 `cargo test --test golden` (no camera needed; proves packed-11 and
@@ -129,14 +132,31 @@ documented API. Every check lists the expected observation.
   the color CMOS was never armed (blanking fetch missing / wrong image
   params), and 5 unusable frames fail fast with assembler + ring
   counters in the message.
+- **Color NACK ROOT CAUSE (0.2.8):** two firmware facts from the
+  OpenNI 2.2.0 cross-read explain every 0.2.4-0.2.7 symptom:
+  (1) the reference driver SOFT-RESETS the firmware at EVERY init
+  (XnSensorFirmware::Init, bResetOnStartup=TRUE) and xtion-rs never
+  did — after a failed stream start the device rejects even plain
+  mode-parameter writes (the "redundant-write" pattern was dirty
+  state, not redundancy); (2) the C's image default on non-Windows is
+  the PS-COMPRESSED format 1 (XnSensorImageStream.h:36-41, "non win32
+  works with BULK, so it's better to compress the image") — the
+  uncompressed mode (5) that the preset table lists is the Windows/ISO
+  path, and its stream start is what this bulk device rejected (the
+  presets describe CMOS capability; the active USB interface filters
+  them). Fix: `open()` ports the init reset (1 ms delay on Jango
+  fw >= 5.3.16, not 800), `start_color`/`read_color_frame` speak the
+  compressed format, and the ported `XnStreamUncompressYUVImagePS`
+  decodes it. If a future run still NACKs: run `color_start_probe`
+  and check whether the compressed C-parity sequence ACKs — if even
+  that fails, grab a usbmon capture of a real OpenNI color session.
 - **Color BadParams at start (0.2.4 run, solved in 0.2.5):** `start
   color: Nack(BadParams)` — the requested mode was outside the
   firmware's CMOS preset list (and the PS-compressed Yuv422 format was
-  requested, which this driver cannot decode). Since 0.2.5 the driver
-  queries the presets (opcode 36) first and fails fast with the full
-  supported list before writing anything; the hardware test prints the
-  list and picks a supported uncompressed-YUV422 mode automatically
-  (VGA@30 preferred, QVGA@30 fallback).
+  requested, which this driver could not decode then). Since 0.2.5 the
+  driver queries the presets (opcode 36) first and fails fast with the
+  full supported list before writing anything; since 0.2.8 the hardware
+  test picks the compressed (1, VGA@30) mode.
 - **Stream0Mode=COLOR NACK with valid params (0.2.6 run, probing in
   0.2.7):** the preset table decodes correctly now and (5,1,30) is
   picked, but the firmware rejects `STREAM0_MODE=1` (COLOR) —

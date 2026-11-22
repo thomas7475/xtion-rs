@@ -84,27 +84,53 @@ the first on-camera run (firmware 5.3, Xtion Pro Live):
 
 Opcodes (`EPsProtocolOpCodes`): GET_VERSION=0, KEEP_ALIVE=1, GET_PARAM=2,
 SET_PARAM=3, GET_FIXED_PARAMS=4, GET_MODE=5, SET_MODE=6, GET_LOG=7,
-ALGORITHM_PARAMS=22, GET_CMOS_PRESETS=36, GET_SERIAL_NUMBER=37,
+I2C_READ=11, DOWNLOAD_FILE=16, GET_FLASH_MAP=18, GET_FILE_LIST=19,
+READ_AHB=20, ALGORITHM_PARAMS=22, READ_FLASH=25, GET_CPU_STATS=27,
+BIST=28, GET_TEC_DATA=30, GET_EMITTER_DATA=32, GET_CMOS_BLANKING=35,
+GET_CMOS_PRESETS=36, GET_SERIAL_NUMBER=37, GET_FAST_CONVERGENCE_TEC=38,
 GET_PLATFORM_STRING=39, GET_USB_CORE_TYPE=40, SET_LED_STATE=41,
-ENABLE_EMITTER=42.
+ENABLE_EMITTER=42. xtion-rs implements the read-only subset plus the
+streaming path; the write-side commands (file upload/delete/execute,
+I2C/AHB writes, calibrations 29/31/33, TAKE_SNAPSHOT) are permanently
+excluded (docs/FEATURE_PLAN.md).
+
+### Firmware-mode lifecycle (GET_MODE 5 / SET_MODE 6)
+
+Modes (`XnHostProtocol.h:169-179`): WEBCAM=0, PS=1, MAINTENANCE=2,
+SOFT_RESET=3, REBOOT=4, SUSPEND=5, RESUME=6, INIT=7, SYSTEM_RESTORE=8,
+WAIT_FOR_ENUM=9, SAFE_MODE=10. The reference driver soft-resets the
+firmware at EVERY init (XnSensorFirmware::Init, bResetOnStartup=TRUE
+default) "to start clean": GET_MODE + SAFE_MODE refusal, KeepAlive x5,
+SET_MODE(SOFT_RESET) fire-and-forget ("the firmware is changing, there
+is nobody to ACK" — XnHostProtocol.cpp:1849), then
+`nUSBDelaySoftReset` = **1 ms on Jango cores of firmware >= 5.3.16**
+(XnHostProtocol.cpp:559-564) or 800 ms otherwise, KeepAlive x10 with
+10 ms gaps, and a final GET_MODE + SAFE_MODE refusal. xtion-rs ports
+this 1:1 in `open()`; without it, a session that follows a failed
+stream start sees NACK(BadParams) on plain mode-parameter writes
+(observed on fw 5.8.22, 2026-11-22).
 
 ### CMOS presets (GET_CMOS_PRESETS, opcode 36, fw >= 5.3.29)
 
-- Request payload: ONE big-endian u16 CMOS id (`XnCMOSType`:
+- Request payload: ONE LITTLE-endian u16 CMOS id (`XnCMOSType`:
   IMAGE=0, DEPTH=1 — Include/PS1080.h:245-246).
-- Reply data: an array of big-endian `{u16 format, u16 resolution,
-  u16 fps}` triples (`XnCmosPreset`, XnStreamParams.h:251-256). Unlike
-  most replies these fields arrive byte-swapped — the C applies
-  `XN_PREPARE_VAR16_IN_BUFFER` to the request payload and to every reply
-  field individually (XnHostProtocol.cpp:3253-3296).
+- Reply data: an array of LITTLE-endian `{u16 format, u16 resolution,
+  u16 fps}` triples (`XnCmosPreset`, XnStreamParams.h:251-256).
+  `XN_PREPARE_VAR16_IN_BUFFER` is the IDENTITY macro on x86/Windows
+  (XnOSLinux-x86.h) — an earlier revision of this document wrongly
+  claimed byte-swapping; the 0.2.5 hardware run (every field shifted
+  by 256) proved the fields are plain little-endian, and the 0.2.6 fix
+  made the parser LE.
 - Firmware quirk: one extra preset with FPS 0 is appended — the C drops
   it; so do we.
 - Purpose: the reference validates every stream mode against this list
   before configuring it (XnSensorImageStream::Init for the image CMOS);
   a mode outside the list is rejected by the firmware with
-  NACK(BadParams). Verified on hardware 2026-11-22: requesting the
-  PS-compressed Yuv422 format at VGA@30 is NACKed, the driver now
-  queries the presets and fails fast with the supported list instead.
+  NACK(BadParams).
+- Semantics (0.2.8): the list describes the CMOS's capability across
+  BOTH USB interface styles. On the Xtion's bulk endpoints the vendor
+  stack uses the PS-COMPRESSED format (1) — see section 7 — while the
+  uncompressed modes (5/7) belong to the Windows/ISO path.
 
 ## 3. Parameters (GET_PARAM / SET_PARAM)
 
@@ -264,15 +290,28 @@ output:     0,  1,    2,  3,  4,    5,  6,  7
 
 ## 7. Color decoding
 
-- Input: **uncompressed** YUV422 only (format id 5), byte order
-  `[U, Y1, V, Y2]` (`YUV.h`: `YUV422_U=0, YUV422_Y1=1, YUV422_V=2,
-  YUV422_Y2=3`). Format id 1 (`Yuv422`) is the PS-COMPRESSED variant
-  (`XnPSCompressedImageProcessor` -> `XnStreamUncompressYUVImagePS`, a
-  4-bit state-machine decompressor) and is rejected by `start_color` —
-  implementing that decompressor is a possible future feature.
-- The requested (resolution, fps, format) mode is validated against the
-  firmware's CMOS preset list (opcode 36, see section 2) exactly like
-  the reference; the color CMOS presets come from the device itself.
+- Wire input formats (`XnIOImageFormats`, Include/PS1080.h:253-261):
+  format 1 = **PS-compressed YUV422** — the reference driver's default
+  on non-Windows hosts, with the vendor comment *"non win32 works with
+  BULK, so it's better to compress the image"* (XnSensorImageStream.h:
+  36-41); format 5 = plain UYVY (the Windows/ISO default). This driver
+  supports BOTH: compressed frames are decompressed by the ported
+  `XnStreamUncompressYUVImagePS` (Uncomp.cpp:45-180), uncompressed
+  frames pass through directly.
+- PS-compressed stream: a sequence of 4-bit elements (high nibble
+  first). Element 0x0-0xC = a diff (`element - 6`, wrapping u8
+  arithmetic), 0xD = dummy, 0xF = full byte (two more nibbles follow).
+  Four channels rotate — output order Y0, U, Y1, V (= UYVY); after U
+  is decoded V inherits it (`case 2:`) and after V is decoded U is
+  restored from V (`case 4:`), so one diff updates both chroma samples
+  of the group. Channel state resets at every line boundary
+  (`line_size = width * 2` output bytes). Compressed frames have a
+  variable raw size; the DECODED size must be exactly `width * height
+  * 2` (XnPSCompressedImageProcessor's continuous-buffer semantics).
+- The requested (resolution, fps, format) mode is validated against
+  the firmware's CMOS preset list (opcode 36, see section 2) exactly
+  like the reference; the color CMOS presets come from the device
+  itself.
 - BT.601 integer conversion (`YUV.cpp::YUV444ToRGB888`):
 
 ```text
