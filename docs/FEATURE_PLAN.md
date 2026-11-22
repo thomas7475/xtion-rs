@@ -14,6 +14,27 @@ All Phase 1-2 features are runtime-only firmware state (RAM, lost on
 power-cycle) — the same operations the vendor driver issued for a decade
 of field use.
 
+## 0. Hardware-validation fixes (0.2.1)
+
+First real-camera run of the 0.2.0 tests (fw 5.8.22) failed two of the
+four hardware tests; both were driver deviations from the reference,
+now fixed and covered by unit tests:
+
+1. `usb_core_type` NACK(InvalidCommand) → the driver now falls back to
+   `UsbCore::Jango` on a failed probe, mirroring the reference
+   ("don't check error code. If this fails, assume JANGO",
+   XnDeviceSensorInit.cpp:233). Opcode 40 is evidently not universal
+   even within firmware 5.x.
+2. `ir_stream_roundtrip` ControlTimeout → `start_ir` was missing the
+   CMOS blanking fetch that all three reference streams issue at
+   configure time (`SetCmosConfig` → ALGORITHM_PARAMS type 0x06,
+   16 bytes, for the requested resolution/fps). Without it the firmware
+   ACKs every parameter but never arms the sensor timing, so no IR
+   packets ever arrive. 0.2.1 adds `read_cmos_blanking` and issues it in
+   `start_depth`, `start_color` and `start_ir` (parity with
+   XnSensorDepthStream.cpp / XnSensorImageStream.cpp /
+   XnSensorIRStream.cpp).
+
 ## 1. Gap analysis (OpenNI 2.2.0 vs xtion-rs 0.1.5)
 
 | # | OpenNI feature | Mechanism | xtion-rs 0.1.5 | Effort | Camera risk |

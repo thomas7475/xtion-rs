@@ -12,7 +12,7 @@ use crate::depth::packed11::unpack_packed11;
 use crate::depth::shift_to_depth::{ShiftToDepthConfig, ShiftToDepthTables};
 use crate::error::{Result, XtionError};
 use crate::ir::{decode_ir_frame, expected_wire_size, IrConfig, IrFrame};
-use crate::protocol::algorithm::read_depth_information;
+use crate::protocol::algorithm::{read_cmos_blanking, read_depth_information};
 use crate::protocol::command::{CommandLink, ControlTransport, ProtocolVersion};
 use crate::protocol::fixed_params::{read_fixed_params, FixedParams};
 use crate::protocol::identity::{read_platform_string, read_usb_core_type, set_emitter_state};
@@ -357,8 +357,21 @@ impl Xtion {
 
     /// USB core type (OPCODE_GET_USB_CORE_TYPE). Firmware >= 5.3.16 uses
     /// the fast "Jango" core.
+    ///
+    /// The reference driver probes this once during open and deliberately
+    /// ignores the outcome — "don't check error code. If this fails,
+    /// assume JANGO" (XnDeviceSensorInit.cpp:233): several firmware
+    /// builds answer with NACK(InvalidCommand) even though the platform
+    /// string works. We mirror that: a failed probe falls back to
+    /// `UsbCore::Jango` instead of failing the identity surface.
     pub fn usb_core_type(&mut self) -> Result<UsbCore> {
-        read_usb_core_type(&mut self.link, &mut self.usb, COMMAND_TIMEOUT)
+        match read_usb_core_type(&mut self.link, &mut self.usb, COMMAND_TIMEOUT) {
+            Ok(core) => Ok(core),
+            Err(err) => {
+                log::warn!("usb core probe failed ({err}); assuming Jango core like the reference driver");
+                Ok(UsbCore::Jango)
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -545,6 +558,10 @@ impl Xtion {
         self.set_param(Param::DepthFormat, config.input_format.as_u16())?;
         self.set_param(Param::DepthResolution, config.resolution.as_u16())?;
         self.set_param(Param::DepthFps, config.fps)?;
+        // CMOS timing: the reference depth stream ends its configuration
+        // with SetCmosConfig(XN_CMOS_TYPE_DEPTH, ...) — a blanking read
+        // for the requested mode (XnSensorDepthStream::ConfigureStreamImpl).
+        read_cmos_blanking(&mut self.link, &mut self.usb, config.resolution, config.fps, COMMAND_TIMEOUT)?;
         self.set_param(Param::Stream1Mode, STREAM_MODE_DEPTH)?;
 
         // Start the async URB ring BEFORE the device begins to stream:
@@ -600,6 +617,10 @@ impl Xtion {
         self.set_param(Param::ImageFormat, format.as_u16())?;
         self.set_param(Param::ImageResolution, resolution.as_u16())?;
         self.set_param(Param::ImageFps, fps)?;
+        // CMOS timing: the reference image stream arms the color CMOS with
+        // a blanking read before the mode is written
+        // (XnSensorImageStream::ConfigureStreamImpl -> SetCmosConfig).
+        read_cmos_blanking(&mut self.link, &mut self.usb, resolution, fps, COMMAND_TIMEOUT)?;
         self.set_param(Param::Stream0Mode, STREAM_MODE_COLOR)?;
 
         self.color_ring = Some(crate::ring::BulkRing::start(
@@ -676,6 +697,13 @@ impl Xtion {
             self.usb.depth_max_packet_size,
             self.usb.image_max_packet_size,
         )
+    }
+
+    /// Transfer statistics of the IR (image-pipe) bulk ring, for
+    /// diagnostics: `completions` counts URBs with data, so a zero while
+    /// the stream should be running means the device never sent anything.
+    pub fn ir_ring_stats(&self) -> Option<crate::ring::RingStats> {
+        self.ir_ring.as_ref().map(|ring| ring.stats())
     }
 
     /// Counters of the depth bulk ring, if streaming (diagnostics).
@@ -855,6 +883,16 @@ impl Xtion {
                         return Err(err);
                     }
                     if Instant::now() >= deadline {
+                        // make the two possible failure modes distinguishable
+                        // from the log: no data at all (sensor timing was
+                        // never armed) vs data but unframeable packets.
+                        let stats = self.ir_ring.as_ref().unwrap().stats();
+                        log::error!(
+                            "no ir frame within {timeout:?}: ring saw {} chunks / {} bytes / {} failures",
+                            stats.completions,
+                            stats.bytes,
+                            stats.failures
+                        );
                         return Err(XtionError::ControlTimeout);
                     }
                 }
@@ -948,6 +986,12 @@ fn configure_ir_via<T: ControlTransport>(
     // "IR mirror is always off in firmware" — the reference driver
     // mirrors IR host-side instead.
     set_param_via(link, transport, Param::IrMirror, 0, timeout)?;
+    // CMOS timing: the reference IR stream arms the depth CMOS (the IR
+    // sensor) with a blanking read for the requested mode before the
+    // stream mode is written (XnSensorIRStream::ConfigureStreamImpl
+    // -> SetCmosConfig(XN_CMOS_TYPE_DEPTH, ...)). Without it real
+    // hardware ACKs every command but never produces IR packets.
+    read_cmos_blanking(link, transport, config.resolution, config.fps, timeout)?;
     set_param_via(link, transport, Param::Stream0Mode, STREAM_MODE_IR, timeout)?;
     Ok(())
 }
@@ -1117,6 +1161,19 @@ mod tests {
         v
     }
 
+    /// Generic ALGORITHM_PARAMS reply carrying `data_bytes` payload bytes
+    /// (error word + data), for the given request id.
+    fn algorithm_reply(id: u16, data_bytes: usize) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&FW_MAGIC_V26.to_le_bytes());
+        v.extend_from_slice(&((1 + data_bytes / 2) as u16).to_le_bytes());
+        v.extend_from_slice(&Opcode::AlgorithmParams.as_u16().to_le_bytes());
+        v.extend_from_slice(&id.to_le_bytes());
+        v.extend_from_slice(&0u16.to_le_bytes()); // ACK
+        v.extend(std::iter::repeat(0u8).take(data_bytes));
+        v
+    }
+
     /// Wire-contract guard: every Param discriminant must equal the
     /// vendor's EPsProtocolParams id (XnParams.h), so a typo here can
     /// never silently configure the wrong thing.
@@ -1172,8 +1229,9 @@ mod tests {
         assert_eq!(u16::from_le_bytes([req[10], req[11]]), 1);
     }
 
-    /// The IR start sequence must match XnSensorIRStream::ConfigureStreamImpl:
-    /// IrResolution -> IrFps -> IrMirror forced off -> stream0 into IR mode.
+    /// The IR start sequence must match XnSensorIRStream::ConfigureStreamImpl
+    /// + OpenStreamImpl: IrResolution -> IrFps -> IrMirror forced off ->
+    /// CMOS blanking read (SetCmosConfig parity) -> stream0 into IR mode.
     #[test]
     fn configure_ir_sequence_matches_reference() {
         let (mut link, mut fake) = (
@@ -1183,7 +1241,8 @@ mod tests {
                     setparam_ack_reply(0, 1),
                     setparam_ack_reply(1, 30),
                     setparam_ack_reply(2, 0),
-                    setparam_ack_reply(3, 3),
+                    algorithm_reply(3, 16),
+                    setparam_ack_reply(4, 3),
                 ],
                 sent: vec![],
             },
@@ -1198,10 +1257,11 @@ mod tests {
             Duration::from_millis(50),
         )
         .unwrap();
-        assert_eq!(fake.sent.len(), 4);
-        let params: Vec<(u16, u16)> = fake
-            .sent
+        assert_eq!(fake.sent.len(), 5);
+        // three SET_PARAMs ...
+        let params: Vec<(u16, u16)> = fake.sent[..3]
             .iter()
+            .chain(fake.sent[4..5].iter())
             .map(|req| {
                 (
                     u16::from_le_bytes([req[8], req[9]]),
@@ -1218,5 +1278,16 @@ mod tests {
                 (5, 3),   // PARAM_GENERAL_STREAM0_MODE = IR
             ]
         );
+        // ... then the CMOS blanking read between mirror and stream mode
+        let req = &fake.sent[3];
+        assert_eq!(
+            u16::from_le_bytes([req[4], req[5]]),
+            Opcode::AlgorithmParams.as_u16()
+        );
+        assert_eq!(u16::from_le_bytes([req[8], req[9]]), 0x06); // BLANKING
+        assert_eq!(u16::from_le_bytes([req[10], req[11]]), 0); // format
+        assert_eq!(u16::from_le_bytes([req[12], req[13]]), 1); // VGA
+        assert_eq!(u16::from_le_bytes([req[14], req[15]]), 30); // fps
+        assert_eq!(u16::from_le_bytes([req[16], req[17]]), 0); // offset words
     }
 }

@@ -100,7 +100,10 @@ fn phase1_identity_and_options() {
     let _lock = lock_device();
     let mut cam = Xtion::open().expect("open");
 
-    // platform string and USB core (fw 5.8.22 answers both)
+    // platform string and USB core. The usb-core probe falls back to
+    // Jango inside the driver when the firmware NACKs opcode 40
+    // (reference behaviour, XnDeviceSensorInit.cpp:233), so this call
+    // must always succeed.
     let platform = cam.platform_string().expect("platform string");
     println!("platform: {platform}");
     assert!(!platform.is_empty(), "platform string must not be empty");
@@ -133,9 +136,18 @@ fn ir_stream_roundtrip() {
     let mut cam = Xtion::open().expect("open");
 
     cam.start_ir(xtion::IrConfig::default()).expect("start ir");
-    let frame = cam
-        .read_ir_frame(Duration::from_secs(3))
-        .expect("one ir frame");
+    let frame = match cam.read_ir_frame(Duration::from_secs(3)) {
+        Ok(frame) => frame,
+        Err(err) => {
+            // distinguish "device never sent anything" (ring completions
+            // == 0: sensor timing not armed) from "data but no frame"
+            eprintln!(
+                "ir read failed: {err}; ir ring stats: {:?}",
+                cam.ir_ring_stats()
+            );
+            panic!("one ir frame: {err}");
+        }
+    };
     println!(
         "ir {}x{}, value range {:?}",
         frame.width,

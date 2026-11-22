@@ -99,3 +99,12 @@ documented API. Every check lists the expected observation.
   power-cycle the camera (all 0.2.0 options are runtime state) and re-run.
 - `ControlTimeout` on the first command: the 2 s first-command quirk is
   built in; persistent timeouts indicate a control-ep problem — replug.
+- `usb core: Jango` without a real probe: the firmware refused opcode 40
+  (some 5.x builds answer NACK(InvalidCommand) even though the platform
+  string works); the driver falls back to Jango exactly like the
+  reference driver (XnDeviceSensorInit.cpp:233). Not a failure.
+- `ir read failed ... completions == 0`: the device never sent a byte on
+  the image endpoint. On 0.2.1 the stream start fetches the CMOS
+  blanking info (ALGORITHM_PARAMS 0x06) like the reference driver; if
+  this still shows zero completions, report it with the log line.
+  `completions > 0` but no frame would point at packet framing instead.
