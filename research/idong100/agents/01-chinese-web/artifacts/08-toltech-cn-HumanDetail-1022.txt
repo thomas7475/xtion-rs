@@ -1,0 +1,193 @@
+Source: http://www.toltech.cn/cn/HumanDetail.jsp?id=1022
+Retrieved: 2026-11-23. Toltech recruitment detail — Image Algorithm Engineer
+(binocular / machine vision / depth image), posted 2016-10-24, Shenzhen.
+
+Key duties: 3D object modeling, recognition, human-computer interaction;
+algorithm design and implementation. Requirements: MSc/PhD in machine vision /
+pattern recognition / image processing; 3D point-cloud post-processing a plus;
+C/C++; dynamic gesture recognition and human motion capture a plus.
+Office: Nanshan Science Park, Fangda Building (南山科技园方大大大厦), Shenzhen.
+Contact: liuwm@toltech.cn
+
+--- PAGE TEXT ---
+您的位置： 
+ 首页 >
+ 关于泰山体育科技 >
+ 人才招聘 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 公司介绍 
+ 愿景和理念 
+ 公司大事记 
+ 公司荣誉 
+ 人才招聘 
+ 
+ 
+ 
+ 
+
+
+
+
+
+
+
+
+
+ 
+ 
+ 
+ 
+ 
+ -->
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 图像算法工程师（双目/机器视觉/深度图像） 
+ 2016.10.24 
+ 
+ 
+ 
+ 
+ 招聘人数： 2 
+ 学历要求： 硕士 
+ 
+ 
+ 工作地点： 深圳 
+ 工作年限：不限 
+ 
+ 
+ 
+ 
+ 
+ 
+ 岗位职责： 
+ 1、从事物体三维建模、识别及人机交互等工作； 
+ 2、负责算法设计、编码实现等相关工作。 
+ 
+ 岗位要求： 
+ 1、机器视觉、模式识别、图形图像处理等相关研究方向硕士，博士、博士后优先； 
+ 2、熟悉模式识别相关理论，有较好的数学基础及英文阅读能力； 
+ 3、有三维扫描点云后数据处理算法开发经验者优先； 
+ 4、熟悉c/c++语言； 
+ 5、有动态手势识别、人体动作捕获算法开发经验者优先。 
+ 
+ 工作地点：南山科技园方大大厦 
+ 
+ 请将应聘简历发至： liuwm@toltech.cn 
+ 
+   
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 关于泰山体育科技 
+ 
+ 关于泰山体育科技 
+ 愿景和理念 
+ 公司大事记 
+ 公司荣誉 
+ 人才招聘 
+ 
+ 
+ 
+ 
+ 技术介绍 
+ 
+ 技术介绍 
+ 开发工具 
+ 知识产权合作 -->
+ 
+ 
+ 
+ 
+ 
+ 产品和应用方案 
+ 
+ 产品介绍 
+ 应用方案 
+ 成功案例 
+ 方案演示 
+ 
+ 
+ 
+ 
+ 开发工具 
+ 
+ 开发工具 
+ 开发工具 
+ 知识产权合作 -->
+ 
+ 
+ 
+ 服务与支持 
+ 
+ 用户留言反馈 
+ 下载 
+ 
+ 
+ 
+ 
+ 合作伙伴 
+ 
+ 深度合作伙伴 
+ 重要合作伙伴 
+ 市场合作 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 联系我们 |
+ 网站地图 |
+ 职位招聘 
+ 
+ © 2019 泰山体育科技版权所有 粤公网安

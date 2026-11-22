@@ -1,0 +1,38 @@
+Source: elecinfo 电子信息网 (electronic information news site, Tianjin)
+URL: https://www.elecinfo.com/index.php?do=tech_article_show&id=10714
+Title: 智能电视功能中"远程人机交互"如何解决？ (How to solve "remote
+human-computer interaction" in smart-TV functions?)
+Published: 2014-03-10 15:30, author 铃铛. Retrieved: 2026-11-23.
+Reposted at DIY编程器网 forum: http://www.diybcq.com/forum.php?mod=viewthread&tid=125089
+
+ENGLISH SUMMARY (agent translation) of the interview with 师丹玮 Shi Danwei,
+CTO of Taishan Online (泰山在线):
+- AnySense = Taishan Online's long-range HCI technology, in mass production
+  since 2013, volume ramp expected Q1 2014. Comparable to what Microsoft uses
+  in Kinect v2, but low-cost.
+- Deployment model: the TV/box maker adds ONE AnySense chip in the host and a
+  slightly modified remote; a few RMB 0.1 of extra cost enables motion
+  recognition. The camera captures object trajectories; algorithms SIMULATE a
+  gyroscope/accelerometer; touch-screen-style operation can be simulated
+  ("theoretically 90% of operations supported").
+- Optional face recognition; remote microphone + HD camera determine operator
+  position; living-room scenario focus. Plans to partner with iFlytek (讯飞)
+  for voice recognition.
+- Business: negotiating with QVOD (快播), LeTV (乐视), Xiaomi (小米) OTT box
+  makers to embed AnySense; LeTV used Microsoft's tech as an option;
+  cooperation with Coship (同洲); broadcasters cautious about Android boxes.
+- Cost edge explained by INTEGRATION: many functions in one module, halved
+  system cost, "只占一个USB接口" = occupies only ONE USB interface.
+- Patents: can recognize a button-sized target in complex environments
+  (marker tracking). Competitor tech (Samsung TV) needs distinct background
+  color/light.
+- "我们提供一些算法给摄像头Sensor厂商，如格科微" = "We provide algorithms
+  to camera-sensor vendors such as GalaxyCore (格科微)" so their cameras can
+  recognize in complex environments.
+- Positioning: Taishan Online is a SOLUTION provider, not a chip vendor;
+  both IP and chips serve the overall solution. Future fields: home
+  appliances, smart home, energy saving, automotive electronics, surveillance.
+
+--- RAW TEXT (Chinese) ---
+
+什么是AnySense技术? 由泰山在线推出的AnySense方案或将解决这一问题。据介绍，该产品已在2013年量产，预计在今年Q1会起量。 AnySense就是我们开发出来的远距离人机交互技术，可实现动作识别，类似于微软在Kinect2代中应用的技术。但微软的技术成本过高，而AnySense则是一种低成本的解决方式。 简单来说，厂商只需要在电视主机端或电视盒提供一个Anysense的芯片，再对遥控器进行一下改良，只需要增加几毛钱成本就可以实现动作识别功能。Anysense可以通过摄像头来捕捉物体的运行轨迹，同时可以通过算法模拟出陀螺仪、加速感应器，并实现以上功能。“用我们的模块也可以模拟触控屏操作方式，理论上90%的操作都可以支持。” 此外，用户还可增加“人脸识别”技术，通过远程麦克风、高清摄像头等硬件来判断操作者方位，其技术主要针对客厅和使用场景。泰山在线首席技术官师丹玮认为，不管是手势识别、人脸识别还是语音识别，这些操控方式应该是互相融合的，并且是足够低成本的。“下一步我们会跟讯飞这样专业进行语音识别的厂商合作，使 智能电视 场景更贴近用户习惯，把它变成自己的使用习惯。”师丹玮表示。 “目前我们在跟快播、乐视、小米等盒子厂商都在谈，希望植入我们的Anysense方案。不过这些厂商为了铺量，对于硬件成本的要求会高一些。”师丹玮表示，相对来说乐视TV因为售价较高，对成本方面不太在意，但他们的技术用的是微软的，并且非标配而是选配。除了以上这些OTT厂商，泰山在线跟同洲也有一定的合作，但广电运营商对于盒子采用Android系统还处于一种谨慎的态度。 “台湾厂商也有双麦的方案，为什么我们成本低?因为集成”。师丹玮表示，之所以能做到低成本，首先是因为Anysense集成了很多功能，跟目前市面上采用单一功能的解决方案相比，系统成本降低了一半，并且只占一个USB接口，不管从结构、工艺还是成本上都进行了很多优化。此外，泰山在线有许多独创的专利，可以在复杂环境下识别钮扣大小的目标，相比起来三星TV用的识别技术还是传统的摄像头，在识别的时候，背景光、背景色不能有区别。“我们提供一些算法给摄像头Sensor厂商，如格科微，可以让摄像头在复杂环境下进行识别。”师丹玮表示，泰山在线的定位并不是芯片厂商，而是方案提供商，无论是IP还是芯片都是为整体方案所服务。他同时表示，未来除了电视，Anysense还将可应用到包括家电、智能家居、节能领域、汽车电子和监控安防等各领域，拥有广阔前景。 1 2 人机交互 智能电视 

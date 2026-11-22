@@ -1,0 +1,45 @@
+Source: http://image-sensors-world.blogspot.com/2011/09 (monthly archive)
+Post date: Monday, September 19, 2011
+Post title: "Brigates Published Datasheet of Smallest Pixel Sensor with Global Shutter"
+Author: Vladimir Koifman
+Retrieved: 2026-11-23 (via direct fetch of the archive page; excerpt below)
+
+--- BEGIN EXCERPT (verbatim, incl. the site's own auto-translation of the 2011
+Brigates company profile) ---
+
+"Kunshan, China-based company Brigates (Rui Xin in Chinese) published datasheet
+of what appears to be the world's smallest pixel sensor having global shutter,
+the BG0316. The 3.2um pixel VGA sensor has 120fps speed and offers 40dB SNR
+and 65dB DR."
+
+Company info quoted by the blog (automatic Google translation from Brigates'
+2011 web site):
+
+"Sharp Microelectronics Co., Ltd. Kunshan core returned by the three PhD
+students in February 2008, Overseas Students Pioneer Park, Kunshan Development
+Zone set up. In just three years history, nine have been successfully
+developed CMOS image sensor chip, including the world's first high-speed
+infrared three-dimensional image sensor chip; China's first five-pixel image
+sensor chip high-speed parallel; the first 2008 models with 130-nanometer
+manufacturing process designed image sensor chip. As of the end of 2010, has
+been successfully industrialized 5 chip, the cumulative sales of more than 10
+million pieces, CMOS image sensors in consumer chip market to establish a
+place to develop a stable customer base. Kunshan sharp core of the nation's
+largest online supplier of sporting goods online i-Dong Taishan somatosensory
+ordered a man-machine interactive gaming chips in 2010, the product has been
+assigned to the National Olympic Park and the Shanghai World Expo Park, the
+major domestic and international media including Reuters Agency, CCTV 1 set,
+2 sets of this program are a wide range of product coverage and improved
+business visibility and market reputation. 2011, recently introduced a new
+generation of consumer image sensor chip on a global scale the highest price.
+The company has applied for 44 patents (14 authorized), five utility model
+patents (authorized 4), 12 integrated circuit layout protection, and two
+software copyrights."
+
+--- END EXCERPT ---
+
+[Re-translation of the key sentence from the original Chinese, by agent:]
+"昆山锐芯 [i.e., Kunshan Brigates/RuiXin] received an order in 2010 from the
+nation's largest online sporting-goods supplier, i-Dong Taishan [Taishan
+i-dong], for man-machine interactive gaming chips. The product has been
+deployed in the National Olympic Park and the Shanghai World Expo Park..."
