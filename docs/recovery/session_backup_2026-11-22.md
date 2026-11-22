@@ -1,6 +1,6 @@
 # Chat Session Backup — ASUS Xtion Linux research
 
-**Version:** 18 (2026-11-22, turn 17): beyond-OpenNI analysis + validation plan pushed (c3a5fc9) - see turn 17. Previous: 17 (turn 16): 0.2.0 features pushed (e62efbe). Previous: 15 (2026-11-22, turn 14): firmware mirrored. Previous: 14 (2026-11-22, turn 13) · **Status: SIXTH RUN GREEN - DRIVER HARDWARE-VALIDATED: both integration tests pass (268,435/307,200 = 87.4% valid pixels, min 431 mm, shift range 291-797 = 430-1,181 mm, 12.7% no-depth markers, 12.17 MiB/s, 0 failures, 29.97 fps). The 0.1.5 LUT fix confirmed; the earlier 0-valid scene was beyond the old table's range. Delivered xtion_rs_driver_overview.pdf (13 pages, 8 chapters, 4 verified flow diagrams). NOTE: sandbox recycled - /tmp/gh-creds gone, no token in .env, so the M5 docs update could NOT be pushed; delivered as xtion-rs-m5-validated.patch instead. Earlier: fifth on-hardware run: buf_size fix CONFIRMED — full 307200-px frames at 30 fps, 12.13 MB/s, 0 failures — but every pixel decoded 0/invalid. Full decode-chain audit vs the C found ONE confirmed bug: shift LUT was built with device_max_shift=1024 instead of XN_SHIFTS_MAX_SHIFT=2047 (packed-11 spans 0..2047; valid window for this calibration = shifts 1..1052 = 315..9870 mm; old table zeroed all >= 1024 i.e. 5.5-9.9 m). BUT the exact Python simulation shows a normal 0.5-4 m scene sits at shifts 403..1001 — INSIDE the old table — so max_shift alone cannot explain 0 valid pixels; remaining suspects: all-invalid stream (scene > 5.5 m / too close < 31.5 cm / occluded / emitter) or something not yet found. Added per-frame raw-shift histogram (DepthFrame::shift_stats + depth_dump) — the NEXT RUN's histogram line decides. Also ported the C's corrupt-frame drop (partial first frames like 150024 px). 0.1.5 (3948f07); user pulls, points camera at a wall ~1-2 m, re-runs depth_dump**
+**Version:** 19 (2026-11-22, turn 18): 0.2.1 on-camera test fixes pushed (5f7eaa6) - see turn 18. Previous: 18 (turn 17): beyond-OpenNI analysis (c3a5fc9). Previous: 15 (2026-11-22, turn 14): firmware mirrored. Previous: 14 (2026-11-22, turn 13) · **Status: SIXTH RUN GREEN - DRIVER HARDWARE-VALIDATED: both integration tests pass (268,435/307,200 = 87.4% valid pixels, min 431 mm, shift range 291-797 = 430-1,181 mm, 12.7% no-depth markers, 12.17 MiB/s, 0 failures, 29.97 fps). The 0.1.5 LUT fix confirmed; the earlier 0-valid scene was beyond the old table's range. Delivered xtion_rs_driver_overview.pdf (13 pages, 8 chapters, 4 verified flow diagrams). NOTE: sandbox recycled - /tmp/gh-creds gone, no token in .env, so the M5 docs update could NOT be pushed; delivered as xtion-rs-m5-validated.patch instead. Earlier: fifth on-hardware run: buf_size fix CONFIRMED — full 307200-px frames at 30 fps, 12.13 MB/s, 0 failures — but every pixel decoded 0/invalid. Full decode-chain audit vs the C found ONE confirmed bug: shift LUT was built with device_max_shift=1024 instead of XN_SHIFTS_MAX_SHIFT=2047 (packed-11 spans 0..2047; valid window for this calibration = shifts 1..1052 = 315..9870 mm; old table zeroed all >= 1024 i.e. 5.5-9.9 m). BUT the exact Python simulation shows a normal 0.5-4 m scene sits at shifts 403..1001 — INSIDE the old table — so max_shift alone cannot explain 0 valid pixels; remaining suspects: all-invalid stream (scene > 5.5 m / too close < 31.5 cm / occluded / emitter) or something not yet found. Added per-frame raw-shift histogram (DepthFrame::shift_stats + depth_dump) — the NEXT RUN's histogram line decides. Also ported the C's corrupt-frame drop (partial first frames like 150024 px). 0.1.5 (3948f07); user pulls, points camera at a wall ~1-2 m, re-runs depth_dump**
 
 > Purpose: upload this file in a new chat to restore full context. It records
 > the standing rules, the task, everything that was found and decided, every
@@ -45,7 +45,35 @@
   → shift LUT max_shift 1024→2047 + corrupt-frame drop + histogram.
   0.1.5 (3948f07).
 - **Turn 13 (2026-11-22):** SIXTH RUN GREEN
-- **Turn 17 (2026-11-22, this turn):** BEYOND-OPENNI ANALYSIS + VALIDATION
+- **Turn 18 (2026-11-22, this turn):** ON-CAMERA TEST FAILURES FIXED, PUSHED
+  (5f7eaa6). User ran cargo test --test hardware on their machine (fw 5.8.22,
+  platform RD108x-112): depth + handshake passed, phase1 FAILED at
+  usb_core_type Nack(InvalidCommand), ir FAILED at first frame
+  ControlTimeout. DIAGNOSIS (call-site verified): (A) OpenNI probes
+  GET_USB_CORE_TYPE (opcode 40) at open and deliberately IGNORES failure -
+  'assume JANGO' (XnDeviceSensorInit.cpp:233); several fw 5.x builds NACK
+  it; xtion-rs treated the NACK as fatal. FIX: usb_core_type() falls back
+  to UsbCore::Jango on any probe failure. (B) start_ir was MISSING the
+  CMOS blanking fetch all three reference streams issue at configure:
+  SetCmosConfig -> ALGORITHM_PARAMS type 0x06 (BLANKING), 16 bytes
+  (2x{f32,f32} XnCmosBlankingInformation), requested per (res,fps)
+  (XnSensorIRStream.cpp:147-152; depth stream tail does it too - explains
+  why depth worked: boot defaults coincide). Without it fw ACKs everything
+  but never arms sensor timing -> zero IR packets. FIX:
+  protocol::algorithm::read_cmos_blanking (generic read_algorithm_params
+  machinery reused), issued in start_ir + start_depth + start_color
+  (parity). Wire: request {u16 0x06, u16 0, u16 res, u16 fps, u16 offset}
+  opcode 22. Also: read_ir_frame logs ring stats on timeout +
+  pub ir_ring_stats() (completions==0 => device sent nothing);
+  hardware.rs ir test prints stats on failure; VALIDATION.md triage +
+  FEATURE_PLAN.md section 0 updated; version 0.2.1. 85 tests green
+  (78 lib incl. IR-sequence 5-command assert + blanking parse, 4 golden,
+  2 doc, 1 noto). Patch file: download/xtion-rs-0.2.1-fixes.patch.
+  NOTE: fixes NOT yet re-validated on camera - user re-runs
+  cargo test --test hardware; if IR still fails with completions==0,
+  next suspect is the image endpoint claim/URB path.
+
+- **Turn 17 (2026-11-22):** BEYOND-OPENNI ANALYSIS + VALIDATION
   PLAN, PUSHED (c3a5fc9). Sandbox survived. QUESTION: firmware capabilities
   OpenNI 2.2.0 never uses? METHOD: call-site grep of every
   XnHostProtocol* wrapper (not header defines) + AddFirmwareParam registry
