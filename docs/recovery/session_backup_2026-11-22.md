@@ -1,6 +1,6 @@
 # Chat Session Backup — ASUS Xtion Linux research
 
-**Version:** 20 (2026-11-22, turn 19): 0.2.2 diagnostics pushed (89f0671) - see turn 19. Previous: 19 (turn 18): 0.2.1 blanking/Jango fixes (5f7eaa6). Previous: 15 (2026-11-22, turn 14): firmware mirrored. Previous: 14 (2026-11-22, turn 13) · **Status: SIXTH RUN GREEN - DRIVER HARDWARE-VALIDATED: both integration tests pass (268,435/307,200 = 87.4% valid pixels, min 431 mm, shift range 291-797 = 430-1,181 mm, 12.7% no-depth markers, 12.17 MiB/s, 0 failures, 29.97 fps). The 0.1.5 LUT fix confirmed; the earlier 0-valid scene was beyond the old table's range. Delivered xtion_rs_driver_overview.pdf (13 pages, 8 chapters, 4 verified flow diagrams). NOTE: sandbox recycled - /tmp/gh-creds gone, no token in .env, so the M5 docs update could NOT be pushed; delivered as xtion-rs-m5-validated.patch instead. Earlier: fifth on-hardware run: buf_size fix CONFIRMED — full 307200-px frames at 30 fps, 12.13 MB/s, 0 failures — but every pixel decoded 0/invalid. Full decode-chain audit vs the C found ONE confirmed bug: shift LUT was built with device_max_shift=1024 instead of XN_SHIFTS_MAX_SHIFT=2047 (packed-11 spans 0..2047; valid window for this calibration = shifts 1..1052 = 315..9870 mm; old table zeroed all >= 1024 i.e. 5.5-9.9 m). BUT the exact Python simulation shows a normal 0.5-4 m scene sits at shifts 403..1001 — INSIDE the old table — so max_shift alone cannot explain 0 valid pixels; remaining suspects: all-invalid stream (scene > 5.5 m / too close < 31.5 cm / occluded / emitter) or something not yet found. Added per-frame raw-shift histogram (DepthFrame::shift_stats + depth_dump) — the NEXT RUN's histogram line decides. Also ported the C's corrupt-frame drop (partial first frames like 150024 px). 0.1.5 (3948f07); user pulls, points camera at a wall ~1-2 m, re-runs depth_dump**
+**Version:** 21 (2026-11-22, turn 20): 0.2.3 IR wire-size fix pushed (a8c7942) - see turn 20. Previous: 20 (2026-11-22, turn 19): 0.2.2 diagnostics pushed (89f0671). Previous: 15 (2026-11-22, turn 14): firmware mirrored. Previous: 14 (2026-11-22, turn 13) · **Status: IR ROOT CAUSE FOUND AND FIXED — the MT9M001 IR CMOS transmits `height + 8` rows per frame. The 0.2.2 diagnostics run delivered the exact signature the fail-fast logic was built for: IR frames close at 390,400 bytes = 488 rows x 800 B (480 visible + 8 CMOS rows) vs the old 384,000-byte expectation, with the ring fully healthy (100 completions, 1,959,684 B, 0 failures, in_flight 16) and 5 full frames closed — a pure wire-size mismatch, NOT a transport/framing problem. phase1_identity_and_options PASSED this run (usb-core Jango fallback + emitter fw gate work on camera). C-parity fix shipped as 0.2.3 (a8c7942): `ir::wire_extra_rows` gates on fixed-params `depth_cmos_type` (MT9M001=1 -> +8 rows non-SXGA, AR130=2 -> -64 rows at SXGA, none/unknown -> 0; Include/PS1080.h:418); `ir_wire_size` expects `(height+8) x width x 10/8` = 390,400 at VGA; `decode_ir_frame` validates the wire size and unpacks ONLY the first `height` rows — the reference crops the trailing rows off the delivered frame ("don't report additional rows out", XnIRProcessor.cpp:281-282, keeping the FIRST height rows). Depth (packed-11) and color (YUV422) have NO extra rows (XnImageProcessor::CalculateExpectedSize = XRes*YRes*bpp) — untouched. Regression tests encode the hardware signature (390,400-byte wire accepted; synthetic 10-row wire decodes to rows 0..1 with rows 2..9 dropped). New `examples/ir_dump.rs` streams IR + saves ir_frame.pgm (16-bit PGM, 10-bit values << 6). 85 tests green (82 lib, 2 golden, 1 doc), clippy 0, fmt clean, PUSHED a8c7942 — ls-remote verified. NEXT RUN: user pulls a8c7942 and re-runs `cargo test --test hardware -- --nocapture` — ALL FOUR tests expected green; the "emitter toggle skipped" line is benign; then `cargo run --example ir_dump -- 10` for a visual check (values ~non-constant, saves ir_frame.pgm).**
 
 > Purpose: upload this file in a new chat to restore full context. It records
 > the standing rules, the task, everything that was found and decided, every
@@ -10,7 +10,11 @@
 
 1. **Communicate in English only** (all replies, all document content).
 2. **Zip backup of generated files to `download/`** every turn.
-3. **Produce a downloadable session backup** (this file, refreshed with a new
+3. **Do NOT run full cargo builds of the complete project — the sandbox does
+   not have enough RAM.** Use targeted invocations: `cargo test --lib -j 2`,
+   `cargo test --test golden -j 2`, `cargo clippy --lib -j 2`; never
+   `cargo build`/`cargo test` over all targets, no release builds.
+4. **Produce a downloadable session backup** (this file, refreshed with a new
    version/date each turn) so the chat can be continued/resumed later.
 
 ## 2. Task history (condensed)
@@ -44,280 +48,215 @@
 - **Turn 12 (2026-11-22):** fifth run: FULL frames @30fps, 0 valid pixels
   → shift LUT max_shift 1024→2047 + corrupt-frame drop + histogram.
   0.1.5 (3948f07).
-- **Turn 13 (2026-11-22):** SIXTH RUN GREEN
-- **Turn 19 (2026-11-22, this turn):** SECOND ON-CAMERA RUN: BLANKING FIX
-  CONFIRMED (1782 chunks / 34.9 MB in 3 s = 11.6 MB/s = exactly packed-10
-  VGA@30 on the image endpoint; previously ZERO bytes). Two failures remain
-  with new signatures: (1) IR - read loop silently dropped every frame
-  until the 3 s timeout ("control transfer timed out after retries" is
-  ControlTimeout's Display text, error.rs:89 - NOT a real control error;
-  pump_misc is pure queue-draining, no control calls). Framing logic
-  verified symmetric (close_if_eof handles IMAGE_END; pop_frame has no
-  kind filter); cause is in actual wire content - either frames close at
-  wrong size (silent drop) or no STARTs seen. FIX: StreamAssembler
+- **Turn 13 (2026-11-22):** SIXTH RUN GREEN — driver validated end-to-end
+  on depth (87.4% valid pixels, 431 mm min, 12.17 MiB/s, 0 failures,
+  29.97 fps). Delivered xtion_rs_driver_overview.pdf (13 pages, 8 chapters,
+  4 verified flow diagrams).
+- **Turn 15 (2026-11-22):** FIRMWARE DECOMPILED + ANALYZED (Ghidra 11.3.2
+  headless, ARM Thumb, 165 functions; 41 opcodes + 85 params + 15 packet
+  types mapped value-for-value vs OpenNI). Official ASUS fw 5.8.22 SFX
+  downloaded from dlcdnet.asus.com, CAB extracted via libarchive, mirrored
+  to xtion-rs/firmware/. Beyond-OpenNI surface catalogued.
+- **Turn 16 (2026-11-22):** 0.2.0 — OpenNI gap analysis + implementation:
+  identity opcodes (platform 39, usb-core 40, emitter 42), IR stream
+  (STREAM0 mode 3 on the image pipe, packed-10 unpack), DeviceEvent capture
+  (0xf31f OVERHEAT / 0xdead PROJECTOR_FAULT), +20 device methods, 13 Param
+  ids; hardware.rs gained phase1_identity_and_options + ir_stream_roundtrip.
+  PERMANENT EXCLUSIONS: flash FS 13-25, I2C/AHB writes, calibrations
+  29/31/33, TAKE_SNAPSHOT 12, SET_MODE 6. e62efbe.
+- **Turn 17 (2026-11-22):** beyond-OpenNI analysis + docs/VALIDATION.md test
+  plan (4 automated hw tests, 10 manual checks incl. emitter-off IR-mean
+  collapse); next spec = firmware cropping (params 46-55 image/depth,
+  56-60 IR; SizeX→SizeY→OffsetX→OffsetY→Mode last). c3a5fc9.
+- **Turn 18 (2026-11-22):** 0.2.1 — user's first `cargo test --test
+  hardware` run: depth+handshake passed, phase1 failed at
+  usb_core_type Nack(InvalidCommand) → OpenNI ignores it and "assumes
+  JANGO" (XnDeviceSensorInit.cpp:233) → driver now falls back to
+  UsbCore::Jango on any probe failure. IR failed at first frame
+  ControlTimeout → start_ir was MISSING the CMOS blanking fetch
+  (ALGORITHM_PARAMS type 0x06, 16 bytes, per (res,fps)) without which the
+  fw ACKs everything but never arms sensor timing → read_cmos_blanking
+  added to start_ir/start_depth/start_color. 5f7eaa6.
+- **Turn 19 (2026-11-22):** 0.2.2 — on-camera run: BLANKING FIX CONFIRMED
+  (image endpoint carried 1782 chunks / 34.9 MB in 3 s ≈ 11.6 MB/s;
+  previously ZERO bytes). IR read loop still failed: frames silently
+  dropped until timeout (the "control transfer timed out" text was
+  ControlTimeout's Display, NOT a real control error). FIX: StreamAssembler
   counters (AssemblerStats: depth/image start, buffer, end, frames_closed)
-  + read_ir_frame fail-fast after 5 unusable frames with actual size,
-  assembler stats and ring stats in the error message (first frame can be
-  partial: ring starts after stream-mode write). (2) phase1 - progressed
-  past usb-core fallback ("usb core: Jango"), then set_emitter_enabled
-  NACK BadParams. Request verified byte-identical to OpenNI
-  (XnVSetEmitterStateRequest = one u16; gate: opcode 42 assigned only on
-  fw >= 5.8.15, XnHostProtocol.cpp:660-664; caller XnSensor.cpp:793).
-  Interpretation: NACK=command EXISTS but params rejected on that build -
-  cannot fix blind; FW gate added to driver (fw < 5.8.15 -> clean
-  BadConfig), hardware test reports skip instead of failing, phase1 now
-  prints cam.version (user's exact fw unknown so far - version print will
-  reveal it). 0.2.2 pushed 89f0671; clippy clean; 86 tests green (79 lib
-  incl. assembler counters test). NEXT RUN OUTCOMES: IR error message
-  shows either "framing never completes" (start/end counters) or actual
-  frame size vs 384000 - the latter is a one-line expected_wire_size fix.
-  Emitter skip line is expected/benign. VALIDATION.md triage updated.
+  + read_ir_frame fail-fast after 5 unusable frames with actual size +
+  assembler + ring stats in the message. phase1 progressed past usb-core,
+  then set_emitter_enabled NACK BadParams → fw gate (opcode 42 only on
+  fw >= 5.8.15) → hardware test skips emitter when gated; prints cam.version.
+  89f0671 + docs triage 766dd12.
+- **Turn 20 (2026-11-22, this turn):** 0.2.3 — IR ROOT CAUSE + FIX. The
+  user's next on-camera run returned the new signature:
+  `ir read failed: ... frame #5 390400 bytes (expected 384000 for
+  640x480 packed-10); assembler AssemblerStats { depth_start: 0,
+  image_start: 5, buffer: 695, end: 5, frames_closed: 5 }, ring
+  RingStats { completions: 100, bytes: 1959684, failures: 0,
+  in_flight: 16, queued: 0 }`. Diagnosis: wire math — 390,400 = 488 rows
+  x 800 B (640 px packed-10), i.e. **480 visible + 8 extra CMOS rows**;
+  ring healthy, framing clean (5 full frames closed, first-frame partial
+  tolerated). OpenNI 2.2.0 source re-verified (fresh download, sha256
+  08f6842f...ed95a8, extracted /tmp/xtion-verify):
+  - `XnIRProcessor::OnEndOfFrame` (XnIRProcessor.cpp:244-282):
+    non-SXGA + `m_DepthCMOSType == XN_DEPTH_CMOS_MT9M001` →
+    `actualHeight += 8` ("there are additional 8 rows (this is how the
+    CMOS is configured)"); validates the unpacked frame against
+    `width * actualHeight * bpp`, then
+    `UnsafeSetSize(width * height * bpp)` — "don't report additional
+    rows out": the FIRST height rows are kept, trailing 8 dropped.
+    SXGA + AR130 → `actualHeight -= 64`.
+  - `XnSensorIRStream::CalcRequiredSize` (XnSensorIRStream.cpp:411-422):
+    "in IR, in all resolutions except SXGA, we get additional 8 lines"
+    — host-side frame buffer accounts for them.
+  - `XnImageProcessor::CalculateExpectedSize` = XRes*YRes*bpp: color has
+    NO extra rows; depth likewise (hardware: packed-11 frames close at
+    exactly 480 rows).
+  - CMOS type enum (Include/PS1080.h:418-423): NONE=0, MT9M001=1,
+    AR130=2; arrives in GET_FIXED_PARAMS (`nDepthCmosType`) — our
+    FixedParams has parsed it at offset 56 since 0.1.2 (empirically
+    validated then: ZPD/ZPPS/LDDIS matched the device).
+  FIX (a8c7942, version 0.2.3): ir.rs DEPTH_CMOS_* consts +
+  `wire_extra_rows(cmos, resolution)` + `ir_wire_size(width, height,
+  cmos, resolution)` (390,400 for VGA MT9M001); `decode_ir_frame(data,
+  width, height, resolution, cmos, ts)` validates wire size, refuses
+  wire < visible (AR130-SXGA-style), unpacks only first `height` rows;
+  device.rs read_ir_frame passes fixed_params.depth_cmos_type, failure
+  message now prints `{width}x{wire_rows} packed-10: {height} visible +
+  {extra} CMOS rows, depth cmos {cmos}`; new examples/ir_dump.rs (stats +
+  ir_frame.pgm, 10-bit << 6 into a 16-bit P5 PGM); tests: CMOS-type
+  matrix, 488-row wire size, synthetic 10-row wire crop, hardware
+  signature acceptance (390,400 bytes OK), old tests updated; docs:
+  PROTOCOL.md new section 8 "IR decoding" (Identity→9, file map→10),
+  VALIDATION.md triage "IR SOLVED (0.2.3)", FEATURE_PLAN.md section 0
+  item 3, README status+changelog. 85 tests green (82 lib, 2 golden,
+  1 doc), clippy 0, fmt clean. NOTE: sandbox was recycled this turn —
+  toolchain reinstalled (.cargo/.rustup), repo re-cloned from GitHub,
+  token re-stored. rustup minimal profile needed
+  `rustup component add clippy rustfmt`. cargo fmt reflowed a few
+  pre-existing lines (toolchain-version formatting drift) — applied
+  repo-wide.
 
-- **Turn 18 (2026-11-22):** ON-CAMERA TEST FAILURES FIXED, PUSHED
-  (5f7eaa6). User ran cargo test --test hardware on their machine (fw 5.8.22,
-  platform RD108x-112): depth + handshake passed, phase1 FAILED at
-  usb_core_type Nack(InvalidCommand), ir FAILED at first frame
-  ControlTimeout. DIAGNOSIS (call-site verified): (A) OpenNI probes
-  GET_USB_CORE_TYPE (opcode 40) at open and deliberately IGNORES failure -
-  'assume JANGO' (XnDeviceSensorInit.cpp:233); several fw 5.x builds NACK
-  it; xtion-rs treated the NACK as fatal. FIX: usb_core_type() falls back
-  to UsbCore::Jango on any probe failure. (B) start_ir was MISSING the
-  CMOS blanking fetch all three reference streams issue at configure:
-  SetCmosConfig -> ALGORITHM_PARAMS type 0x06 (BLANKING), 16 bytes
-  (2x{f32,f32} XnCmosBlankingInformation), requested per (res,fps)
-  (XnSensorIRStream.cpp:147-152; depth stream tail does it too - explains
-  why depth worked: boot defaults coincide). Without it fw ACKs everything
-  but never arms sensor timing -> zero IR packets. FIX:
-  protocol::algorithm::read_cmos_blanking (generic read_algorithm_params
-  machinery reused), issued in start_ir + start_depth + start_color
-  (parity). Wire: request {u16 0x06, u16 0, u16 res, u16 fps, u16 offset}
-  opcode 22. Also: read_ir_frame logs ring stats on timeout +
-  pub ir_ring_stats() (completions==0 => device sent nothing);
-  hardware.rs ir test prints stats on failure; VALIDATION.md triage +
-  FEATURE_PLAN.md section 0 updated; version 0.2.1. 85 tests green
-  (78 lib incl. IR-sequence 5-command assert + blanking parse, 4 golden,
-  2 doc, 1 noto). Patch file: download/xtion-rs-0.2.1-fixes.patch.
-  NOTE: fixes NOT yet re-validated on camera - user re-runs
-  cargo test --test hardware; if IR still fails with completions==0,
-  next suspect is the image endpoint claim/URB path.
+## 3. Turn-20 evidence (the important part)
 
-- **Turn 17 (2026-11-22):** BEYOND-OPENNI ANALYSIS + VALIDATION
-  PLAN, PUSHED (c3a5fc9). Sandbox survived. QUESTION: firmware capabilities
-  OpenNI 2.2.0 never uses? METHOD: call-site grep of every
-  XnHostProtocol* wrapper (not header defines) + AddFirmwareParam registry
-  diff vs XnParams.h ids + XnFirmwareStreams packet switch. FINDINGS:
-  audio capture disabled at factory (TODO: enable, XnSensor.cpp ~470);
-  plain GMC packet 0xa200 UNROUTED (only 0xb200 debug); file-upload trio
-  13/14/15 never called (download/read/delete/execute ARE); KILL 999 and
-  TAKE_SNAPSHOT 12 never called (12 defined at XnHostProtocol.cpp:2440,
-  zero callers); params 0/3/4/31/32/85 unmapped (85 only inside flash
-  lock at :2036); V110/V300 enums = dead ancient dialects. VALIDATION:
-  crop modes confirmed in Include/PS1080.h (DISABLED=0, NORMAL=1,
-  INCREASED_FPS=2 - crop can RAISE fps!). DELIVERED: docs/VALIDATION.md
-  (full camera test plan: 4 automated hardware tests + M5 run-6 pass
-  criteria, 10 manual checks incl. emitter-off IR-mean collapse test,
-  regression matrix, triage); FEATURE_PLAN.md section 5 (beyond-OpenNI
-  table); PDF report download/xtion_rs_next_steps_and_validation.pdf
-  (9 pages, Template 01 cover, TOC fixed to displayed numbering, pdf_qa
-  clean) + cover HTML. NEXT STEP (spec'd in report section 4): firmware
-  cropping - params 46-55 (image/depth) + 56-60 (IR), sequence SizeX ->
-  SizeY -> OffsetX -> OffsetY -> Mode last, host-side processors crop +
-  report cropped dims, mirror interplay (offset in mirrored space), API
-  start_depth_cropped/set_*_crop, 5-part test plan. 84 tests green;
-  camera still not attached (on-camera validation remains first task
-  next hardware session).
+**Run 7 output (user's machine, 0.2.2):** phase1_identity_and_options ok,
+open_handshake_and_identity ok, depth_stream_roundtrip ok, ir FAILED:
+`frame #5 390400 bytes (expected 384000 for 640x480 packed-10)`,
+assembler { depth_start: 0, image_start: 5, buffer: 695, end: 5,
+frames_closed: 5 }, ring { completions: 100, bytes: 1959684,
+failures: 0, in_flight: 16, queued: 0 } (both misc and ir ring views).
 
-- **Turn 16 (2026-11-22):** 0.2.0 - OPENNI GAP ANALYSIS +
-  IMPLEMENTATION, PUSHED (e62efbe). SANDBOX WAS RECYCLED: xtion-rs/ and
-  the Rust toolchain were gone; recovered the repo WITH git history from
-  download/..._v15.zip's embedded tmp/xtion-src-v15.zip, re-stored
-  .gh-token (600, gitignored), installed Rust 1.100 via rustup-init into
-  my-project/.cargo+.rustup (piping-to-shell is blocked; direct binary),
-  re-extracted OpenNI 2.2.0 from the surviving tarball in
-  firmware_dl/openni_ref. ANALYSIS (from OpenNI source): IR stream =
-  STREAM0_MODE=3 on the IMAGE pipe (not depth!) as IMAGE packets with
-  4x10-bit packed pixels (XnIRProcessor::Unpack10to16); registration =
-  PARAM 2 done IN FIRMWARE on PS1080 (DecideFirmwareRegistration);
-  platform string (opcode 39) = one char per u16 word; usb core type
-  (40) = single u16 (Jango=0/gadgetfs=1); emitter (42) = {u16 active};
-  image controls: exposure 80/81, AWB 77, gain=AGC 15, quality 16,
-  flicker 17, mirror 71; depth: mirror 23, hole filter 22, AGC 21, close
-  range 84 (fw>=5.6), GMC 36; events 0xf31f/0xdead -> device error state
-  (XnFirmwareStreams.cpp); audio is TODO-disabled even in OpenNI 2.2.0.
-  IMPLEMENTED (docs/FEATURE_PLAN.md Phases 1-2): protocol/identity.rs
-  (platform/usb-core/emitter), stream.rs DeviceEvent capture, ir.rs
-  (10-bit unpack + IrConfig/IrFrame, golden vectors Python-verified),
-  device.rs (+20 methods, IR stream, misc-endpoint 0x83 ring while
-  streaming, event draining), usb.rs misc mps + best-effort interface
-  claims 1-2, 13 new Param ids + wire-contract test, Cargo 0.2.0.
-  EXCLUDED PERMANENTLY (user rule: no writes that could delete
-  calibration or overwrite configs): flash file system 13-25, I2C/AHB
-  writes, calibrations 29/31/33, TAKE_SNAPSHOT 12, SET_MODE 6. TESTS:
-  84 green without hardware (77 lib incl. new wire/golden/event tests;
-  clippy 0 warnings; fmt clean); hardware.rs gained
-  phase1_identity_and_options + ir_stream_roundtrip (skip without
-  camera - camera NOT attached this turn, on-camera validation still
-  pending). Docs: FEATURE_PLAN.md (30-feature gap table, 4 phases,
-  exclusions), README Status/Usage updated, PLAN.md M7 partial,
-  FIRMWARE.md corrected (serial was already used; IR is STREAM0 not
-  STREAM1).
+Interpretation (all verified):
+- 390,400 = 488 × 800 → 488 wire rows of 640 packed-10 pixels; the old
+  expectation 384,000 = 480 rows. Delta = exactly 8 rows = 6,400 B.
+- Ring healthy: 100 completions ≈ 100 × 20,480 B URB slots ≈ 2 MB in
+  ~0.17 s (5 frames @ 30 fps) → full packed-10 VGA rate; in_flight 16 =
+  all URBs queued; 0 failures.
+- Assembler closed 5 full frames (image_start 5 = end 5 = frames_closed
+  5) — framing works; buffer 695 = partial 6th frame at snapshot time.
+- Conclusion: device streams IR fine; the DRIVER expected the wrong
+  frame size. Fail-fast worked exactly as designed.
 
-- **Turn 15 (2026-11-22):** FIRMWARE DECOMPILED + ANALYZED,
-  ALL PUSHED TO GITHUB. User supplied a PAT (stored /home/z/my-project/
-  .gh-token, chmod 600, gitignored, never echoed/committed). Pushed
-  firmware mirror (b6a4944), M5 docs (5614195), and the new analysis
-  (8a129b5) to github.com/thomas7475/xtion-rs - ls-remote verified.
-  ANALYSIS: .fla images are Packer-wrapped ARM Thumb (ARM926-class, TI
-  toolchain, UTF-16LE strings). Ghidra 11.3.2 headless (downloaded 446MB +
-  Temurin JDK 21 - sandbox had JRE only; language ARM:LE:32:v5t, TMode
-  forced, 299 capstone-verified seeds): 165 functions, 44,940
-  instructions, 149 decompiled (881KB C dump, kept OUT of the repo as a
-  derived work; artifacts in firmware_dl/analysis/). KEY FINDINGS:
-  opcode dispatcher located at image 0x21400-0x22000 (78 Thumb cmp
-  covering 31 opcodes, value-for-value with OpenNI XnHostProtocol.h);
-  v2.6 magic pair MG/BR at 0xc14/0xc16; boot self-test sequence from
-  UTF-16 strings (TEC/PRJ/CLR/IR/FL/NESA + ZO per-frame quality monitor);
-  USB surface: depth 0x81, image 0x82, misc 0x83, USB Audio Class
-  "Microphone" + Feature Unit. Full vendor surface (OpenNI 2.2.0 source
-  from occipital/OpenNI2 v2.2.0-debian + same-vintage
-  XnDeviceSensorV2.dll strings): 41 opcodes + 85 params + 15 packet
-  types + 6 algorithm tables. xtion-rs uses 6/8/6/1. UNUSED FUNCTIONALITY
-  (the user's goal): audio mic (PCM 16-bit 8-48kHz stereo + volume/mute),
-  IR stream (params 25-29/56-60/72), registration, ENABLE_EMITTER 42,
-  OVERHEAT 0xf31f + PROJECTOR_FAULT 0xdead packets (currently skipped!),
-  depth AGC+bins/hole-filter/mirror/decimation/close-range, image
-  exposure/WB/sharpness/flicker/crop, accelerometer (ACC LR/ACCOR
-  strings), TEC/emitter calibration + BIST + CPU stats + GET_LOG, flash
-  file system (opcodes 13-25, NACK OVERLAY_NOT_LOADED), I2C/AHB raw
-  access, GMC motion points, serial/platform-string/USB-core-type
-  identity opcodes. DELIVERABLES: docs/FIRMWARE.md (repo, pushed),
-  xtion_rs_firmware_analysis.pdf (11 pages, QA PASS, download/),
-  crossref.md + scripts/firmware_*.py (triage/strings16/archtest/
-  constants/dispatch/crossref + FirmwareGhidra.py + download_ghidra.sh).
-  Recommended driver roadmap: 1) OVERHEAT/PROJECTOR_FAULT events, 2)
-  serial/platform/USB-core, 3) IR stream, 4) registration, 5) emitter
-  on/off, 6) mirror/close-range/hole-filter/AGC, 7) audio, 8) log/TEC/
-  CPU stats. Found the last
-  official ASUS firmware (FWUpdate 5.8.22, 2013) still live on
-  dlcdnet.asus.com; downloaded (2.25 MB, sha256 6f9c0ec9...43caad), extracted
-  the LZX-compressed CAB inside the SFX exe via libarchive (no cabextract
-  in sandbox): 15 .fla flash images (source.out.bin.fla = main 5.8.22
-  image, BootManager, 13 params), UsbUpdate_RD108.ini flash map,
-  Windows updater + OpenNI1 DLLs + NESIDB.txt (not mirrored). Built
-  xtion-rs/firmware/ (README with provenance/flash map/license caveat,
-  checksums.txt, original zip, extracted 5.8.22/). Delivered
-  xtion-rs-firmware.zip; push NOT possible (no token) - user must push. — driver validated
-  end-to-end. Analyzed the run (87.4% valid, clean histogram), delivered
-  the PDF driver overview with 4 geometry-verified flow diagrams
-  (xtion_rs_driver_overview.pdf + cover HTML). Sandbox recycled the
-  xtion-rs tree (restored from zip v12's xtion-src.zip) and the GitHub
-  token; M5 docs update delivered as a patch file, NOT pushed.
+**C reference (OpenNI 2.2.0, all file:line verified this turn):**
+- XnIRProcessor.cpp:256-263: `else if (GetResolution() != SXGA) if
+  (m_DepthCMOSType == XN_DEPTH_CMOS_MT9M001) actualHeight += 8;`
+- XnIRProcessor.cpp:264-271: SXGA + AR130 → `actualHeight -= 64;`
+- XnIRProcessor.cpp:273-282: validate `width * actualHeight * bpp`,
+  then `UnsafeSetSize(width * height * bpp)` — crop keeps FIRST rows.
+- XnSensorIRStream.cpp:411-422 CalcRequiredSize: "in IR, in all
+  resolutions except SXGA, we get additional 8 lines" (`nYRes += 8`).
+- XnSensorIRStream.cpp:148-152: IR CMOS config uses
+  `XN_CMOS_TYPE_DEPTH` (the IR camera IS the depth CMOS) for non-SXGA.
+- Include/PS1080.h:418-423: XnDepthCMOSType = NONE 0 / MT9M001 1 /
+  AR130 2. Fixed params field `nDepthCmosType` (XnDeviceSensor.h:281;
+  our parse: offset 56 in the V3 168-byte blob).
+- XnImageProcessor.cpp:75-88: color expected size = XRes*YRes*bpp — no
+  extra rows anywhere in the color pipe.
 
-## 3. Turn-12 evidence, audit and fix (the important part)
-
-**Run 5 output (user's machine):** depth_dump frames 2-30 assemble at
-EXACTLY 307,200 px @ 30 fps (ts +2,002,155/frame again), ring 676
-completions / 13,655,112 B / 1.07 s = 12.13 MB/s, 0 failures — the
-buf_size fix held; transport + assembly are DONE. Remaining: 0 valid
-pixels, min 0 mm on every full frame. First frame was partial
-(146,184 px; the hw test's first frame 150,024 px) and was DELIVERED
-(the C would drop it).
-
-**Decode-chain audit vs the C (all verified, file:line in PROTOCOL.md):**
-- packed-11 unpack: bit-for-bit identical to
-  XnPacked11DepthProcessor::Unpack11to16.
-- Wire payload 425,367 B/frame ≈ 422,400 + headers = 640x480x11/8 → the
-  device sends packed-11; XN_IO_DEPTH_FORMAT_UNCOMPRESSED_11_BIT = 3 IS
-  the packed format ("uncompressed" = no PS-compression; enum has no
-  separate PACKED_11). My DepthFormat enum matches the C exactly.
-- LUT formula (DDK/XnShiftToDepth.cpp) port verified; config inputs:
-  ZPD 120 / ZPPS 0.1052 / LDDIS 7.5 / ConstShift 200 from the device,
-  ParamCoeff=4 + ShiftScale=10 are driver constants
-  (XnSensorDepthStream.cpp:158-161), pixel_size_factor=1 (reference
-  resolution SXGA; only depth@60fps or IR@QVGA → VGA/2 per
-  RecalculateReferenceResolution + DecidePixelSizeFactor), cutoffs 0 and
-  10000 (XN_DEVICE_SENSOR_MAX_DEPTH_1_MM), no laser/emitter command
-  exists in the PS1080 driver (only projector FAULT calibration).
-- **THE BUG: device_max_shift was 1024; XN_SHIFTS_MAX_SHIFT = 2047**
-  (XnSensorDepthStream.cpp:42). Packed-11 spans 0..2047; a 1024-entry
-  table silently zeroes every shift >= 1024 (plus loop-exclusive entry
-  1024). Fixed to 2047 + regression tests.
-- Exact Python simulation of the C LUT with this calibration: valid
-  window = shifts 1..1052 → 315..9870 mm; shift 1024 → 5460 mm; a
-  0.5-4 m scene = shifts 403..1001 → **inside even the old broken
-  table** → max_shift alone does NOT explain 0 valid pixels. Either the
-  stream is genuinely all-invalid (scene beyond 5.5 m, closer than
-  31.5 cm, occluded/lens cap, or emitter issue) or something not yet
-  found. The new per-frame shift histogram decides in one run:
-  - all 2047/0 → device/scene issue (re-aim at a wall 1-2 m)
-  - spread in 1024-2046 → far scene, NOW fixed by the 2047 table
-  - spread in 1-1023 with still 0 valid → impossible per simulation;
-    would point to a new bug (then dump raw bytes via raw_dump)
-
-**Also ported:** the C's corrupt-frame drop (XnDepthProcessor::
-OnEndOfFrame: assembled size != expected → FrameIsCorrupted → frame
-not delivered; this is what happens to the partial first frame of a
-stream). depth_dump now prints per-frame: `shifts: 0:N 2047:N 1-1023:N
-1024-2046:N min-max a..b` via new DepthFrame::shift_stats (ShiftStats
-computed during decode; tiny, no extra allocation kept).
+**Fix shipped (0.2.3, a8c7942):** see turn-20 history above. Files
+changed: src/ir.rs, src/device.rs, examples/ir_dump.rs (new),
+Cargo.toml (0.2.3), README.md, docs/PROTOCOL.md, docs/VALIDATION.md,
+docs/FEATURE_PLAN.md (+ fmt reflow in src/protocol/algorithm.rs).
 
 ## 4. Deliverables (all under /home/z/my-project/download/)
 
 | File | What it is |
 |---|---|
-| `asus_xtion_workspace_backup_2026-11-21_v13.zip` | Turn-13 zip (CURRENT; incl. the PDF + patch). Older zips v1-v12 kept. |
-| `session_backup_2026-11-21.md` | This file (v11). |
+| `session_backup_2026-11-22-v21.md` | This file (v21, CURRENT). |
+| `asus_xtion_workspace_backup_2026-11-22_v21.zip` | Turn-20 zip (repo with .git at a8c7942 + this backup). Older zips kept in earlier sessions. |
+| `xtion_rs_driver_overview.pdf` | Turn-13 driver overview (13 pages). |
+| `xtion_rs_next_steps_and_validation.pdf` | Turn-17 validation plan (9 pages). |
+| `xtion_rs_firmware_analysis.pdf` | Turn-15 firmware analysis (11 pages). |
 | `asus_xtion_rust_stack_options.pdf` | Turn-6 options report. |
-| `rust-xtion-check/` | Turn-6 Option-A smoke-test crate. |
-| `openni2-nojava/` | Turn-5 package (C stack alternative). |
-| `xtion_setup_cachyos.sh` / `xtion_test_cachyos.sh` | v1.3 / v1.2 helpers. |
-| `asus_xtion_linux_research_report.pdf`, `asus_xtion_report_cover.html`, `diagram_stack.png` | Session-1 artifacts. |
+
+Earlier single-session artifacts (research report, cover HTML,
+openni2-nojava package, setup/test scripts, patch files) were produced in
+previous sessions; the authoritative state now lives in the git repo.
 
 The driver lives in the git repo `/home/z/my-project/xtion-rs` (remote
 origin = https://github.com/thomas7475/xtion-rs.git, branch main,
-**HEAD = 00909ed "Fix third on-hardware failure..."**; history: deeb688 →
-823dd53 (0.1.1) → 4afa6e3 → ca85e8e (0.1.2) → 7b84d21 → 00909ed (0.1.3)).
-Its docs/recovery/ holds a copy of this backup + the v6 workspace zip.
+**HEAD = a8c7942 "0.2.3: fix IR wire size..."**; history:
+89f0671 (0.2.2) → 766dd12 (docs triage v20) → a8c7942 (0.2.3); a docs
+commit with this backup in docs/recovery/ follows it). Its
+docs/recovery/ holds a copy of this backup.
 
-## 5. Workspace state (2026-11-22, after turn 10)
+## 5. Workspace state (2026-11-22, after turn 20)
 
-- `/home/z/my-project/xtion-rs/` — 0.1.5 restored from zip (no .git),
-  61 tests green, clippy 0, fmt; docs updated with M5-complete
-  clean. Turn 12 changed: depth/shift_to_depth.rs (max_shift 2047 + tests), device.rs (ShiftStats + corrupt-frame drop + DepthFrame.shift_stats), examples/depth_dump.rs (histogram print), docs, 0.1.5. Turn 11 changed: protocol/mod.rs (BE buf_size), stream.rs, error.rs, device.rs, examples/raw_dump.rs, 0.1.4. Turn 10 added `src/ring.rs`, 0.1.3.
-  ring-based read loops, diagnostics accessors, BULK_POLL_SLICE removed),
-  usb.rs (context+speed owned, raw_context/raw_handle pub(crate)),
-  error.rs (Clone), lib.rs (ring exports), both examples, tests/hardware.rs,
-  docs (PROTOCOL "Async URB ring" section, PLAN M5 + matrix, README
-  changelog), Cargo.toml (libusb1-sys + libc deps, 0.1.3).
-- Rust toolchain: `.cargo/` + `.rustup/` in my-project root (use
-  `export RUSTUP_HOME=/home/z/my-project/.rustup CARGO_HOME=/home/z/my-
-  project/.cargo PATH=/home/z/my-project/.cargo/bin:$PATH`).
-- `/tmp` (recycled between turns): gh-creds token file (recreate from the
-  user's token via `printf 'https://thomas7475:<TOKEN>@github.com\n' >
-  /tmp/gh-creds`, umask 077; never print/commit it); OpenNI2 source at
-  /tmp/xtion-verify (re-download: github.com/occipital/OpenNI2/archive/
-  v2.2.0-debian.tar.gz, sha256 08f6842f20d1098ab2ebafadaac0130ffae5abd3
-  4cdf464bb6100cbe01ed95a8; key files: Source/Drivers/PS1080/Sensor/*,
-  ThirdParty/PSCommon/XnLib/Source/Linux/XnLinuxUSB.cpp).
+- `/home/z/my-project/xtion-rs/` — full clone WITH .git at a8c7942
+  (+ docs commit), 85 tests green, clippy 0, fmt clean. This turn
+  changed: src/ir.rs (CMOS consts, wire_extra_rows, ir_wire_size,
+  decode crop + 6 tests), src/device.rs (read_ir_frame CMOS-aware),
+  examples/ir_dump.rs (new), Cargo.toml 0.2.3 + [[example]] ir_dump,
+  README.md, docs/PROTOCOL.md (+section 8, renumber), docs/VALIDATION.md
+  (triage), docs/FEATURE_PLAN.md (section 0 item 3),
+  src/protocol/algorithm.rs (fmt only).
+- Rust toolchain: `.cargo/` + `.rustup/` in my-project root (stable,
+  minimal profile + clippy + rustfmt components). Use
+  `export RUSTUP_HOME=/home/z/my-project/.rustup
+  CARGO_HOME=/home/z/my-project/.cargo
+  PATH=/home/z/my-project/.cargo/bin:$PATH`.
+- OpenNI 2.2.0 reference source: tarball verified at
+  `firmware_dl/openni_ref/v2.2.0-debian.tar.gz` (sha256
+  08f6842f20d1098ab2ebafadaac0130ffae5abd34cdf464bb6100cbe01ed95a8),
+  extracted to `/tmp/xtion-verify` (RE-CREATE /tmp after recycle:
+  `tar -xzf firmware_dl/openni_ref/v2.2.0-debian.tar.gz -C /tmp/
+  xtion-verify --strip-components=1`; key files:
+  Source/Drivers/PS1080/Sensor/*, Include/PS1080.h).
+- GitHub token: `/home/z/my-project/.gh-token` (chmod 600, gitignored,
+  never printed/committed). Push via
+  `umask 077 && printf 'https://thomas7475:%s@github.com\n'
+  "$(cat /home/z/my-project/.gh-token)" > /tmp/gh-creds` then
+  `git -c credential.helper='store --file=/tmp/gh-creds' push origin main`.
 - The user clones to `/home/t/Projekte/Photogrammetrie/cameras/xtion-rs`
   (from their test output paths).
 
 ## 6. Gotchas learned (cumulative, new first)
 
-- **XN_SHIFTS_MAX_SHIFT = 2047** — the shift LUT must cover the full 0..2047
-  packed-11 range; 2047 = no-depth marker, 0 = invalid; for the reference
-  calibration valid = shifts 1..1052 (315..9870 mm), 0.5-4 m → 403..1001.
-- **A frame whose assembled size != expected must be dropped** (the partial
-  first frame after stream start), per the C's OnEndOfFrame check.
-- **buf_size in the 12-byte stream packet header is BIG-ENDIAN** (the only BE
-  field; the C applies an unconditional xnOSEndianSwapUINT16 to it alone).
+- **The IR CMOS (MT9M001) transmits `height + 8` wire rows** in every
+  resolution except SXGA (AR130: -64 at SXGA; color and depth pipes have
+  NO extra rows). VGA IR wire frame = 390,400 B = 488 x 800. Expected
+  size comes from fixed-params `depth_cmos_type`; the crop keeps the
+  FIRST `height` rows and drops the trailing 8 (XnIRProcessor.cpp:281-282).
+- **rustup minimal profile lacks clippy/rustfmt** — run
+  `rustup component add clippy rustfmt` after a fresh toolchain install.
+- **XN_SHIFTS_MAX_SHIFT = 2047** — the shift LUT must cover the full
+  0..2047 packed-11 range; 2047 = no-depth marker, 0 = invalid; for the
+  reference calibration valid = shifts 1..1052 (315..9870 mm),
+  0.5-4 m → 403..1001.
+- **A frame whose assembled size != expected must be dropped** (the
+  partial first frame after stream start), per the C's OnEndOfFrame check.
+- **buf_size in the 12-byte stream packet header is BIG-ENDIAN** (the
+  only BE field; the C applies an unconditional xnOSEndianSwapUINT16 to
+  it alone).
 - Zero-payload packets must be dispatched immediately when their header
   completes at a chunk boundary, or frame closes lag/lose the last frame.
-- The PS1080 stream works on HIGH speed USB at ~12.7 MB/s payload; the device
+- The PS1080 stream works on HIGH speed USB at ~12.7 MB/s payload (depth
+  packed-11) / ~11.7 MB/s (IR packed-10 incl. extra rows); the device
   clock ticks ~60 MHz (≈2,002,155 ticks per 30 fps frame period).
-- **Sync bulk reads are not enough for PS1080 streams**: the device drops
-  data when no URB is queued. Always keep a ring of pre-submitted async
-  URBs (16 × 40 × maxpacket, re-submit in the callback).
+- **Sync bulk reads are not enough for PS1080 streams**: the device
+  drops data when no URB is queued. Always keep a ring of pre-submitted
+  async URBs (16 × 40 × maxpacket, re-submit in the callback).
 - rusb 0.9 has no async API; use libusb1-sys (rusb's backend crate) with
   `DeviceHandle::as_raw()` / `Context::as_raw()`; keep the rusb Context
   alive in a struct field for pointer lifetime.
@@ -326,19 +265,27 @@ Its docs/recovery/ holds a copy of this backup + the v6 workspace zip.
 - Raw pointers across `thread::spawn`: pass as `usize` and cast in the
   closure (edition-2021 disjoint capture ignores Send-wrappers when you
   access `.0`).
-- clippy `vec_box` on `Vec<Box<Slot>>` may be load-bearing: Box pins each
-  slot's address for libusb `user_data`.
+- clippy `vec_box` on `Vec<Box<Slot>>` may be load-bearing: Box pins
+  each slot's address for libusb `user_data`.
 - Bulk-IN read lengths must be a multiple of wMaxPacketSize (EOVERFLOW).
 - rusb 0.9.4 `read_bulk` returns Ok(n) on timeout with partial data.
 - Only one handle (per process) can claim a USB interface → Busy.
 - Device replies can be SPLIT across multiple control-IN transfers;
   XnVersions wire quirks (minor/major first, 12-byte base authoritative);
-  v2.6 replies have NO CRC; new request id per exchange; NOT_READY retries
-  keep the id; the 12-byte bulk packet header INCLUDES the fw magic; EOF
-  closes the frame on its last byte; packed-11 on the wire; ignore one
-  chunk of garbage per endpoint on fw < 5.0.
-- Xtion Pro Live ships fw 5.8.22, chip 0x00212020 (PS1080-A6), FPGA 0x0005;
-  640x480@30 packed-11 needs ~12.7 MB/s — full-speed USB cannot carry it.
+  v2.6 replies have NO CRC; new request id per exchange; NOT_READY
+  retries keep the id; the 12-byte bulk packet header INCLUDES the fw
+  magic; EOF closes the frame on its last byte; packed-11 on the wire;
+  ignore one chunk of garbage per endpoint on fw < 5.0.
+- Xtion Pro Live ships fw 5.8.22, chip 0x00212020 (PS1080-A6), FPGA
+  0x0005 (RD1082); 640x480@30 needs full-speed-impossible bandwidth —
+  high-speed USB only.
+- GET_USB_CORE_TYPE (opcode 40) is NACKed by some 5.x builds — OpenNI
+  ignores the failure and assumes Jango (XnDeviceSensorInit.cpp:233);
+  the driver does the same.
+- The CMOS blanking fetch (ALGORITHM_PARAMS type 0x06) is REQUIRED
+  before any stream will produce packets (0.2.1 fix).
+- Opcode 42 (emitter) is gated to fw >= 5.8.15 and still NACKs BadParams
+  on some builds — driver reports BadConfig, hardware test skips.
 - rusb 0.9 devices() needs .iter(); thiserror #[from] needs
   std::error::Error impl; blocked hosts (freedesktop GitLab,
   packages.debian.org) vs working (deb.debian.org, crates.io, github,
@@ -347,25 +294,27 @@ Its docs/recovery/ holds a copy of this backup + the v6 workspace zip.
 
 ## 7. Open threads (if the user continues)
 
-- **Re-run on hardware (the immediate next action):** user pulls 3948f07,
-  POINTS THE CAMERA AT A WALL ~1-2 m AWAY (not a far corner, not closer
-  than ~35 cm, no lens cap), and runs:
-  `cargo run --example depth_dump -- 10` and
-  `cargo test --test hardware -- --nocapture`.
-  Expected: full 307,200-px frames with a high valid count. If 0 valid
-  persists, the new `shifts:` histogram line decides:
-  - `0:N 2047:307200-ish` → the device streams no-depth markers:
-    scene/emitter problem (re-aim, check for cover, try another USB
-    port / replug).
-  - `1024-2046:large` → far scene; the 0.1.5 table now decodes these.
-  - `1-1023:large` but valid still 0 → contradicts the verified
-    simulation; run `cargo run --example raw_dump` and paste output.
-- After depth works: color stream (YUV422→RGB888 implemented, untested on
-  hardware), then M6-M8 (registration, MJPEG, COMPRESSED_PS, keep-alive,
-  timestamps, LED/emitter) per docs/PLAN.md.
+- **Re-run on hardware (the immediate next action):** user pulls a8c7942
+  and runs `cargo test --test hardware -- --nocapture`. Expected: ALL
+  FOUR tests green (open_handshake_and_identity,
+  phase1_identity_and_options, depth_stream_roundtrip,
+  ir_stream_roundtrip). The `emitter toggle skipped: ...` line is
+  expected/benign. Then `cargo run --example ir_dump -- 10` — expect
+  non-constant, non-black value ranges and `ir_frame.pgm` showing a
+  recognizable IR scene (10-bit values scaled to 16-bit).
+- If IR STILL fails with a different size: the error message now prints
+  `{width}x{wire_rows} ... {height} visible + {extra} CMOS rows,
+  depth cmos {cmos}` — compare against `ir_wire_size`; a size that is
+  neither 384,000 nor 390,400 would mean a config deviation
+  (check raw_dump, compare the IR command sequence vs the C).
+- After IR passes: color stream validation (`start_color` +
+  read_color_frame; YUV422→RGB888 implemented, untested on hardware),
+  then M8 cropping (params 46-55 image/depth + 56-60 IR, sequence SizeX
+  → SizeY → OffsetX → OffsetY → Mode last) per turn-17 spec, then the
+  VALIDATION.md manual checks (emitter-off IR-mean collapse etc.).
 - If pushing again: `cd /home/z/my-project/xtion-rs && git -c
   credential.helper='store --file=/tmp/gh-creds' push origin main`
-  (recreate /tmp/gh-creds with the user's token if /tmp was recycled;
-  never print or commit the token).
-- Golden vectors: `cd reference && gcc -O2 -o /tmp/c_golden c_golden.c &&
-  /tmp/c_golden > golden.txt && cargo test --test golden`.
+  (recreate /tmp/gh-creds from /home/z/my-project/.gh-token if /tmp was
+  recycled; never print or commit the token).
+- Golden vectors: `cargo test --test golden` (reference/golden.txt is
+  committed; re-generate with gcc if the C reference changes).
