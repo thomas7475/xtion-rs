@@ -25,7 +25,7 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Registration, MJPEG, misc/GMC, keep-alive | not yet (see docs/PLAN.md) |
 | Pre-3.0 firmware (bulk control endpoints) | not supported (explicit error) |
 
-Everything that can be verified without the camera **is** verified: 60
+Everything that can be verified without the camera **is** verified: 61
 tests pass on a bare CI machine (`cargo test`), and the two numerical
 cores are proven equal to the original C++ implementation by golden
 vectors generated from a verbatim C transcription
@@ -75,6 +75,18 @@ driver (Apache-2.0, PrimeSense Ltd.); see `NOTICE.md`. The decode cores
 are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
+
+- **0.1.5** - after 0.1.4 assembled full 307,200-pixel frames at 30 fps
+  but every pixel decoded as invalid, audited the whole decode chain
+  against the reference driver. Confirmed fix: the shift-to-depth LUT
+  must cover the full 0..2047 shift range (`XN_SHIFTS_MAX_SHIFT`) — the
+  1024-entry table silently zeroed every shift >= 1024 (scenes from
+  ~5.5 m out; for the reference calibration the valid window is shifts
+  1..1052 = 315..9870 mm). Also ported the reference driver's
+  corrupt-frame drop (assembled size != expected at EOF, which is how
+  the partial first frame of a stream is discarded) and added per-frame
+  raw-shift histograms to `depth_dump` (zeros / 2047 markers / valid
+  range buckets) plus `DepthFrame::shift_stats`.
 
 - **0.1.4** - fixed the fourth on-hardware failure: with the async ring
   delivering the full 12 MB/s stream (0 failures), frames still assembled

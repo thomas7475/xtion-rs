@@ -48,9 +48,11 @@ impl Default for ShiftToDepthConfig {
             zero_plane_distance: 120,
             zero_plane_pixel_size: 0.1052,
             emitter_d_cmos_distance: 7.5,
-            device_max_shift: 1024,
+            // XN_SHIFTS_MAX_SHIFT (XnSensorDepthStream.cpp): packed-11
+            // shift values span the full 0..2047 range.
+            device_max_shift: 2047,
             device_max_depth: 10000,
-            const_shift: 300,
+            const_shift: 200,
             pixel_size_factor: 1,
             param_coeff: crate::protocol::SHIFTS_PARAM_COEFFICIENT,
             shift_scale: crate::protocol::SHIFTS_SHIFT_SCALE,
@@ -213,15 +215,15 @@ mod tests {
     #[test]
     fn known_value_matches_hand_computation() {
         // Hand-computed with the documented formula for the default
-        // calibration at shift 400:
-        //   const_shift_adj = 4 * 300 / 1 = 1200
-        //   fixed_ref_x = (400 - 1200)/4 - 0.375 = -200.375
-        //   metric = -200.375 * 0.1052 = -21.079...
-        //   depth = 10 * (metric*120/(7.5 - metric) + 120)
+        // calibration (the Xtion Pro Live constants) at shift 400:
+        //   const_shift_adj = 4 * 200 / 1 = 800
+        //   fixed_ref_x = (400 - 800)/4 - 0.375 = -100.375
+        //   metric = -100.375 * 0.1052 = -10.559...
+        //   depth = 10 * (metric*120/(7.5 - metric) + 120) ~= 498 mm
         let cfg = ShiftToDepthConfig::default();
         let t = ShiftToDepthTables::build(&cfg);
 
-        let const_adj = 1200i32;
+        let const_adj = 800i32;
         let frx = (400i32 - const_adj) as f64 / 4.0 - 0.375;
         let metric = frx * (cfg.zero_plane_pixel_size as f64 * 1.0);
         let expected = 10.0 * ((metric * 120.0 / (7.5 - metric)) + 120.0);
@@ -233,5 +235,22 @@ mod tests {
             "{}",
             t.shift_to_depth[400]
         );
+    }
+
+    #[test]
+    fn far_shifts_beyond_1024_are_valid() {
+        // 0.1.4 regression: a 1024-entry table silently zeroed every
+        // shift >= 1024 (~5.5 m and beyond), producing all-invalid frames
+        // whenever the scene sat that far. XN_SHIFTS_MAX_SHIFT is 2047
+        // (XnSensorDepthStream.cpp) and the packed-11 wire values span
+        // the full 0..2047 range.
+        let t = ShiftToDepthTables::build(&ShiftToDepthConfig::default());
+        assert_eq!(t.shift_to_depth.len(), 2048);
+        assert!(t.shift_to_depth[1024] > 0, "shift 1024 must be valid");
+        assert!(t.shift_to_depth[1052] > 0, "last valid shift (9870 mm)");
+        assert_eq!(t.shift_to_depth[1053], 0, "beyond the valid window");
+        assert_eq!(t.shift_to_depth[2047], 0, "no-depth marker stays 0");
+        // the near-range floor: shift 1 is ~315 mm
+        assert_eq!(t.shift_to_depth[1], 315);
     }
 }

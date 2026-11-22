@@ -35,6 +35,7 @@ fn main() -> xtion::Result<()> {
     for i in 0..frames {
         match cam.read_depth_frame(Duration::from_secs(5)) {
             Ok(frame) => {
+                let s = frame.shift_stats;
                 println!(
                     "frame {:>3}: ts {:>10}, min {:>5} mm, {:>6}/{} valid pixels (expected {})",
                     i + 1,
@@ -43,6 +44,10 @@ fn main() -> xtion::Result<()> {
                     frame.valid_pixels(),
                     frame.data.len(),
                     expected_pixels,
+                );
+                println!(
+                    "           shifts: 0:{}  2047:{}  1-1023:{}  1024-2046:{}  min-max {:?}..{:?}",
+                    s.zeros, s.markers, s.low, s.high, s.min, s.max
                 );
             }
             Err(e) => {

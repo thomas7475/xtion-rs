@@ -139,6 +139,48 @@ impl DepthConfig {
     }
 }
 
+/// Compact statistics of the raw shift values behind a depth frame
+/// (diagnostics): how the pixels distribute across the shift range
+/// before the shift-to-depth conversion.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ShiftStats {
+    /// Shift == 0 (invalid).
+    pub zeros: usize,
+    /// Shift == 2047 (the packed-11 "no depth" marker).
+    pub markers: usize,
+    /// 1..=1023 (valid range of a 1024-entry table).
+    pub low: usize,
+    /// 1024..=2046 (zeroed by a 1024-entry table).
+    pub high: usize,
+    /// Smallest shift that is neither 0 nor 2047.
+    pub min: Option<u16>,
+    /// Largest shift that is neither 0 nor 2047.
+    pub max: Option<u16>,
+}
+
+impl ShiftStats {
+    fn from_shifts(shifts: &[u16]) -> ShiftStats {
+        let mut s = ShiftStats::default();
+        for &v in shifts {
+            match v {
+                0 => s.zeros += 1,
+                2047 => s.markers += 1,
+                1..=1023 => {
+                    s.low += 1;
+                    s.min = Some(s.min.map_or(v, |m| m.min(v)));
+                    s.max = Some(s.max.map_or(v, |m| m.max(v)));
+                }
+                _ => {
+                    s.high += 1;
+                    s.min = Some(s.min.map_or(v, |m| m.min(v)));
+                    s.max = Some(s.max.map_or(v, |m| m.max(v)));
+                }
+            }
+        }
+        s
+    }
+}
+
 /// A decoded depth frame: metric depth in millimeters.
 #[derive(Debug, Clone)]
 pub struct DepthFrame {
@@ -148,6 +190,8 @@ pub struct DepthFrame {
     pub data: Vec<u16>,
     /// Raw device timestamp of the frame's last packet.
     pub timestamp: u32,
+    /// Distribution of the raw shift values (diagnostics).
+    pub shift_stats: ShiftStats,
 }
 
 impl DepthFrame {
@@ -208,7 +252,10 @@ impl Xtion {
             zero_plane_distance: fixed.reference_distance as u16,
             zero_plane_pixel_size: fixed.reference_pixel_size,
             emitter_d_cmos_distance: fixed.d_cmos_emitter_distance,
-            device_max_shift: 1024,
+            // XN_SHIFTS_MAX_SHIFT (XnSensorDepthStream.cpp): the packed-11
+            // wire values span 0..2047; a 1024-entry table silently zeroes
+            // every shift >= 1024 (5.5 m and beyond).
+            device_max_shift: 2047,
             device_max_depth: 10_000,
             const_shift: depth_info.const_shift as u32,
             pixel_size_factor: 1,
@@ -453,6 +500,25 @@ impl Xtion {
                     log::warn!("corrupted depth frame dropped");
                     continue;
                 }
+                // C: XnDepthProcessor::OnEndOfFrame marks a frame corrupt
+                // when the assembled size differs from the expected size
+                // (this is how the partial first frame of a stream is
+                // dropped instead of being delivered).
+                let expected_bytes = match config.input_format {
+                    DepthFormat::Uncompressed11Bit => {
+                        // 8 x 11-bit values share 11 bytes
+                        expected_pixels * 11 / 8
+                    }
+                    DepthFormat::Uncompressed16Bit => expected_pixels * 2,
+                    _ => expected_pixels * 2,
+                };
+                if frame.data.len() != expected_bytes {
+                    log::warn!(
+                        "depth frame is corrupt: {} bytes != expected {expected_bytes}, dropped",
+                        frame.data.len()
+                    );
+                    continue;
+                }
                 return self.decode_depth_frame(&frame, width, height, expected_pixels, config);
             }
             // take one completed chunk from the ring (borrow ends here)
@@ -546,11 +612,13 @@ impl Xtion {
             }
         };
         let data = self.shift_to_depth.convert_shifts(&shifts);
+        let shift_stats = ShiftStats::from_shifts(&shifts);
         Ok(DepthFrame {
             width,
             height,
             data,
             timestamp: frame.timestamp,
+            shift_stats,
         })
     }
 

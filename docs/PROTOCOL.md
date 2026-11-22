@@ -188,6 +188,30 @@ the 12-byte header INCLUDES the two magic bytes) -> `PACKET_HEADER`
 (accumulate 12 bytes, fix endianness, `buf_size -= 12`) -> `PACKET_DATA`
 (accumulate payload) -> back to magic scan.
 
+Shift-to-depth conversion (`DDK/XnShiftToDepth.cpp` + `XnSensorDepthStream.cpp`):
+
+- The 11-bit wire values are **shifts**, not millimeters. They are converted
+  through a 2048-entry LUT (`XN_SHIFTS_MAX_SHIFT = 2047`, the all-ones
+  packed value 2047 is the "no depth" marker; shift 0 is also invalid).
+- LUT construction (all `f64` in the driver):
+  `const_shift_adj = param_coeff * const_shift / pixel_size_factor`
+  (integer division), then per shift `s`:
+  `fixed_ref_x = (s - const_shift_adj)/param_coeff - 0.375`,
+  `metric = fixed_ref_x * zero_plane_pixel_size * pixel_size_factor`,
+  `depth = shift_scale * (metric * ZPD / (LDDIS - metric) + ZPD)`.
+- Driver constants: `param_coeff = 4`, `shift_scale = 10`,
+  `pixel_size_factor = 1` (reference resolution SXGA; only depth@60fps or
+  IR@QVGA switch the reference to VGA, factor 2 - `DecidePixelSizeFactor` /
+  `RecalculateReferenceResolution`). `ZPD`, `ZPPS`, `LDDIS` and
+  `ConstShift` come from the device (fixed params / ALGORITHM_DEPTH_INFO
+  at VGA/30). Cutoffs: min 0, max = device max depth 10000.
+- For the reference calibration (ZPD 120 mm, ZPPS 0.1052 mm, LDDIS 7.5,
+  ConstShift 200) the valid window is shifts 1..1052 -> 315..9870 mm;
+  a 0.5-4 m scene lands at shifts ~403..1001.
+- `GetOutput` is a plain LUT lookup (packed-11 has no per-value
+  sanitizing; the `< MAX_SHIFT-1 ? raw : 0` clamp exists only in the
+  uncompressed/packed-12 processors).
+
 Frame assembly (`XnFrameStreamProcessor`):
 - SOF packet with `nDataOffset == 0` starts a frame (its payload is part
   of the frame); data packets append; EOF packet appends and completes.

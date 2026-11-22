@@ -20,7 +20,7 @@ file.
 | M2 - Calibration | Fixed params, ALGORITHM_DEPTH_INFO, S2D tables | **done, C-verified** |
 | M3 - Depth stream | Bulk framing, packed-11 decode, shift-to-depth, VGA@30 | **code done, unit+C-verified; on-camera test pending** |
 | M4 - Color stream | YUV422 bulk framing + RGB conversion | **code done, unit-verified; on-camera test pending** |
-| M5 - On-camera validation | Run the integration tests + examples on real hardware | **in progress: control path verified live (fw 5.8.22); fourth run: async ring delivered the full 12 MB/s with 0 failures, but frames assembled at 24560/307200 px — root cause: buf_size is the ONE big-endian header field (C applies an unconditional swap to it); fixed in 0.1.4 + zero-payload EOF dispatch fix; full-frame re-run pending** |
+| M5 - On-camera validation | Run the integration tests + examples on real hardware | **in progress: fifth run: full 307200-px frames assemble at 30 fps (buf_size fix confirmed) but 0 valid pixels — fixed the shift LUT to cover the full 0..2047 range (XN_SHIFTS_MAX_SHIFT; the old 1024-entry table zeroed every shift >= 1024, i.e. 5.5-9.9 m) and added the C's corrupt-frame drop + per-frame raw-shift histogram to depth_dump; if 0-valid persists the histogram shows whether the stream is all-invalid (2047/0) or the shifts are real — re-run pending** |
 | M6 - Robustness | Timeouts, error recovery, keep-alive, multi-frame pipelining | pending |
 | M7 - Completeness | Registration, MJPEG, misc/GMC packets, LED/emitter controls | pending |
 | M8 - Ergonomics | Callback API, `std::error` polish, docs.rs, publish to crates.io | pending |
@@ -82,6 +82,7 @@ xtion-rs/
 | Ring constants match the C reference (16 buffers x multiplier 40) | `ring` unit | no | pass |
 | libusb error code mapping | `ring` unit | no | pass |
 | buf_size is big-endian (real 512-B wire packet keeps its 500-B payload) | `stream` unit | no | pass |
+| LUT covers the full 0..2047 shift range (shift 1024/1052 valid, 2047 invalid, near floor 315 mm) | `shift_to_depth` unit | no | pass |
 | Exchange over fake transport | `protocol::command` unit | no | pass |
 | Fixed-params blob parsing at documented offsets | `protocol::fixed_params` unit | no | pass |
 | Algorithm-param request layout | `protocol::algorithm` unit | no | pass |
@@ -100,7 +101,7 @@ xtion-rs/
 Run everything without hardware:
 
 ```bash
-cargo test          # 60 tests, all green without a camera attached
+cargo test          # 61 tests, all green without a camera attached
 cargo clippy --all-targets   # 0 warnings
 cargo fmt --check
 ```
