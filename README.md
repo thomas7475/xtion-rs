@@ -70,6 +70,9 @@ udev rule (or run as root) to allow user access to `1d27:0601`.
 - `firmware/` - the final ASUS firmware release for the camera (FWUpdate
   5.8.22, the version the validation camera runs), mirrored from ASUS's
   official download with the flash images extracted and documented.
+- `docs/FIRMWARE.md` - reverse-engineered overview of that firmware: boot
+  self-test, runtime architecture, the complete command/parameter surface,
+  and the functionality this driver does not use yet.
 
 ## Attribution
 

@@ -6,6 +6,11 @@ version **5.8.22**, released in 2013. It is the version the xtion-rs
 reference/validation camera runs (reported as `firmware 5.8.22, chip 0x00212020,
 FPGA 0x0005`).
 
+For the reverse-engineered overview of what this firmware does and how —
+boot self-test sequence, runtime architecture, the full command surface,
+and which features the driver does not use yet — see
+[`docs/FIRMWARE.md`](../docs/FIRMWARE.md).
+
 ## Why this firmware exists
 
 Early Xtion units shipped with 5.7.x firmware that fails on USB 3.0 ports with
