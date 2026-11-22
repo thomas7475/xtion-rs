@@ -1,6 +1,6 @@
 # Chat Session Backup — ASUS Xtion Linux research
 
-**Version:** 15 (2026-11-22, turn 14): firmware mirrored - see turn 14. Previous: 14 (2026-11-22, turn 13) · **Status: SIXTH RUN GREEN - DRIVER HARDWARE-VALIDATED: both integration tests pass (268,435/307,200 = 87.4% valid pixels, min 431 mm, shift range 291-797 = 430-1,181 mm, 12.7% no-depth markers, 12.17 MiB/s, 0 failures, 29.97 fps). The 0.1.5 LUT fix confirmed; the earlier 0-valid scene was beyond the old table's range. Delivered xtion_rs_driver_overview.pdf (13 pages, 8 chapters, 4 verified flow diagrams). NOTE: sandbox recycled - /tmp/gh-creds gone, no token in .env, so the M5 docs update could NOT be pushed; delivered as xtion-rs-m5-validated.patch instead. Earlier: fifth on-hardware run: buf_size fix CONFIRMED — full 307200-px frames at 30 fps, 12.13 MB/s, 0 failures — but every pixel decoded 0/invalid. Full decode-chain audit vs the C found ONE confirmed bug: shift LUT was built with device_max_shift=1024 instead of XN_SHIFTS_MAX_SHIFT=2047 (packed-11 spans 0..2047; valid window for this calibration = shifts 1..1052 = 315..9870 mm; old table zeroed all >= 1024 i.e. 5.5-9.9 m). BUT the exact Python simulation shows a normal 0.5-4 m scene sits at shifts 403..1001 — INSIDE the old table — so max_shift alone cannot explain 0 valid pixels; remaining suspects: all-invalid stream (scene > 5.5 m / too close < 31.5 cm / occluded / emitter) or something not yet found. Added per-frame raw-shift histogram (DepthFrame::shift_stats + depth_dump) — the NEXT RUN's histogram line decides. Also ported the C's corrupt-frame drop (partial first frames like 150024 px). 0.1.5 (3948f07); user pulls, points camera at a wall ~1-2 m, re-runs depth_dump**
+**Version:** 17 (2026-11-22, turn 16): 0.2.0 FEATURE IMPLEMENTATION PUSHED (e62efbe) - see turn 16. Previous: 16 (2026-11-22, turn 15): firmware decompiled+analyzed. Previous: 15 (2026-11-22, turn 14): firmware mirrored. Previous: 14 (2026-11-22, turn 13) · **Status: SIXTH RUN GREEN - DRIVER HARDWARE-VALIDATED: both integration tests pass (268,435/307,200 = 87.4% valid pixels, min 431 mm, shift range 291-797 = 430-1,181 mm, 12.7% no-depth markers, 12.17 MiB/s, 0 failures, 29.97 fps). The 0.1.5 LUT fix confirmed; the earlier 0-valid scene was beyond the old table's range. Delivered xtion_rs_driver_overview.pdf (13 pages, 8 chapters, 4 verified flow diagrams). NOTE: sandbox recycled - /tmp/gh-creds gone, no token in .env, so the M5 docs update could NOT be pushed; delivered as xtion-rs-m5-validated.patch instead. Earlier: fifth on-hardware run: buf_size fix CONFIRMED — full 307200-px frames at 30 fps, 12.13 MB/s, 0 failures — but every pixel decoded 0/invalid. Full decode-chain audit vs the C found ONE confirmed bug: shift LUT was built with device_max_shift=1024 instead of XN_SHIFTS_MAX_SHIFT=2047 (packed-11 spans 0..2047; valid window for this calibration = shifts 1..1052 = 315..9870 mm; old table zeroed all >= 1024 i.e. 5.5-9.9 m). BUT the exact Python simulation shows a normal 0.5-4 m scene sits at shifts 403..1001 — INSIDE the old table — so max_shift alone cannot explain 0 valid pixels; remaining suspects: all-invalid stream (scene > 5.5 m / too close < 31.5 cm / occluded / emitter) or something not yet found. Added per-frame raw-shift histogram (DepthFrame::shift_stats + depth_dump) — the NEXT RUN's histogram line decides. Also ported the C's corrupt-frame drop (partial first frames like 150024 px). 0.1.5 (3948f07); user pulls, points camera at a wall ~1-2 m, re-runs depth_dump**
 
 > Purpose: upload this file in a new chat to restore full context. It records
 > the standing rules, the task, everything that was found and decided, every
@@ -45,7 +45,77 @@
   → shift LUT max_shift 1024→2047 + corrupt-frame drop + histogram.
   0.1.5 (3948f07).
 - **Turn 13 (2026-11-22):** SIXTH RUN GREEN
-- **Turn 14 (2026-11-22, this turn):** FIRMWARE MIRRORED. Found the last
+- **Turn 16 (2026-11-22, this turn):** 0.2.0 - OPENNI GAP ANALYSIS +
+  IMPLEMENTATION, PUSHED (e62efbe). SANDBOX WAS RECYCLED: xtion-rs/ and
+  the Rust toolchain were gone; recovered the repo WITH git history from
+  download/..._v15.zip's embedded tmp/xtion-src-v15.zip, re-stored
+  .gh-token (600, gitignored), installed Rust 1.100 via rustup-init into
+  my-project/.cargo+.rustup (piping-to-shell is blocked; direct binary),
+  re-extracted OpenNI 2.2.0 from the surviving tarball in
+  firmware_dl/openni_ref. ANALYSIS (from OpenNI source): IR stream =
+  STREAM0_MODE=3 on the IMAGE pipe (not depth!) as IMAGE packets with
+  4x10-bit packed pixels (XnIRProcessor::Unpack10to16); registration =
+  PARAM 2 done IN FIRMWARE on PS1080 (DecideFirmwareRegistration);
+  platform string (opcode 39) = one char per u16 word; usb core type
+  (40) = single u16 (Jango=0/gadgetfs=1); emitter (42) = {u16 active};
+  image controls: exposure 80/81, AWB 77, gain=AGC 15, quality 16,
+  flicker 17, mirror 71; depth: mirror 23, hole filter 22, AGC 21, close
+  range 84 (fw>=5.6), GMC 36; events 0xf31f/0xdead -> device error state
+  (XnFirmwareStreams.cpp); audio is TODO-disabled even in OpenNI 2.2.0.
+  IMPLEMENTED (docs/FEATURE_PLAN.md Phases 1-2): protocol/identity.rs
+  (platform/usb-core/emitter), stream.rs DeviceEvent capture, ir.rs
+  (10-bit unpack + IrConfig/IrFrame, golden vectors Python-verified),
+  device.rs (+20 methods, IR stream, misc-endpoint 0x83 ring while
+  streaming, event draining), usb.rs misc mps + best-effort interface
+  claims 1-2, 13 new Param ids + wire-contract test, Cargo 0.2.0.
+  EXCLUDED PERMANENTLY (user rule: no writes that could delete
+  calibration or overwrite configs): flash file system 13-25, I2C/AHB
+  writes, calibrations 29/31/33, TAKE_SNAPSHOT 12, SET_MODE 6. TESTS:
+  84 green without hardware (77 lib incl. new wire/golden/event tests;
+  clippy 0 warnings; fmt clean); hardware.rs gained
+  phase1_identity_and_options + ir_stream_roundtrip (skip without
+  camera - camera NOT attached this turn, on-camera validation still
+  pending). Docs: FEATURE_PLAN.md (30-feature gap table, 4 phases,
+  exclusions), README Status/Usage updated, PLAN.md M7 partial,
+  FIRMWARE.md corrected (serial was already used; IR is STREAM0 not
+  STREAM1).
+
+- **Turn 15 (2026-11-22):** FIRMWARE DECOMPILED + ANALYZED,
+  ALL PUSHED TO GITHUB. User supplied a PAT (stored /home/z/my-project/
+  .gh-token, chmod 600, gitignored, never echoed/committed). Pushed
+  firmware mirror (b6a4944), M5 docs (5614195), and the new analysis
+  (8a129b5) to github.com/thomas7475/xtion-rs - ls-remote verified.
+  ANALYSIS: .fla images are Packer-wrapped ARM Thumb (ARM926-class, TI
+  toolchain, UTF-16LE strings). Ghidra 11.3.2 headless (downloaded 446MB +
+  Temurin JDK 21 - sandbox had JRE only; language ARM:LE:32:v5t, TMode
+  forced, 299 capstone-verified seeds): 165 functions, 44,940
+  instructions, 149 decompiled (881KB C dump, kept OUT of the repo as a
+  derived work; artifacts in firmware_dl/analysis/). KEY FINDINGS:
+  opcode dispatcher located at image 0x21400-0x22000 (78 Thumb cmp
+  covering 31 opcodes, value-for-value with OpenNI XnHostProtocol.h);
+  v2.6 magic pair MG/BR at 0xc14/0xc16; boot self-test sequence from
+  UTF-16 strings (TEC/PRJ/CLR/IR/FL/NESA + ZO per-frame quality monitor);
+  USB surface: depth 0x81, image 0x82, misc 0x83, USB Audio Class
+  "Microphone" + Feature Unit. Full vendor surface (OpenNI 2.2.0 source
+  from occipital/OpenNI2 v2.2.0-debian + same-vintage
+  XnDeviceSensorV2.dll strings): 41 opcodes + 85 params + 15 packet
+  types + 6 algorithm tables. xtion-rs uses 6/8/6/1. UNUSED FUNCTIONALITY
+  (the user's goal): audio mic (PCM 16-bit 8-48kHz stereo + volume/mute),
+  IR stream (params 25-29/56-60/72), registration, ENABLE_EMITTER 42,
+  OVERHEAT 0xf31f + PROJECTOR_FAULT 0xdead packets (currently skipped!),
+  depth AGC+bins/hole-filter/mirror/decimation/close-range, image
+  exposure/WB/sharpness/flicker/crop, accelerometer (ACC LR/ACCOR
+  strings), TEC/emitter calibration + BIST + CPU stats + GET_LOG, flash
+  file system (opcodes 13-25, NACK OVERLAY_NOT_LOADED), I2C/AHB raw
+  access, GMC motion points, serial/platform-string/USB-core-type
+  identity opcodes. DELIVERABLES: docs/FIRMWARE.md (repo, pushed),
+  xtion_rs_firmware_analysis.pdf (11 pages, QA PASS, download/),
+  crossref.md + scripts/firmware_*.py (triage/strings16/archtest/
+  constants/dispatch/crossref + FirmwareGhidra.py + download_ghidra.sh).
+  Recommended driver roadmap: 1) OVERHEAT/PROJECTOR_FAULT events, 2)
+  serial/platform/USB-core, 3) IR stream, 4) registration, 5) emitter
+  on/off, 6) mirror/close-range/hole-filter/AGC, 7) audio, 8) log/TEC/
+  CPU stats. Found the last
   official ASUS firmware (FWUpdate 5.8.22, 2013) still live on
   dlcdnet.asus.com; downloaded (2.25 MB, sha256 6f9c0ec9...43caad), extracted
   the LZX-compressed CAB inside the SFX exe via libarchive (no cabextract
