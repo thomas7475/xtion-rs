@@ -1,6 +1,6 @@
 # Chat Session Backup — ASUS Xtion Linux research
 
-**Version:** 17 (2026-11-22, turn 16): 0.2.0 FEATURE IMPLEMENTATION PUSHED (e62efbe) - see turn 16. Previous: 16 (2026-11-22, turn 15): firmware decompiled+analyzed. Previous: 15 (2026-11-22, turn 14): firmware mirrored. Previous: 14 (2026-11-22, turn 13) · **Status: SIXTH RUN GREEN - DRIVER HARDWARE-VALIDATED: both integration tests pass (268,435/307,200 = 87.4% valid pixels, min 431 mm, shift range 291-797 = 430-1,181 mm, 12.7% no-depth markers, 12.17 MiB/s, 0 failures, 29.97 fps). The 0.1.5 LUT fix confirmed; the earlier 0-valid scene was beyond the old table's range. Delivered xtion_rs_driver_overview.pdf (13 pages, 8 chapters, 4 verified flow diagrams). NOTE: sandbox recycled - /tmp/gh-creds gone, no token in .env, so the M5 docs update could NOT be pushed; delivered as xtion-rs-m5-validated.patch instead. Earlier: fifth on-hardware run: buf_size fix CONFIRMED — full 307200-px frames at 30 fps, 12.13 MB/s, 0 failures — but every pixel decoded 0/invalid. Full decode-chain audit vs the C found ONE confirmed bug: shift LUT was built with device_max_shift=1024 instead of XN_SHIFTS_MAX_SHIFT=2047 (packed-11 spans 0..2047; valid window for this calibration = shifts 1..1052 = 315..9870 mm; old table zeroed all >= 1024 i.e. 5.5-9.9 m). BUT the exact Python simulation shows a normal 0.5-4 m scene sits at shifts 403..1001 — INSIDE the old table — so max_shift alone cannot explain 0 valid pixels; remaining suspects: all-invalid stream (scene > 5.5 m / too close < 31.5 cm / occluded / emitter) or something not yet found. Added per-frame raw-shift histogram (DepthFrame::shift_stats + depth_dump) — the NEXT RUN's histogram line decides. Also ported the C's corrupt-frame drop (partial first frames like 150024 px). 0.1.5 (3948f07); user pulls, points camera at a wall ~1-2 m, re-runs depth_dump**
+**Version:** 18 (2026-11-22, turn 17): beyond-OpenNI analysis + validation plan pushed (c3a5fc9) - see turn 17. Previous: 17 (turn 16): 0.2.0 features pushed (e62efbe). Previous: 15 (2026-11-22, turn 14): firmware mirrored. Previous: 14 (2026-11-22, turn 13) · **Status: SIXTH RUN GREEN - DRIVER HARDWARE-VALIDATED: both integration tests pass (268,435/307,200 = 87.4% valid pixels, min 431 mm, shift range 291-797 = 430-1,181 mm, 12.7% no-depth markers, 12.17 MiB/s, 0 failures, 29.97 fps). The 0.1.5 LUT fix confirmed; the earlier 0-valid scene was beyond the old table's range. Delivered xtion_rs_driver_overview.pdf (13 pages, 8 chapters, 4 verified flow diagrams). NOTE: sandbox recycled - /tmp/gh-creds gone, no token in .env, so the M5 docs update could NOT be pushed; delivered as xtion-rs-m5-validated.patch instead. Earlier: fifth on-hardware run: buf_size fix CONFIRMED — full 307200-px frames at 30 fps, 12.13 MB/s, 0 failures — but every pixel decoded 0/invalid. Full decode-chain audit vs the C found ONE confirmed bug: shift LUT was built with device_max_shift=1024 instead of XN_SHIFTS_MAX_SHIFT=2047 (packed-11 spans 0..2047; valid window for this calibration = shifts 1..1052 = 315..9870 mm; old table zeroed all >= 1024 i.e. 5.5-9.9 m). BUT the exact Python simulation shows a normal 0.5-4 m scene sits at shifts 403..1001 — INSIDE the old table — so max_shift alone cannot explain 0 valid pixels; remaining suspects: all-invalid stream (scene > 5.5 m / too close < 31.5 cm / occluded / emitter) or something not yet found. Added per-frame raw-shift histogram (DepthFrame::shift_stats + depth_dump) — the NEXT RUN's histogram line decides. Also ported the C's corrupt-frame drop (partial first frames like 150024 px). 0.1.5 (3948f07); user pulls, points camera at a wall ~1-2 m, re-runs depth_dump**
 
 > Purpose: upload this file in a new chat to restore full context. It records
 > the standing rules, the task, everything that was found and decided, every
@@ -45,7 +45,33 @@
   → shift LUT max_shift 1024→2047 + corrupt-frame drop + histogram.
   0.1.5 (3948f07).
 - **Turn 13 (2026-11-22):** SIXTH RUN GREEN
-- **Turn 16 (2026-11-22, this turn):** 0.2.0 - OPENNI GAP ANALYSIS +
+- **Turn 17 (2026-11-22, this turn):** BEYOND-OPENNI ANALYSIS + VALIDATION
+  PLAN, PUSHED (c3a5fc9). Sandbox survived. QUESTION: firmware capabilities
+  OpenNI 2.2.0 never uses? METHOD: call-site grep of every
+  XnHostProtocol* wrapper (not header defines) + AddFirmwareParam registry
+  diff vs XnParams.h ids + XnFirmwareStreams packet switch. FINDINGS:
+  audio capture disabled at factory (TODO: enable, XnSensor.cpp ~470);
+  plain GMC packet 0xa200 UNROUTED (only 0xb200 debug); file-upload trio
+  13/14/15 never called (download/read/delete/execute ARE); KILL 999 and
+  TAKE_SNAPSHOT 12 never called (12 defined at XnHostProtocol.cpp:2440,
+  zero callers); params 0/3/4/31/32/85 unmapped (85 only inside flash
+  lock at :2036); V110/V300 enums = dead ancient dialects. VALIDATION:
+  crop modes confirmed in Include/PS1080.h (DISABLED=0, NORMAL=1,
+  INCREASED_FPS=2 - crop can RAISE fps!). DELIVERED: docs/VALIDATION.md
+  (full camera test plan: 4 automated hardware tests + M5 run-6 pass
+  criteria, 10 manual checks incl. emitter-off IR-mean collapse test,
+  regression matrix, triage); FEATURE_PLAN.md section 5 (beyond-OpenNI
+  table); PDF report download/xtion_rs_next_steps_and_validation.pdf
+  (9 pages, Template 01 cover, TOC fixed to displayed numbering, pdf_qa
+  clean) + cover HTML. NEXT STEP (spec'd in report section 4): firmware
+  cropping - params 46-55 (image/depth) + 56-60 (IR), sequence SizeX ->
+  SizeY -> OffsetX -> OffsetY -> Mode last, host-side processors crop +
+  report cropped dims, mirror interplay (offset in mirrored space), API
+  start_depth_cropped/set_*_crop, 5-part test plan. 84 tests green;
+  camera still not attached (on-camera validation remains first task
+  next hardware session).
+
+- **Turn 16 (2026-11-22):** 0.2.0 - OPENNI GAP ANALYSIS +
   IMPLEMENTATION, PUSHED (e62efbe). SANDBOX WAS RECYCLED: xtion-rs/ and
   the Rust toolchain were gone; recovered the repo WITH git history from
   download/..._v15.zip's embedded tmp/xtion-src-v15.zip, re-stored
