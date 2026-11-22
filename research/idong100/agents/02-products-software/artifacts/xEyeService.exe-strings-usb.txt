@@ -1,0 +1,18 @@
+AppID
+Global\xeyez_engine_setup
+Win32loader.exe
+xEyezSvStartXeyez.exe xeyez
+xeyezPCUpdate.exe
+xeyezBoxUpdate.exe
+xeyez.exe
+USB\Vid_0471&Pid_0666
+USB\Vid_0471&Pid_0668
+USB\VID_0471&PID_2100
+USB\VID_0471&PID_2600
+USB\VID_0471&PID_2500&MI_04
+d:\BuildSystem\DalilyBuild\xeyez\Xeyez\Obj\xEyeService\xEyeService.pdb
+	NoRemove AppID
+		'%APPID%' = s 'xEyeService'
+			val AppID = s '%APPID%'
+      <assemblyIdentity type="win32" name="Microsoft.VC80.CRT" version="8.0.50727.762" processorArchitecture="x86" publicKeyToken="1fc8b3b9a1e18e3b"></assemblyIdentity>
+      <assemblyIdentity type="win32" name="Microsoft.VC80.ATL" version="8.0.50727.762" processorArchitecture="x86" publicKeyToken="1fc8b3b9a1e18e3b"></assemblyIdentity>

@@ -1,0 +1,52 @@
+[config]
+
+
+#模式相关参数（用户开放）
+
+c_MouseMode = 1 	# 鼠标模式，1为相对坐标模式，0为绝对坐标模式
+
+c_MostFrontPrinciple =1  #1=最前控制模式 或者0=主手柄跟踪模式
+
+c_Accelerate_Mode= 1 	# 0=手臂控制模式，1=手腕+手臂控制模式，仅在#Mouse_Mode=1 有效
+
+
+#用户开放的参数
+
+c_move_speed= 40 	# 鼠标移动基本速度（1，100）
+
+c_Accelerate_Rate = 30  #用于手腕模式的灵敏度调节；手腕+手臂控制模式的灵敏度；设置z在xy方向上的映射权重；0<Accelerate_Degree<100; 推介20=1; 30=1.5；40=2；
+
+c_Smoothness=1         #用于绝对模式的平滑参数
+
+c_Host_Exchange_Threshold=20  #最前控制模式下，控制手柄切换所需深度最大差值,cm单位
+
+#以下为确定的内测参数
+
+c_nD_Pos2Cursor = 3     #  2=2D pos ，3=3D pos 光标的输入位置模式测试，3D正常性能优于2D，但是在主机性能不稳定的时候，优先考虑2D;
+
+c_Kalman_speed_mode = 2 # 0=直接3D速度；1=使用Kalman的速度previous_V，2=present_V，3=（previous_V+present_V）/2;
+
+
+c_MaxAngle = 0 		#设置速度方向至XY平面的最大速度夹角，应该0＝<参数<=100, 越大整体的速度越快,推介25表示70度
+25=2+25/25=3;
+
+
+c_CentralX = 50 	#  /50=0.5
+
+c_CentralY = 60 	#  /50=0.5
+
+c_fRatio_YToX = 10 	#  /10=1.0
+
+c_DebugOutput=1  	#1=输出参数设置成功信息；0=不输出任何信息；
+
+c_ABS_move_speed= 20	# 鼠标绝对模式移动速度
+
+
+#以下为不需要调整的参数
+
+c_smooth_rate= 0 	# 手腕模式下的平滑放大比例因子，越大越平滑，但是会漂移，推荐不要使用
+
+#2.5代平滑参数设置
+c_iSmoothParamZ=20 #Z轴平滑的历史帧数，建议默认20；若<=0，不平滑Z
+c_iSmoothParamXY=5 #XY轴平滑的历史帧数，建议默认5；若<=0，不平滑XY
+c_fDistThreshold=1.0

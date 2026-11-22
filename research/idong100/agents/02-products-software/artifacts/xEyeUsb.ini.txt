@@ -1,0 +1,78 @@
+[Config]
+#是否进行手柄配对
+NeedHandleMatch = 1
+
+#监控队列长度
+MonitorList = 10
+
+#调试开关
+DebugShow = 0
+
+BgCount = 5
+LinkErrCnt = 100
+
+#无干扰
+NoDisturb = 0
+#轻度干扰
+LtDisturb = 3
+#中度干扰
+MdDisturb = 7
+#中高度干扰
+MhDisturb = 10
+#高度干扰
+HiDisturb = 11
+
+GreenThreshold = 20
+YellowThreshold = 35
+RedThreshold = 35
+
+#在数据中添加随机噪声（测试用）
+#100单位表示一个像素
+NoiseLevel = 50  
+
+#使用环形滤波器的尺寸，越大越稳定
+RingSize = 200
+
+#硬件平台 1:一代硬件 2:2代硬件
+DevicePlatform = 2
+
+#1: 在2代硬件平台下模拟1代数据
+#2: 在2代硬件平台下的2代数据
+SimPlatform = 2 
+
+#USBCom线程限帧
+USBComFPS = 35
+USBConnectFPS = 35
+
+#USB线程连续多次读取数据失败
+ReadDataFailedCnt=5
+
+#显示3D调试窗口开关
+Show3DDebugWindow=0
+
+#Bit文件
+BitFile=A_a_v4.4_BG0313.bit
+
+#日志输出开关
+DebugToFile=0
+DebugToView=1
+
+#配置哪些log文件打开[注：如果DebugToFile=0，下列配置无效]
+UsbComLog=0
+UsbComRawDataLog=0
+UsbConnectLog=0
+UsbMgrLog=0
+
+#配置备份恢复日志
+UsbRecoverBackupFileLog=0
+UsbRecoverBackupViewLog=1
+
+#启动设置，1:运行，0:暂停
+BootConfigCurr=1
+
+#设置计算干扰的帧数
+UsbNoice=330
+
+#设置声音提示间隔,默认1分钟,单位ms
+VoiceWaitTime=60000
+

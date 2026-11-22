@@ -1,0 +1,8 @@
+#鼠标模型动态库名
+[Calculator]
+
+#中科院鼠标算法
+xEyeMouse
+
+#手势鼠标算法
+#xEyeTS
