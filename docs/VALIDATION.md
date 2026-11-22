@@ -117,6 +117,18 @@ documented API. Every check lists the expected observation.
   the first 480 rows like the reference. If a future run still fails
   with a DIFFERENT size, the message now prints the depth CMOS type and
   the row math — compare against `ir_wire_size` and wire_extra_rows.
+- **IR CONFIRMED on hardware (2026-11-22):** with 0.2.3 all four
+  hardware tests passed — open_handshake_and_identity,
+  phase1_identity_and_options, depth_stream_roundtrip,
+  ir_stream_roundtrip. The `emitter toggle skipped: ...` line is
+  benign (see above).
+- Color (since 0.2.4): the same fail-fast contract as IR — an error of
+  the form `frame #N <bytes> (expected M for WxH YUV422)` means a
+  wire-size deviation (color has NO extra CMOS rows; expected M =
+  width x height x 2), `completions == 0` in `color_ring_stats()` means
+  the color CMOS was never armed (blanking fetch missing / wrong image
+  params), and 5 unusable frames fail fast with assembler + ring
+  counters in the message.
 - `emitter toggle skipped: ...`: expected on some 5.8.x builds — the
   reference driver only issues opcode 42 on fw >= 5.8.15 and even then
   some builds NACK it (BadParams). Runtime state only; the default

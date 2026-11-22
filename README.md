@@ -21,8 +21,8 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Packed-11 depth decode | done, **byte-identical to the C reference** (golden vectors) |
 | Bulk-stream frame assembly | done, unit-tested incl. chunk splits |
 | Depth stream (VGA@30, packed-11 or raw 16-bit) | **hardware-validated** (87% valid pixels @ 29.97 fps) |
-| Color stream (YUV422 -> RGB888) | implemented; on-camera validation pending |
-| IR stream (16-bit grayscale, image pipe) | implemented in 0.2.0; wire-size fix in 0.2.3 (MT9M001 sends `height + 8` rows — hardware-measured, see docs/PROTOCOL.md section 8); on-camera validation pending |
+| Color stream (YUV422 -> RGB888) | implemented; hardware test `color_stream_roundtrip` added in 0.2.4; on-camera validation pending |
+| IR stream (16-bit grayscale, image pipe) | implemented in 0.2.0; wire-size fix in 0.2.3 (MT9M001 sends `height + 8` rows — hardware-measured, see docs/PROTOCOL.md section 8); **hardware-validated 2026-11-22, all four tests green** |
 | Hardware registration, emitter on/off, OVERHEAT/PROJECTOR_FAULT events | implemented in 0.2.0 |
 | Runtime options: mirror, hole filter, AGC, close range, GMC mode, exposure, white balance, gain, quality, flicker | implemented in 0.2.0 |
 | Cropping, depth AGC bins, GMC data, audio, firmware log | not yet (Phase 3-4 of docs/FEATURE_PLAN.md) |
@@ -107,6 +107,19 @@ are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
 
+- **0.2.4 — color stream hardware test + color fail-fast** - the 0.2.3
+  run validated IR on camera (all four hardware tests green; the
+  "emitter toggle skipped" line is benign). Next image-pipe feature:
+  color. `read_color_frame` now validates the wire size (YUV422 =
+  width x height x 2 — color has NO extra CMOS rows,
+  XnImageProcessor::CalculateExpectedSize) and fails fast after 5
+  unusable frames with assembler + ring counters in the message (the
+  same pattern that made the IR failure diagnosable in 0.2.2); a
+  zero-data timeout now prints the ring counters too. New hardware test
+  `color_stream_roundtrip`: VGA@30 YUV422 -> RGB888 roundtrip, the
+  shared-image-pipe mutual-exclusion guard (`start_ir` while color
+  runs must be BadConfig), and a non-constant-frame check;
+  `color_ring_stats()` accessor added for symmetry.
 - **0.2.3 — IR wire-size fix (the fourth on-hardware failure)** - the
   0.2.2 diagnostics run finally produced the IR failure signature the
   fail-fast logic was built for: `frame #5 390400 bytes (expected

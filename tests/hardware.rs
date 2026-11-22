@@ -178,3 +178,52 @@ fn ir_stream_roundtrip() {
 
     cam.stop_ir().expect("stop ir");
 }
+
+#[test]
+fn color_stream_roundtrip() {
+    if !hardware_present() {
+        eprintln!("skipped: no Xtion attached");
+        return;
+    }
+    let _lock = lock_device();
+    let mut cam = Xtion::open().expect("open");
+
+    cam.start_color(xtion::Resolution::Vga, 30, xtion::ImageFormat::Yuv422)
+        .expect("start color");
+
+    // color and IR share firmware stream0 (the image pipe): while color
+    // runs, starting IR must be refused by the driver without touching
+    // the device (VALIDATION.md manual check 9, driver-side half)
+    match cam.start_ir(xtion::IrConfig::default()) {
+        Err(xtion::XtionError::BadConfig(_)) => {}
+        other => {
+            let _ = cam.stop_ir();
+            panic!("starting IR while color runs must be BadConfig, got {other:?}");
+        }
+    }
+
+    let frame = match cam.read_color_frame(Duration::from_secs(5)) {
+        Ok(frame) => frame,
+        Err(err) => {
+            eprintln!(
+                "color read failed: {err}; color ring stats: {:?}",
+                cam.color_ring_stats()
+            );
+            panic!("one color frame: {err}");
+        }
+    };
+    assert_eq!(frame.width, 640);
+    assert_eq!(frame.height, 480);
+    // RGB888 decoded from 640x480 YUV422
+    assert_eq!(frame.data.len(), 640 * 480 * 3);
+    // a live scene must produce non-constant color
+    let min = *frame.data.iter().min().unwrap();
+    let max = *frame.data.iter().max().unwrap();
+    println!("color {min}..{max} (byte range)");
+    assert!(max > min, "color frame is constant ({min}..{max})");
+
+    let events = cam.drain_events();
+    println!("events: {events:?}");
+
+    cam.stop_color().expect("stop color");
+}

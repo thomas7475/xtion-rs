@@ -732,6 +732,12 @@ impl Xtion {
         self.ir_ring.as_ref().map(|ring| ring.stats())
     }
 
+    /// Transfer statistics of the color bulk ring, if streaming
+    /// (diagnostics; the color stream uses the same image pipe as IR).
+    pub fn color_ring_stats(&self) -> Option<crate::ring::RingStats> {
+        self.color_ring.as_ref().map(|ring| ring.stats())
+    }
+
     /// Counters of the depth bulk ring, if streaming (diagnostics).
     pub fn depth_ring_stats(&self) -> Option<crate::ring::RingStats> {
         self.depth_ring.as_ref().map(|r| r.stats())
@@ -832,25 +838,60 @@ impl Xtion {
     }
 
     /// Block until one color frame is decoded (RGB888).
+    ///
+    /// The color pipe has NO extra CMOS rows (unlike IR): the reference
+    /// validates color frames against exactly `XRes * YRes * bpp`
+    /// (`XnImageProcessor::CalculateExpectedSize`, bpp = 2 for YUV422)
+    /// and marks anything else corrupt — this is also how the partial
+    /// first frame of a stream is dropped. Following the IR lesson
+    /// (0.2.2), a stream that keeps producing unusable frames fails fast
+    /// with the actual sizes and counters instead of looping into a
+    /// silent timeout.
     pub fn read_color_frame(&mut self, timeout: Duration) -> Result<ColorFrame> {
         let resolution = self.color_config.ok_or(XtionError::StreamNotRunning)?;
         let (width, height) = resolution.dimensions();
+        // YUV422 wire size: 2 bytes per pixel, no extra rows
+        // (XnImageProcessor.cpp:75-88).
+        let expected = (width * height * 2) as usize;
         let deadline = Instant::now() + timeout;
+        let mut unusable = 0u32;
 
         loop {
             while let Some(frame) = self.color_assembler.pop_frame() {
-                if frame.corrupted {
-                    log::warn!("corrupted color frame dropped");
-                    continue;
+                let reason = if frame.corrupted {
+                    Some("corrupted".to_string())
+                } else if frame.data.len() != expected {
+                    Some(format!(
+                        "{} bytes (expected {expected} for {width}x{height} YUV422)",
+                        frame.data.len()
+                    ))
+                } else {
+                    None
+                };
+                match reason {
+                    None => {
+                        let mut rgb = Vec::with_capacity((width * height * 3) as usize);
+                        yuv422_to_rgb888(&frame.data, &mut rgb);
+                        return Ok(ColorFrame {
+                            width,
+                            height,
+                            data: rgb,
+                            timestamp: frame.timestamp,
+                        });
+                    }
+                    Some(reason) => {
+                        unusable += 1;
+                        log::warn!("dropping unusable color frame #{unusable}: {reason}");
+                        if unusable >= 5 {
+                            return Err(XtionError::BadConfig(format!(
+                                "color stream produces unusable frames: \
+                                 frame #{unusable} {reason}; assembler {:?}, ring {:?}",
+                                self.color_assembler.stats,
+                                self.color_ring.as_ref().map(|ring| ring.stats()),
+                            )));
+                        }
+                    }
                 }
-                let mut rgb = Vec::with_capacity((width * height * 3) as usize);
-                yuv422_to_rgb888(&frame.data, &mut rgb);
-                return Ok(ColorFrame {
-                    width,
-                    height,
-                    data: rgb,
-                    timestamp: frame.timestamp,
-                });
             }
             self.pump_misc();
             let chunk = {
@@ -867,6 +908,16 @@ impl Xtion {
                         return Err(err);
                     }
                     if Instant::now() >= deadline {
+                        // distinguishable from "unusable frames": a healthy
+                        // ring with no frames means sensor timing was never
+                        // armed, a dead ring means no data at all
+                        let stats = self.color_ring.as_ref().unwrap().stats();
+                        log::error!(
+                            "no color frame within {timeout:?}: ring saw {} chunks / {} bytes / {} failures",
+                            stats.completions,
+                            stats.bytes,
+                            stats.failures
+                        );
                         return Err(XtionError::ControlTimeout);
                     }
                 }
