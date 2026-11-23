@@ -18,14 +18,14 @@ use crate::protocol::algorithm::{
 use crate::protocol::command::{CommandLink, ControlTransport, ProtocolVersion};
 use crate::protocol::fixed_params::{read_fixed_params, FixedParams};
 use crate::protocol::identity::{read_platform_string, read_usb_core_type, set_emitter_state};
-use crate::protocol::presets::{read_cmos_presets, CmosPreset, CMOS_TYPE_IMAGE};
+use crate::protocol::presets::{read_cmos_presets, CmosPreset, CMOS_TYPE_DEPTH, CMOS_TYPE_IMAGE};
 use crate::protocol::system as sys;
 use crate::protocol::{
     DepthFormat, HostMode, ImageFormat, Opcode, Param, Resolution, UsbCore, CROP_MODE_DISABLED,
     CROP_MODE_INCREASED_FPS, CROP_MODE_NORMAL, MAX_SHIFT, SHIFTS_PARAM_COEFFICIENT,
     SHIFTS_SHIFT_SCALE, STREAM_MODE_COLOR, STREAM_MODE_DEPTH, STREAM_MODE_IR, STREAM_MODE_OFF,
 };
-use crate::stream::{DeviceEvent, GmcPacket, StreamAssembler};
+use crate::stream::{DebugTelemetryPacket, DeviceEvent, GmcPacket, StreamAssembler};
 use crate::usb::UsbDevice;
 
 /// How long a single command exchange may take.
@@ -300,29 +300,32 @@ fn agc_bin_params(bin: usize) -> Result<(Param, Param)> {
 /// (XnHostProtocol.cpp:3124-3141) — but in a transient-safe ORDER, and
 /// the write is VERIFIED BY READBACK:
 ///
-/// - **Order.** This firmware validates every individual parameter
-///   write against the sibling bound's CURRENT value and rejects
-///   `BadParams` when the write would momentarily leave `min > max`:
-///   the reference's LOW-then-HIGH order hits exactly that whenever a
-///   bin grows upward (the factory bins are all (0,0), so writing
-///   LOW=512 while HIGH is still 0 is refused — the v0.3.4 camera run
-///   died on the first such bin). Moving the bound that preserves the
-///   invariant FIRST never trips the check:
+/// - **Order.** The reference's LOW-then-HIGH order momentarily leaves
+///   `min > max` whenever a bin grows upward (the factory bins are all
+///   (0,0), so writing LOW=512 while HIGH is still 0 is the
+///   transiently-invalid state the v0.3.4 camera run died on). Writing
+///   the bound that keeps the pair ordered FIRST is the safe sequencing
+///   either way:
 ///   - new bin entirely ABOVE the current one (`new.min > current.max`):
 ///     raise HIGH first — every intermediate state stays ordered;
 ///   - otherwise (shrink, slide down, or overlap): lower LOW first —
 ///     symmetrically safe, and it also collapses a bin back to the
 ///     factory (0,0) state.
-/// - **Readback.** A `BadParams` NACK does NOT mean the write was
-///   refused: the 0.3.5 camera run left bin0 at `0..512` after a
-///   NACKed `HIGH <- 512` write — the firmware APPLIES an
-///   invariant-preserving write and then rejects the reply
-///   (apply-then-reject), while an invariant-VIOLATING write (LOW <-
-///   512 while HIGH is 0) is rejected without applying. So BOTH bounds
-///   are sent even when the first reply is a NACK, and the bin is
-///   read back afterwards: Ok means the bin now reads exactly as
-///   requested, Err means it does not (a genuinely refused write).
-///   Non-NACK errors (timeout, malformed reply) abort immediately.
+/// - **Readback (the 0.3.6 camera finding, refined in 0.3.7).** On
+///   fw 5.8.22 EVERY SET_PARAM on params 63-70 was observed to reply
+///   NACK `BadParams` — no-op writes, invariant-preserving writes and
+///   invariant-VIOLATING writes alike — while the value LANDED anyway
+///   (the 0.3.6 run read `bin0 = 0..512` back right after the NACKed
+///   `HIGH <- 512` probe and `bin1 = 512..0` right after the NACKed
+///   C-order `LOW <- 512` probe). The NACK reply therefore carries NO
+///   information about application; only the readback is truth. (The
+///   0.3.5 run's final `bin1 = (0,0)` first looked like a refused
+///   write, but the 0.3.5 restore's own `LOW <- 0` write — sent,
+///   NACKed, and applied — explains it completely.) So BOTH bounds
+///   are sent even when the reply is a NACK, and the bin is read back
+///   afterwards: Ok means the bin now reads exactly as requested, Err
+///   means it does not. Non-NACK errors (timeout, malformed reply)
+///   abort immediately.
 fn write_agc_bin_via<T: ControlTransport>(
     link: &mut CommandLink,
     transport: &mut T,
@@ -978,6 +981,55 @@ impl Xtion {
         out
     }
 
+    /// Pump the misc endpoint and return every decoded **debug
+    /// telemetry** packet collected since the last call:
+    ///
+    /// - [`DebugTelemetryPacket::Wavelength`] — 0xc200, the packed
+    ///   `XnWavelengthCorrectionDebugPacket`: the wavelength-lock
+    ///   algorithm's state (B coefficients, frequency hops, TEC scan
+    ///   state). Emitted while wavelength-correction DEBUG is on
+    ///   ([`set_wavelength_correction_debug`](Self::set_wavelength_correction_debug),
+    ///   param 74) and the depth stream runs.
+    /// - [`DebugTelemetryPacket::Text`] — the TEC (0xd200) and NESA
+    ///   (0xd201) channels: UTF-16LE telemetry lines the firmware
+    ///   emits while the matching built-in self test runs
+    ///   ([`run_bist`](Self::run_bist) with
+    ///   [`bist::TEC`](crate::protocol::system::bist::TEC) /
+    ///   [`bist::NESA`](crate::protocol::system::bist::NESA) — the
+    ///   reference routes them to TecDebug.csv / NesaDebug.txt and
+    ///   never interprets the columns).
+    ///
+    /// The TEC/NESA channels need the misc endpoint to be captured
+    /// even with no data stream running — see
+    /// [`enable_misc_capture`](Self::enable_misc_capture).
+    pub fn drain_debug_telemetry(&mut self) -> Vec<DebugTelemetryPacket> {
+        self.pump_misc();
+        let mut out = self.misc_assembler.drain_debug_packets();
+        out.extend(self.depth_assembler.drain_debug_packets());
+        out.extend(self.color_assembler.drain_debug_packets());
+        out.extend(self.ir_assembler.drain_debug_packets());
+        out
+    }
+
+    /// Start capturing the misc endpoint WITHOUT any data stream
+    /// running (normally the misc ring only runs while depth / color /
+    /// IR streams, because that is when the firmware sends events).
+    ///
+    /// The use case is the TEC (0xd200) / NESA (0xd201) debug channels:
+    /// their packets flow while [`run_bist`](Self::run_bist) executes
+    /// the TEC / NESA tests, with no depth stream required — the BIST
+    /// control exchange blocks until the tests finish, and the ring
+    /// collects the telemetry meanwhile; drain it afterwards with
+    /// [`drain_debug_telemetry`](Self::drain_debug_telemetry).
+    pub fn enable_misc_capture(&mut self) {
+        self.ensure_misc_ring();
+    }
+
+    /// Stop capturing the misc endpoint if no data stream needs it.
+    pub fn disable_misc_capture(&mut self) {
+        self.maybe_stop_misc_ring();
+    }
+
     /// Feed any chunks the misc ring has collected into its assembler
     /// (non-blocking; called from the read loops so events surface while
     /// frames are being waited for).
@@ -1048,12 +1100,56 @@ impl Xtion {
     /// PS1080's 60 MHz tick, the rate the frame timestamps advance
     /// with). Read once at open; `Err` only if it has never been read
     /// successfully.
+    ///
+    /// This read is also the closest thing to "projector modulation
+    /// frequency control" the protocol offers, so the facts:
+    ///
+    /// - The value is the depth processor's lock frequency and it FOLLOWS
+    ///   the stream mode — the reference driver re-reads it after every
+    ///   stream configuration exactly because "it might change on
+    ///   specific stream configuration" (`XnSensorStreamHelper.cpp`:
+    ///   131-136). Two cameras on different matrix entries (e.g. one
+    ///   QVGA@60, one VGA@30) therefore measure at different
+    ///   frequencies — the reference-era recipe for multi-camera
+    ///   interference avoidance (see [`depth_mode_matrix`]
+    ///   (Self::depth_mode_matrix)).
+    /// - There is NO runtime write: no SET_PARAM id exists for the
+    ///   frequency, and the reference driver only ever READS algorithm
+    ///   0x80. The factory value lives in the `AlgorithmParams` flash
+    ///   image (flash writes are excluded by the crate's safety policy).
+    /// - The wavelength-correction algorithm HOPS the frequency at
+    ///   runtime by itself while hunting the wavelength lock; its state
+    ///   (hop counts, B coefficients) is observable through
+    ///   [`drain_debug_telemetry`](Self::drain_debug_telemetry) once
+    ///   [`set_wavelength_correction_debug`](Self::set_wavelength_correction_debug)
+    ///   is on.
+    ///
+    /// This getter returns the value read at open; after a mode change,
+    /// re-read it with [`refresh_device_frequency`]
+    /// (Self::refresh_device_frequency).
     pub fn device_frequency(&mut self) -> Result<f64> {
         self.device_frequency.ok_or_else(|| {
             XtionError::BadConfig(
                 "device frequency was not available at open (ALGORITHM_PARAMS 0x80 failed)".into(),
             )
         })
+    }
+
+    /// Re-read the device clock rate NOW (ALGORITHM_PARAMS 0x80) and
+    /// update the cached value that [`device_frequency`]
+    /// (Self::device_frequency) serves.
+    ///
+    /// The reference driver re-reads the frequency around every stream
+    /// configuration because the value "might change on specific stream
+    /// configuration" (`XnSensorStreamHelper.cpp:131-136`) — call this
+    /// after [`start_depth`](Self::start_depth) with a new
+    /// [`DepthConfig`] to observe the frequency the new mode locked to
+    /// (the multi-camera interference lever; see
+    /// [`depth_mode_matrix`](Self::depth_mode_matrix)).
+    pub fn refresh_device_frequency(&mut self) -> Result<f64> {
+        let value = read_device_frequency(&mut self.link, &mut self.usb, COMMAND_TIMEOUT)? as f64;
+        self.device_frequency = Some(value);
+        Ok(value)
     }
 
     /// The pinhole intrinsics of the depth (and IR) sensor at one
@@ -1167,7 +1263,20 @@ impl Xtion {
 
     /// Run the built-in self-test for the selected modules
     /// (OPCODE_BIST). `timeout` should be generous (the C allows 300 s);
-    /// returns the failure bitmask, 0 = all green.
+    /// returns the failure bitmask, 0 = all green — decode it with
+    /// [`bist::failure_bits`](crate::protocol::system::bist::failure_bits).
+    ///
+    /// Select modules with the [`bist`](crate::protocol::system::bist)
+    /// masks; note the two debug-channel interactions: running
+    /// [`bist::TEC`](crate::protocol::system::bist::TEC) makes the
+    /// firmware emit TEC debug lines (0xd200) and
+    /// [`bist::NESA`](crate::protocol::system::bist::NESA) NESA debug
+    /// lines (0xd201) on the misc endpoint — capture them with
+    /// [`enable_misc_capture`](Self::enable_misc_capture) before the
+    /// run and [`drain_debug_telemetry`](Self::drain_debug_telemetry)
+    /// after it. [`bist::NESA_UNLIMITED`](crate::protocol::system::bist::NESA_UNLIMITED)
+    /// does not terminate on its own (the official updater's finish
+    /// function) — do not select it.
     pub fn run_bist(&mut self, tests_mask: u16, timeout: Duration) -> Result<u32> {
         sys::run_bist(&mut self.link, &mut self.usb, tests_mask, timeout)
     }
@@ -1639,6 +1748,18 @@ impl Xtion {
     ///
     /// Parameter order mirrors the reference driver's property pipeline:
     /// format -> resolution -> fps -> stream mode.
+    ///
+    /// The configuration space is the firmware's advertised mode matrix
+    /// — read it with [`depth_mode_matrix`](Self::depth_mode_matrix).
+    /// Like the reference's depth property writes, this method does not
+    /// hard-validate the combination: the firmware itself refuses an
+    /// unsupported mode (a `BadParams` NACK on the SET_PARAM or on the
+    /// blanking read for the requested resolution/fps is its answer).
+    /// Notable modes on fw 5.8.22: QVGA@60 (advertised), and SXGA
+    /// 1280x1024 — advertised at 30 fps, but the USB-2 bulk bus cannot
+    /// sustain 30 fps of 1.3 MP depth (11-bit packed @ SXGA@30 is
+    /// ~52 MiB/s); **SXGA@15 (~26 MiB/s) is the sustainable 1.3 MP
+    /// mode**.
     pub fn start_depth(&mut self, config: DepthConfig) -> Result<()> {
         // Stream-mode changes go through OFF first (see
         // firmware_init_reset step 7; reference guard
@@ -1962,6 +2083,45 @@ impl Xtion {
     /// color modes the absent sensor can never deliver.
     pub fn image_presets(&mut self) -> Result<Vec<CmosPreset>> {
         self.cmos_presets(CMOS_TYPE_IMAGE)
+    }
+
+    /// The full depth **mode matrix** — every (format, resolution, fps)
+    /// combination the depth CMOS advertises (opcode 36), the surface
+    /// [`DepthConfig`] selects from.
+    ///
+    /// Reading it is how a caller picks modes the firmware accepts;
+    /// `start_depth` itself stays permissive like the reference's depth
+    /// property writes (the firmware NACKs combos it refuses — a
+    /// `BadParams` NACK on the SET_PARAM or on the blanking read is the
+    /// firmware's "mode unsupported" answer, not a driver error).
+    ///
+    /// What the matrix does NOT constrain:
+    ///
+    /// - The `format` field of a preset is NOT the stream's
+    ///   [`DepthFormat`] (param 18) constraint: this unit's presets list
+    ///   only formats 0 and 6 while format 3 (the Linux default,
+    ///   packed 11-bit) streams fine at VGA@30 — the preset format is
+    ///   the CMOS readout id, and 6 (like the image list's 9) is
+    ///   outside the reference's `XnIODepthFormats` enum (a 5.8.22
+    ///   extension whose semantics are not decoded).
+    /// - fps values BELOW an advertised rate may still be accepted
+    ///   (SXGA: the matrix advertises 30; the USB-2 bulk bus cannot
+    ///   sustain 30 fps of 1.3 MP depth — 11-bit packed at SXGA@30 is
+    ///   ~52 MiB/s, above the ~40 MiB/s practical ceiling — while
+    ///   **SXGA@15 (~26 MiB/s) fits**; `start_depth(DepthConfig {
+    ///   resolution: Sxga, fps: 15, ..})` is the intended 1.3 MP mode
+    ///   and the camera run is its validation).
+    ///
+    /// Multi-camera note: this matrix doubles as the interference
+    /// lever. The projector modulation frequency follows the stream
+    /// mode (the reference RE-READS the device frequency after mode
+    /// changes, `XnSensorStreamHelper.cpp:131` — see
+    /// [`device_frequency`](Self::device_frequency)); running two
+    /// Xtions at different matrix entries (e.g. one QVGA@60 and one
+    /// VGA@30) is the reference-era recipe for keeping their projected
+    /// patterns from interfering.
+    pub fn depth_mode_matrix(&mut self) -> Result<Vec<CmosPreset>> {
+        self.cmos_presets(CMOS_TYPE_DEPTH)
     }
 
     /// Read the stream modes one CMOS supports (0 = image, 1 = depth;
@@ -2818,9 +2978,10 @@ mod tests {
         v
     }
 
-    /// NACK reply for a SET_PARAM — the 0.3.5 camera-run shape: the
-    /// device answers `BadParams` while (for invariant-preserving
-    /// writes) having applied the value anyway.
+    /// NACK reply for a SET_PARAM — the camera-run shape: on
+    /// fw 5.8.22 the device answers `BadParams` for every write to the
+    /// AGC bin params while having applied the value anyway (0.3.5/0.3.6
+    /// runs; the NACK carries no information about application).
     fn setparam_nack_bad_params_reply(id: u16) -> Vec<u8> {
         let mut v = Vec::new();
         v.extend_from_slice(&FW_MAGIC_V26.to_le_bytes());
@@ -3048,10 +3209,12 @@ mod tests {
         assert_eq!(writes, vec![(69, 0), (70, 0)]);
     }
 
-    /// The 0.3.5 camera-run quirk, modelled exactly: BOTH bound writes
-    /// come back NACKed `BadParams` and the value LANDED anyway — the
-    /// firmware applies an invariant-preserving write and then rejects
-    /// the reply. The write must succeed (Ok), with both bounds sent.
+    /// The camera-run quirk, modelled exactly: BOTH bound writes
+    /// come back NACKed `BadParams` and the value LANDED anyway — on
+    /// fw 5.8.22 every SET_PARAM on params 63-70 was observed to be
+    /// applied while NACKed (0.3.5: the grow write; 0.3.6: the grow AND
+    /// the invariant-violating C-order write). The write must succeed
+    /// (Ok), with both bounds sent.
     #[test]
     fn agc_bin_write_lands_despite_nack() {
         let (mut link, mut fake) = (
@@ -3095,9 +3258,12 @@ mod tests {
         assert_eq!(writes, vec![(63, 0), (64, 512)]);
     }
 
-    /// The genuinely-refused case: NACKed and NOT applied — the readback
-    /// differs from the request, so the write is an error that names
-    /// both values.
+    /// The conservative API-contract arm: NACKed and NOT applied —
+    /// the readback differs from the request, so the write is an error
+    /// that names both values. (No camera observation has shown a
+    /// non-landing NACK yet — every observed NACK on params 63-70
+    /// landed — but the readback contract must still define this
+    /// outcome.)
     #[test]
     fn agc_bin_write_truly_refused_is_an_error() {
         let (mut link, mut fake) = (

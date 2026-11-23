@@ -177,12 +177,8 @@ fn parse_gmc_last_packet(raw: &[u8], timestamp: u32) -> Option<GmcDebugEnd> {
     }
     let le16 = |o: usize| u16::from_le_bytes([raw[o], raw[o + 1]]);
     let le16s = |o: usize| i16::from_le_bytes([raw[o], raw[o + 1]]);
-    let le32 = |o: usize| {
-        u32::from_le_bytes([raw[o], raw[o + 1], raw[o + 2], raw[o + 3]])
-    };
-    let lef32 = |o: usize| {
-        f32::from_le_bytes([raw[o], raw[o + 1], raw[o + 2], raw[o + 3]])
-    };
+    let le32 = |o: usize| u32::from_le_bytes([raw[o], raw[o + 1], raw[o + 2], raw[o + 3]]);
+    let lef32 = |o: usize| f32::from_le_bytes([raw[o], raw[o + 1], raw[o + 2], raw[o + 3]]);
     Some(GmcDebugEnd {
         timestamp,
         data: GmcLastPacketData {
@@ -203,6 +199,184 @@ fn parse_gmc_last_packet(raw: &[u8], timestamp: u32) -> Option<GmcDebugEnd> {
             flash_stored_ref_offset: le16s(36),
         },
     })
+}
+
+/// Wire size of the packed `XnWavelengthCorrectionDebugPacket`
+/// (XnHostProtocol.h:289-303, pack(1)): 11 scalars plus the embedded
+/// `XnBestTecConf`.
+pub const WAVELENGTH_DEBUG_PACKET_WIRE_SIZE: usize = 44;
+
+/// `XN_SENSOR_TEC_DEBUG_MAX_PACKET_SIZE` — the largest TEC/NESA debug
+/// text packet the reference driver's whole-packet processors accept
+/// (XnTecDebugProcessor.cpp:30, XnNesaDebugProcessor.cpp).
+pub const TEC_DEBUG_MAX_PACKET_SIZE: usize = 256;
+
+/// The best-TEC-configuration sub-structure of the wavelength debug
+/// packet — `XnBestTecConf` (XnHostProtocol.h:282-287, pack(1), 6
+/// bytes): the measurement that won the TEC scan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BestTecConf {
+    /// Lowest hops count among all unstable points
+    /// (`nBestHopsCount`).
+    pub best_hops_count: u16,
+    /// The TEC set point that produced it (`nBestSetPoint`).
+    pub best_set_point: u32,
+    /// The TEC scan step that produced it (`nBestStep`).
+    pub best_step: i32,
+}
+
+/// One wavelength-correction debug packet (0xc200) — a field-faithful
+/// port of `XnWavelengthCorrectionDebugPacket` (XnHostProtocol.h:
+/// 289-303, pack(1), 44 bytes).
+///
+/// While wavelength-correction debug is on (param 74) the firmware's
+/// wavelength-lock algorithm reports its state on the misc endpoint
+/// with one such packet per event: the B coefficient it measured last
+/// and now (`b_last`/`b_current` — the projector's wavelength error
+/// term), whether it HOPPED the modulation frequency to find a better
+/// lock (`is_hop`, `current_hops_count`), the sliding window it
+/// integrates over, its TEC scan state (calibrated? waiting? the best
+/// configuration the scan found so far) and the instability verdicts.
+/// The reference driver never interprets the fields — its
+/// `XnWavelengthCorrectionDebugProcessor` only dumps them to
+/// `WavelengthCorrection.csv` in this order.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WavelengthDebugPacket {
+    /// Device timestamp of the packet (60 ticks per microsecond).
+    pub timestamp: u32,
+    /// Packet id of the stream packet that carried it (the reference's
+    /// CSV dump records it next to its host timestamp).
+    pub packet_id: u16,
+    /// `fBLast`: the previous scan's B coefficient.
+    pub b_last: f32,
+    /// `fBCurrent`: the current B coefficient.
+    pub b_current: f32,
+    /// `nIsHop`: whether the firmware hopped the modulation frequency.
+    pub is_hop: u16,
+    /// `nCurrentSlidingWindow`: the current integration window (bit
+    /// set per window position).
+    pub current_sliding_window: u32,
+    /// `nCurrentHopsCount`: frequency hops in the current window.
+    pub current_hops_count: u16,
+    /// `nIsTecCalibrated`: whether the TEC scan has converged.
+    pub is_tec_calibrated: u16,
+    /// `nWaitPeriod`: frames to wait before the next measurement.
+    pub wait_period: u32,
+    /// `nIsWavelengthUnstable`.
+    pub is_wavelength_unstable: u16,
+    /// `BestConf`: the winning TEC configuration of the scan.
+    pub best_conf: BestTecConf,
+    /// `nIsTotallyUnstable`: whole scan had no stable point.
+    pub is_totally_unstable: u16,
+    /// `nConfiguredTecSetPoint`: 0 if not configured.
+    pub configured_tec_set_point: u32,
+    /// `nCurrentStep`: the current TEC scan step.
+    pub current_step: i32,
+}
+
+/// Parse the packed `XnWavelengthCorrectionDebugPacket`
+/// (field offsets follow XnHostProtocol.h:289-303 with pack(1)).
+/// Returns `None` when the payload is shorter than the 44-byte struct.
+fn parse_wavelength_debug(
+    raw: &[u8],
+    timestamp: u32,
+    packet_id: u16,
+) -> Option<WavelengthDebugPacket> {
+    if raw.len() < WAVELENGTH_DEBUG_PACKET_WIRE_SIZE {
+        return None;
+    }
+    let le16 = |o: usize| u16::from_le_bytes([raw[o], raw[o + 1]]);
+    let le32 = |o: usize| u32::from_le_bytes([raw[o], raw[o + 1], raw[o + 2], raw[o + 3]]);
+    let lef32 = |o: usize| f32::from_le_bytes([raw[o], raw[o + 1], raw[o + 2], raw[o + 3]]);
+    Some(WavelengthDebugPacket {
+        timestamp,
+        packet_id,
+        b_last: lef32(0),
+        b_current: lef32(4),
+        is_hop: le16(8),
+        current_sliding_window: le32(10),
+        current_hops_count: le16(14),
+        is_tec_calibrated: le16(16),
+        wait_period: le32(18),
+        is_wavelength_unstable: le16(22),
+        best_conf: BestTecConf {
+            best_hops_count: le16(24),
+            best_set_point: le32(26),
+            best_step: le32(30) as i32,
+        },
+        is_totally_unstable: le16(34),
+        configured_tec_set_point: le32(36),
+        current_step: le32(40) as i32,
+    })
+}
+
+/// Which debug text channel a packet arrived on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DebugTextChannel {
+    /// 0xd200 — the TEC channel (`XnTecDebugProcessor`, TecDebug.csv).
+    Tec,
+    /// 0xd201 — the NESA channel (`XnNesaDebugProcessor`,
+    /// NesaDebug.txt).
+    Nesa,
+}
+
+impl std::fmt::Display for DebugTextChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DebugTextChannel::Tec => write!(f, "TEC"),
+            DebugTextChannel::Nesa => write!(f, "NESA"),
+        }
+    }
+}
+
+/// One decoded TEC (0xd200) or NESA (0xd201) debug text packet: the
+/// firmware's telemetry lines for its thermal / NESA subsystems,
+/// carried as **UTF-16LE text** (the reference prints them with the
+/// wide-char `%S` and dumps them to `TecDebug.csv` / `NesaDebug.txt`
+/// verbatim — it never interprets the columns). Up to
+/// [`TEC_DEBUG_MAX_PACKET_SIZE`] bytes per packet.
+///
+/// On fw 5.8.22 the strings emitted near these channels include the
+/// thermal/frequency telemetry pair `OT %d` / `FRQ %d` and the
+/// NESA-status lines (`NESA OK/N/A/INV/ERR/TIME/DISABLED`), but the
+/// exact column layout of each line is firmware-defined: this decoder
+/// delivers the raw text so a consumer can log or analyse it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DebugTextPacket {
+    /// Which channel the line arrived on.
+    pub channel: DebugTextChannel,
+    /// Device timestamp of the packet.
+    pub timestamp: u32,
+    /// Packet id of the stream packet that carried it.
+    pub packet_id: u16,
+    /// The decoded line (NUL terminator and trailing padding removed;
+    /// unpaired surrogates become U+FFFD).
+    pub text: String,
+}
+
+/// Decode a UTF-16LE debug line: collect u16 units until the first NUL
+/// (the reference's `%S` stops there) or the end of the payload, then
+/// convert lossily.
+fn decode_debug_text(raw: &[u8]) -> String {
+    let mut units = Vec::with_capacity(raw.len() / 2);
+    for chunk in raw.chunks_exact(2) {
+        let unit = u16::from_le_bytes([chunk[0], chunk[1]]);
+        if unit == 0 {
+            break;
+        }
+        units.push(unit);
+    }
+    String::from_utf16_lossy(&units)
+}
+
+/// A decoded debug-telemetry packet from the misc endpoint (0xc200
+/// wavelength / 0xd200 TEC / 0xd201 NESA).
+#[derive(Debug, Clone, PartialEq)]
+pub enum DebugTelemetryPacket {
+    /// 0xc200: the wavelength-correction debug record.
+    Wavelength(WavelengthDebugPacket),
+    /// 0xd200 / 0xd201: a TEC or NESA debug text line.
+    Text(DebugTextPacket),
 }
 
 /// A fully assembled frame.
@@ -265,6 +439,15 @@ pub struct StreamAssembler {
     /// Payload accumulator of the in-flight GMC packet (misc packets can
     /// span several bulk transfers; the family is only parseable whole).
     gmc_accum: Vec<u8>,
+    /// Decoded debug telemetry (0xc200 wavelength, 0xd200/0xd201 text).
+    debug_packets: VecDeque<DebugTelemetryPacket>,
+    /// Payload accumulator of the in-flight wavelength (0xc200) packet.
+    wavelength_accum: Vec<u8>,
+    /// Payload accumulator of the in-flight TEC/NESA text packet.
+    debug_text_accum: Vec<u8>,
+    /// Channel of the in-flight text packet (TEC 0xd200 or NESA
+    /// 0xd201), remembered while its payload spans bulk transfers.
+    debug_text_channel: Option<DebugTextChannel>,
     /// True while the in-flight packet is a non-frame packet, so it is
     /// counted exactly once (at completion) in `other_packets`.
     packet_is_misc: bool,
@@ -319,6 +502,10 @@ impl StreamAssembler {
             events: VecDeque::new(),
             gmc_packets: VecDeque::new(),
             gmc_accum: Vec::new(),
+            debug_packets: VecDeque::new(),
+            wavelength_accum: Vec::new(),
+            debug_text_accum: Vec::new(),
+            debug_text_channel: None,
             packet_is_misc: false,
             other_packets: 0,
             stats: AssemblerStats::default(),
@@ -451,8 +638,9 @@ impl StreamAssembler {
 
     /// Called when the current packet's payload is fully consumed:
     /// counts a misc packet exactly once, and decodes the GMC family
-    /// (0xa200/0xb200 points, 0xb500 summary) now that its payload is
-    /// whole — the C only ever parsed them as
+    /// (0xa200/0xb200 points, 0xb500 summary) and the debug telemetry
+    /// (0xc200 wavelength, 0xd200/0xd201 text) now that their payloads
+    /// are whole — the C only ever parsed them as
     /// `XnWholePacketProcessor`s too.
     fn on_packet_complete(&mut self) {
         if self.packet_is_misc {
@@ -478,6 +666,41 @@ impl StreamAssembler {
                     "GMC packet {kind:#06x} payload is {} bytes — not whole GMC records, dropped",
                     raw.len()
                 ),
+            }
+        }
+        if kind == packet_type::WAVELENGTH_CORRECTION_DEBUG {
+            let raw = std::mem::take(&mut self.wavelength_accum);
+            match parse_wavelength_debug(&raw, self.header.timestamp, self.header.packet_id) {
+                Some(packet) => self
+                    .debug_packets
+                    .push_back(DebugTelemetryPacket::Wavelength(packet)),
+                None => log::warn!(
+                    "wavelength debug packet payload is {} bytes — shorter than the \
+                     {}-byte XnWavelengthCorrectionDebugPacket, dropped",
+                    raw.len(),
+                    WAVELENGTH_DEBUG_PACKET_WIRE_SIZE
+                ),
+            }
+        }
+        if matches!(kind, packet_type::TEC_DEBUG | packet_type::NESA_DEBUG) {
+            if let Some(channel) = self.debug_text_channel.take() {
+                let raw = std::mem::take(&mut self.debug_text_accum);
+                if raw.len() > TEC_DEBUG_MAX_PACKET_SIZE {
+                    log::warn!(
+                        "{channel} debug packet payload is {} bytes — exceeds the {}-byte \
+                         XN_SENSOR_TEC_DEBUG_MAX_PACKET_SIZE, dropped",
+                        raw.len(),
+                        TEC_DEBUG_MAX_PACKET_SIZE
+                    );
+                } else {
+                    self.debug_packets
+                        .push_back(DebugTelemetryPacket::Text(DebugTextPacket {
+                            channel,
+                            timestamp: self.header.timestamp,
+                            packet_id: self.header.packet_id,
+                            text: decode_debug_text(&raw),
+                        }));
+                }
             }
         }
     }
@@ -554,6 +777,19 @@ impl StreamAssembler {
                     packet_type::GMC | packet_type::GMC_DEBUG | packet_type::GMC_DEBUG_END => {
                         self.gmc_accum.extend_from_slice(data);
                     }
+                    packet_type::WAVELENGTH_CORRECTION_DEBUG => {
+                        self.wavelength_accum.extend_from_slice(data);
+                    }
+                    packet_type::TEC_DEBUG | packet_type::NESA_DEBUG => {
+                        // remember the channel while the payload spans
+                        // bulk transfers (re-stated on every chunk)
+                        self.debug_text_channel = Some(if other == packet_type::TEC_DEBUG {
+                            DebugTextChannel::Tec
+                        } else {
+                            DebugTextChannel::Nesa
+                        });
+                        self.debug_text_accum.extend_from_slice(data);
+                    }
                     _ => {}
                 }
                 self.packet_is_misc = true;
@@ -598,6 +834,17 @@ impl StreamAssembler {
     /// Drain all pending GMC packets.
     pub fn drain_gmc_packets(&mut self) -> Vec<GmcPacket> {
         self.gmc_packets.drain(..).collect()
+    }
+
+    /// Pop the next decoded debug-telemetry packet (0xc200 wavelength,
+    /// 0xd200/0xd201 TEC/NESA text), if any.
+    pub fn pop_debug_packet(&mut self) -> Option<DebugTelemetryPacket> {
+        self.debug_packets.pop_front()
+    }
+
+    /// Drain all pending debug-telemetry packets.
+    pub fn drain_debug_packets(&mut self) -> Vec<DebugTelemetryPacket> {
+        self.debug_packets.drain(..).collect()
     }
 }
 
@@ -887,7 +1134,16 @@ mod tests {
             Some(GmcPacket::Points(p)) => {
                 assert!(p.debug);
                 assert_eq!(p.points.len(), 1);
-                assert_eq!(p.points[0], GmcPoint { x: 7, y: 8, dx: 9, dy: 10, score: 11 });
+                assert_eq!(
+                    p.points[0],
+                    GmcPoint {
+                        x: 7,
+                        y: 8,
+                        dx: 9,
+                        dy: 10,
+                        score: 11
+                    }
+                );
             }
             other => panic!("expected debug points packet, got {other:?}"),
         }
@@ -1034,5 +1290,183 @@ mod tests {
     fn host_magic_is_not_fw_magic() {
         // sanity: the stream magic is BR (0x4252), not MG (0x4d47)
         assert_ne!(MAGIC, HOST_MAGIC_V26);
+    }
+
+    /// The wavelength debug packet (0xc200) decodes as the packed
+    /// 44-byte `XnWavelengthCorrectionDebugPacket`
+    /// (XnHostProtocol.h:289-303, pack(1) — field offsets verified
+    /// against the reference's WavelengthCorrection.csv column order).
+    #[test]
+    fn wavelength_debug_packet_is_decoded() {
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&1.5f32.to_le_bytes()); // fBLast @0
+        raw.extend_from_slice(&2.5f32.to_le_bytes()); // fBCurrent @4
+        raw.extend_from_slice(&1u16.to_le_bytes()); // nIsHop @8
+        raw.extend_from_slice(&0x0000_00f0u32.to_le_bytes()); // sliding window @10
+        raw.extend_from_slice(&7u16.to_le_bytes()); // nCurrentHopsCount @14
+        raw.extend_from_slice(&1u16.to_le_bytes()); // nIsTecCalibrated @16
+        raw.extend_from_slice(&3u32.to_le_bytes()); // nWaitPeriod @18
+        raw.extend_from_slice(&0u16.to_le_bytes()); // nIsWavelengthUnstable @22
+        raw.extend_from_slice(&9u16.to_le_bytes()); // nBestHopsCount @24
+        raw.extend_from_slice(&3724u32.to_le_bytes()); // nBestSetPoint @26
+        raw.extend_from_slice(&(-2i32).to_le_bytes()); // nBestStep @30
+        raw.extend_from_slice(&1u16.to_le_bytes()); // nIsTotallyUnstable @34
+        raw.extend_from_slice(&100_000u32.to_le_bytes()); // nConfiguredTecSetPoint @36
+        raw.extend_from_slice(&(-3i32).to_le_bytes()); // nCurrentStep @40
+        assert_eq!(raw.len(), WAVELENGTH_DEBUG_PACKET_WIRE_SIZE);
+
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        // split across two feeds: the packet must accumulate whole
+        let stream = packet(packet_type::WAVELENGTH_CORRECTION_DEBUG, 5, &raw, 77);
+        let (a, b) = stream.split_at(20);
+        asm.feed(a);
+        asm.feed(b);
+        match asm.pop_debug_packet() {
+            Some(DebugTelemetryPacket::Wavelength(w)) => {
+                assert_eq!(w.timestamp, 77);
+                assert_eq!(w.packet_id, 5);
+                assert_eq!(w.b_last, 1.5);
+                assert_eq!(w.b_current, 2.5);
+                assert_eq!(w.is_hop, 1);
+                assert_eq!(w.current_sliding_window, 0xf0);
+                assert_eq!(w.current_hops_count, 7);
+                assert_eq!(w.is_tec_calibrated, 1);
+                assert_eq!(w.wait_period, 3);
+                assert_eq!(w.is_wavelength_unstable, 0);
+                assert_eq!(
+                    w.best_conf,
+                    BestTecConf {
+                        best_hops_count: 9,
+                        best_set_point: 3724,
+                        best_step: -2
+                    }
+                );
+                assert_eq!(w.is_totally_unstable, 1);
+                assert_eq!(w.configured_tec_set_point, 100_000);
+                assert_eq!(w.current_step, -3);
+            }
+            other => panic!("expected wavelength packet, got {other:?}"),
+        }
+        // counted as exactly one misc packet despite the split
+        assert_eq!(asm.other_packets, 1);
+    }
+
+    /// A truncated wavelength payload is counted but not decoded.
+    #[test]
+    fn short_wavelength_payload_is_counted_not_decoded() {
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        asm.feed(&packet(
+            packet_type::WAVELENGTH_CORRECTION_DEBUG,
+            1,
+            &[0u8; 43],
+            1,
+        ));
+        assert_eq!(asm.other_packets, 1);
+        assert!(asm.pop_debug_packet().is_none());
+    }
+
+    /// TEC (0xd200) and NESA (0xd201) debug lines decode as UTF-16LE
+    /// text, NUL-terminated like the reference's `%S` expects.
+    #[test]
+    fn tec_and_nesa_debug_text_lines_are_decoded() {
+        let utf16 =
+            |s: &str| -> Vec<u8> { s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect() };
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        let mut stream = Vec::new();
+        // TEC line: "OT 37" + NUL (the firmware's thermal telemetry
+        // format string is "OT %d")
+        let mut tec_line = utf16("OT 37");
+        tec_line.push(0);
+        tec_line.push(0);
+        stream.extend(packet(packet_type::TEC_DEBUG, 11, &tec_line, 10));
+        // NESA line: "NESA OK" without any terminator (the decoder must
+        // stop at the payload end too)
+        stream.extend(packet(packet_type::NESA_DEBUG, 12, &utf16("NESA OK"), 20));
+        asm.feed(&stream);
+
+        let drained = asm.drain_debug_packets();
+        assert_eq!(drained.len(), 2);
+        match &drained[0] {
+            DebugTelemetryPacket::Text(t) => {
+                assert_eq!(t.channel, DebugTextChannel::Tec);
+                assert_eq!(t.timestamp, 10);
+                assert_eq!(t.packet_id, 11);
+                assert_eq!(t.text, "OT 37");
+                assert_eq!(t.channel.to_string(), "TEC");
+            }
+            other => panic!("expected TEC text packet, got {other:?}"),
+        }
+        match &drained[1] {
+            DebugTelemetryPacket::Text(n) => {
+                assert_eq!(n.channel, DebugTextChannel::Nesa);
+                assert_eq!(n.timestamp, 20);
+                assert_eq!(n.packet_id, 12);
+                assert_eq!(n.text, "NESA OK");
+                assert_eq!(n.channel.to_string(), "NESA");
+            }
+            other => panic!("expected NESA text packet, got {other:?}"),
+        }
+        assert_eq!(asm.other_packets, 2);
+        assert!(asm.pop_debug_packet().is_none());
+    }
+
+    /// A TEC debug line split across bulk transfers keeps its channel:
+    /// the channel marker is remembered from the packet's first chunk.
+    #[test]
+    fn split_debug_text_packet_keeps_its_channel() {
+        let utf16 =
+            |s: &str| -> Vec<u8> { s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect() };
+        let line = utf16("FRQ 60");
+        let stream = packet(packet_type::TEC_DEBUG, 3, &line, 30);
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        let (a, rest) = stream.split_at(14);
+        let (b, c) = rest.split_at(9);
+        asm.feed(a);
+        asm.feed(b);
+        asm.feed(c);
+        match asm.pop_debug_packet() {
+            Some(DebugTelemetryPacket::Text(t)) => {
+                assert_eq!(t.channel, DebugTextChannel::Tec);
+                assert_eq!(t.text, "FRQ 60");
+            }
+            other => panic!("expected split TEC line, got {other:?}"),
+        }
+        assert_eq!(asm.other_packets, 1);
+    }
+
+    /// Debug telemetry interleaved with a depth frame disturbs neither
+    /// queue: frame assembly and telemetry decoding stay independent.
+    #[test]
+    fn debug_packets_interleaved_with_frames_stay_independent() {
+        let utf16 =
+            |s: &str| -> Vec<u8> { s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect() };
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        let mut stream = Vec::new();
+        stream.extend(packet(packet_type::DEPTH_START, 1, b"SOF", 1));
+        stream.extend(packet(
+            packet_type::WAVELENGTH_CORRECTION_DEBUG,
+            2,
+            &[0u8; WAVELENGTH_DEBUG_PACKET_WIRE_SIZE],
+            2,
+        ));
+        stream.extend(packet(packet_type::DEPTH_END, 3, b"!", 3));
+        stream.extend(packet(packet_type::NESA_DEBUG, 4, &utf16("NESA N/A"), 4));
+        asm.feed(&stream);
+
+        let f = asm.pop_frame().unwrap();
+        assert_eq!(f.data, b"SOF!".to_vec());
+        let mut drained = asm.drain_debug_packets();
+        assert_eq!(drained.len(), 2);
+        assert!(matches!(
+            drained.remove(0),
+            DebugTelemetryPacket::Wavelength(_)
+        ));
+        assert!(matches!(
+            drained.remove(0),
+            DebugTelemetryPacket::Text(DebugTextPacket {
+                channel: DebugTextChannel::Nesa,
+                ..
+            })
+        ));
     }
 }

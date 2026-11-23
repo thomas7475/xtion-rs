@@ -26,14 +26,16 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Hardware registration, emitter on/off, OVERHEAT/PROJECTOR_FAULT events | implemented in 0.2.0 |
 | Runtime options: mirror, hole filter, AGC, close range, GMC mode, exposure, white balance, gain, quality, flicker | implemented in 0.2.0 |
 | **Crop windows (0.3.3, batch write 0.3.4)**: `Crop` + `set_depth_crop` / `set_color_crop` / `set_ir_crop` | implemented — geometry pairs first, mode pair last, committed as ONE multi-pair SET_PARAM batch (the reference's `CommitTransactionAsBatch` form; a NACK triggers the C's re-read rollback); while a window is active the firmware transmits ONLY the window, so frames arrive crop-sized and report their origin (`DepthFrame::crop`), with `to_world` staying full-frame correct; IR has no extra CMOS rows while cropped; **mode 2 (increased fps): this fw build NACKs it with BadParams (0.3.3 camera run) — hardware test 10 probes single/batch/stopped forms and treats the rejection as the documented verdict** |
-| **Depth processing controls (0.3.4, readback-verified 0.3.6)**: `depth_gain`/`set_depth_gain` (21), `AgcBin` + `depth_agc_bin`/`set_depth_agc_bin` (63-70), `close_range`/`set_close_range` (84), `wavelength_correction`(+debug) (73/74) | implemented — all allow-while-open; AGC bins carry raw SHIFT ranges like the wire (the reference translates mm through the depth<->shift tables) and are written in a transient-safe order (raise HIGH first when a bin grows upward: this fw build validates every individual write against the sibling bound's current value, 0.3.4 camera run); **since 0.3.6 every AGC-bin / close-range / wavelength write is VERIFIED BY READBACK because this firmware can APPLY a write and still NACK the reply (0.3.5 camera run: bin0 read 0..512 right after a NACKed HIGH <- 512 — apply-then-reject; invariant-violating writes are rejected for real)** — Ok means the value reads back exactly as requested; the old misleading `set_depth_agc(bool)` was removed (param 21 is a gain value, not a switch); camera validation: hardware test 11 |
+| **Depth processing controls (0.3.4, readback-verified 0.3.6, model corrected 0.3.7)**: `depth_gain`/`set_depth_gain` (21), `AgcBin` + `depth_agc_bin`/`set_depth_agc_bin` (63-70), `close_range`/`set_close_range` (84), `wavelength_correction`(+debug) (73/74) | implemented — all allow-while-open; AGC bins carry raw SHIFT ranges like the wire (the reference translates mm through the depth<->shift tables) and are written in a transient-safe order (raise HIGH first when a bin grows upward); **since 0.3.6 every AGC-bin / close-range / wavelength write is VERIFIED BY READBACK: the 0.3.5/0.3.6 camera runs together prove this firmware replies NACK `BadParams` for EVERY SET_PARAM on params 63-70 while applying the value anyway — the 0.3.6 run read `bin1 = 512..0` back right after the NACKed invariant-VIOLATING write (the 0.3.5 "refused" observation was the 0.3.5 restore's own NACKed-and-applied `LOW <- 0` write)** — Ok means the value reads back exactly as requested; the old misleading `set_depth_agc(bool)` was removed (param 21 is a gain value, not a switch); camera validation: hardware test 11 |
+| **Debug telemetry channels (0.3.7)**: wavelength debug 0xc200 + TEC 0xd200 / NESA 0xd201 | implemented — `drain_debug_telemetry()` decodes the packed 44-byte `XnWavelengthCorrectionDebugPacket` (param 74 switch) and the TEC/NESA UTF-16 text lines; the full `XnBistType`/`XnBistError` bit sets exposed (`bist`), with the TEC/NESA BIST bits as the text channels' trigger and `enable_misc_capture()`/`disable_misc_capture()` holding the misc endpoint open through a BIST window; all layouts pinned to the OpenNI 2.2.0 reference (`XnWavelengthCorrectionDebugProcessor`, `XnTecDebugProcessor`, `XnNesaDebugProcessor`); camera validation: hardware test 14 (first camera exercise — refusals and empty censuses are verdicts) |
+| **Depth mode matrix (0.3.7)**: `depth_mode_matrix()` + wide `Resolution` ids (480P/720P/1280x960) | implemented — the opcode-36 preset surface as an API; `start_depth` stays permissive like the reference's depth property writes (the firmware NACKs refused modes itself); **QVGA@60 hard-gated and the full matrix walked in hardware test 13; SXGA 1280x1024 probed at 15 fps — the sustainable 1.3 MP rate on a USB-2 bulk link (the advertised 30 fps needs ~52 MiB/s, the bus delivers ~40)**; the projector modulation frequency follows the mode and is re-readable per mode (`refresh_device_frequency`) — no runtime write exists in the reference |
 | GMC data, audio, registration tables | GMC data **done in 0.3.5** (`gmc_config`, `set_gmc_mode`/`set_gmc_debug`, `drain_gmc_packets` decoding 0xa200/0xb200/0xb500); audio and registration tables not yet (Phase 3-4 of docs/FEATURE_PLAN.md; difficulty-rated table in section 1b) |
 | **Camera geometry (0.3.0)**: pinhole intrinsics from the on-device calibration (`depth_intrinsics`), depth-to-world (`to_world`/`point_cloud`, OpenNI convention: mm, X right, Y up, Z forward), PLY example | implemented — FOV formula ports the PS1080 depth-stream init (hfov spans the CMOS's native 1280 px line, vfov its 960 px height; ~58/45 deg on the Xtion spec), conversion ports the OpenNI2 core (`OniStream.cpp:399-404`); hardware gates: FOV vs spec and a RANSAC dominant-plane RMS (applied only when a plane covers >= 40% of the frame — non-planar scenes skip), in `depth_geometry_fov_and_timestamps` |
 | **Host-referenced frame timestamps (0.3.0)**: `timestamp_us` on every frame, wrap-aware (raw ticks wrap every 71.6 s at 60 MHz) | implemented — port of `XnDataProcessor::CreateTimestampFromDevice` (anchor + wrap estimation + 10 s sanity re-sync); clock rate from ALGORITHM_PARAMS 0x80 |
 | System commands (0.2.8): firmware log, CPU stats, BIST, TEC + emitter telemetry, CMOS blanking/register reads (I2C), AHB read, flash map / file list / file download / raw flash read | implemented — strictly READ-ONLY; the write-side commands stay excluded; **0.3.2 closed the flash story**: on-flash file table parsed from packed 22-byte `XnFlashFile` records (word-addressed — the firmware's GET_FILE_LIST rows drift +2 B per record on 5.8.22 because it walks them with its unpacked 24-byte struct), per-file CRC identified as CRC-16/CCITT-FALSE over big-endian words and verified against the factory image 8/8 (`Xtion::flash_file_table` + `Xtion::verify_flash_file`) |
 | Pre-3.0 firmware (bulk control endpoints) | not supported (explicit error) |
 
-Everything that can be verified without the camera **is** verified: 148
+Everything that can be verified without the camera **is** verified: 155
 lib tests pass on a bare CI machine (`cargo test`), and the numerical cores
 (packed-11 depth, 10-bit IR, shift-to-depth) are proven equal to the
 original C++ implementation by golden vectors generated from a verbatim C
@@ -117,6 +119,51 @@ driver (Apache-2.0, PrimeSense Ltd.); see `NOTICE.md`. The decode cores
 are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
+
+- **0.3.7 — the debug telemetry channels + the full depth mode
+  matrix (and the corrected AGC-NACK model)** — the 0.3.6 camera run
+  refuted the two-tier apply-then-reject model: the
+  invariant-VIOLATING C-order probe (`bin1 LOW <- 512` while its HIGH
+  is 0) LANDED this time (`bin1 = 512..0` read back right after the
+  NACK), while the 0.3.5 run's contrary observation turned out to be
+  the 0.3.5 restore's own `LOW <- 0` write — sent, NACKed, applied.
+  Corrected model: **fw 5.8.22 replies NACK `BadParams` for every
+  SET_PARAM on params 63-70 and applies the value anyway; only the
+  readback is truth.** The readback-verified write API was already the
+  right design and stays. New features, all pinned to the OpenNI 2.2.0
+  reference source:
+  - **Debug telemetry decoders**: wavelength-correction debug
+    (0xc200 — the packed 44-byte
+    `XnWavelengthCorrectionDebugPacket`: B coefficients, frequency
+    hops, TEC scan state) plus the TEC (0xd200) and NESA (0xd201)
+    UTF-16 text channels, all delivered by
+    `drain_debug_telemetry()`. The TEC/NESA channels' trigger is
+    BIST: the `bist` module gained the full `XnBistType`/`XnBistError`
+    bit sets (TEC bit 6, NESA bit 7 — the NESA_UNLIMITED bit 8 the
+    official updater uses never terminates and is documented as
+    non-selectable), and `enable_misc_capture()` /
+    `disable_misc_capture()` keep the misc endpoint pumping through a
+    BIST window with no data stream running.
+  - **The full depth mode matrix**: `depth_mode_matrix()` (the
+    opcode-36 preset list), plus the wide `Resolution` ids the
+    firmware advertises (480P, 720P, 1280x960). SXGA 1280x1024 is
+    probed at **15 fps** — the sustainable 1.3 MP rate on a USB-2
+    bulk link (11-bit packed ~26 MiB/s; the advertised 30 fps would
+    need ~52 MiB/s) — and QVGA@60 is hard-gated in hardware test 13,
+    which walks every advertised (resolution, fps) pair.
+  - **Projector modulation frequency**: the honest surface —
+    `refresh_device_frequency()` re-reads ALGORITHM_PARAMS 0x80 after
+    a mode change (the value follows the stream mode; the reference
+    re-reads it for exactly that reason), and the wavelength debug
+    channel exposes the firmware's frequency-hopping state. There is
+    NO runtime write anywhere in the reference (no SET_PARAM id;
+    the factory value lives in the AlgorithmParams flash image) —
+    the multi-camera recipe is different matrix entries per camera.
+  - Hardware tests 13 (`depth_mode_matrix_and_high_fps`) and 14
+    (`debug_telemetry_channels`) join the suite (14 total);
+    refusals and empty censuses are verdicts — first camera
+    exercise of all three channels.
+  - 155 lib + 4 golden + 1 doc tests green, clippy clean.
 
 - **0.3.6 — readback-verified depth-processing writes (the
   apply-then-reject firmware quirk)** — the 0.3.5 camera run pinned

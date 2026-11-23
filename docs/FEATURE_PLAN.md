@@ -286,14 +286,14 @@ is validated on (no color sensor; RD108 flash layout).
 |---|---|---|---|---|---|
 | Depth→color registration end-to-end | OpenNI | PARAM 2 + ALGORITHM 0x02 tables + padding | **4** | none (no color sensor) | highest-value feature for RGB variants; `set_registration` write exists since 0.2.0, the table/padding machinery does not |
 | GMC motion data + config | OpenNI | packets 0xa200, OPCODE 26, params 36-44 | **done (0.3.5)** | medium | config block + switches + 0xa200/0xb200/0xb500 decoders landed; opcode 26 stays unimplemented (no caller/layout in the reference) |
-| COMPRESSED_PS depth format | OpenNI | depth format 1, `XnStreamCompressDepth*` | **4** | low | bit-level decoder port; prerequisite for SXGA@30 |
-| SXGA depth (1280x1024@15) | OpenNI | CMOS preset + decoders (existing) | **2** | low | @15 works uncompressed; @30 additionally needs COMPRESSED_PS; crop already covers the ROI use case |
-| QVGA@60 + full mode matrix | OpenNI | CMOS presets | **1** | low | config only; crop (0.3.3) makes it less interesting |
+| COMPRESSED_PS depth format | OpenNI | depth format 1, `XnStreamCompressDepth*` | **4** | low | bit-level decoder port; prerequisite for SXGA@30 (SXGA@15 works uncompressed since 0.3.7) |
+| SXGA depth (1280x1024@15) | OpenNI | CMOS preset + decoders (existing) | **done (0.3.7)** | low | **probed at 15 fps in hardware test 13** (the USB-2 bulk budget: 11-bit packed @ SXGA@15 ≈ 26 MiB/s fits, @30 ≈ 52 MiB/s does not); @30 additionally needs COMPRESSED_PS |
+| QVGA@60 + full mode matrix | OpenNI | CMOS presets | **done (0.3.7)** | low | `depth_mode_matrix()` + the wide `Resolution` ids (480P/720P/1280x960); hardware test 13 walks every advertised (res, fps) pair and hard-gates QVGA@60 (~60 fps measured) |
 | Frame sync depth↔color | OpenNI | PARAM 1 | **2** | none (no color sensor) | RGB variants only |
-| Projector modulation frequency control | OpenNI | ALGORITHM 0x80 write | **2** | medium for rigs | per-camera frequency avoids multi-camera interference; the READ is already implemented |
+| Projector modulation frequency control | OpenNI | ALGORITHM 0x80 write | **resolved (0.3.7): read-only surface** | medium for rigs | **the reference has NO write** — no SET_PARAM id exists and it only READS algorithm 0x80; the factory value lives in the AlgorithmParams flash image (flash writes excluded). Delivered instead: `refresh_device_frequency()` (the value FOLLOWS the stream mode — the C re-reads it after every configuration, XnSensorStreamHelper.cpp:131-136) + the wavelength debug channel's hop telemetry; the multi-camera recipe is different matrix entries per camera |
 | Audio stream | OpenNI (disabled there too) | STREAM2_MODE=7, packets 0x9200, params 8-11/33-35 | **5** | unknown | full USB Audio Class in fw; hw presence of mics unverified on this unit |
-| Wavelength-debug telemetry decode | OpenNI | param 74 switch + debug packets | **2** | diagnostics | switch implemented 0.3.4; the packet parser is not |
-| NESA (0xd201) / TEC (0xd200) debug channels | fw-only | packet decoders | **2** | diagnostics | no product value known |
+| Wavelength-debug telemetry decode | OpenNI | param 74 switch + debug packets | **done (0.3.7)** | diagnostics | the packed 44-byte `XnWavelengthCorrectionDebugPacket` (0xc200) decoded by `drain_debug_telemetry()`; hardware test 14 is its first camera exercise |
+| NESA (0xd201) / TEC (0xd200) debug channels | OpenNI | packet decoders + BIST trigger | **done (0.3.7)** | diagnostics | both are OpenNI-routed UTF-16 text lines (`XnNesaDebugProcessor`/`XnTecDebugProcessor` dump them to NesaDebug.txt/TecDebug.csv); the full `XnBistType`/`XnBistError` bit sets are exposed (`bist`), the TEC/NESA BIST bits trigger the channels, `enable_misc_capture()` holds the misc endpoint open through the run — hardware test 14 |
 | Accelerometer + orientation | **fw-only** (not in OpenNI) | ACC strings/handlers in the decompiled image | **4** | unknown | undocumented command surface; needs firmware RE first |
 | ONI recording format | OpenNI core | OniRecorder (host-side) | **3** | medium | dataset capture for photogrammetry; pure host work |
 | Keep-alive thread, hotplug, reconnection, soak | OpenNI core | OPCODE 1 loop + libusb events | **3** | high for production | robustness tier (M6), independent of the protocol surface |
@@ -431,12 +431,15 @@ not gate). Still excluded: every WRITE on these buses (see section 3).
 14. Audio (STREAM2_MODE=7 + PARAMs 8-11/33-35 + packets 0x9200): a full
     USB Audio Class implementation; disabled even in OpenNI 2.2.0.
 15. Remaining stream modes as convenience surface: QVGA/60 fps image,
-    SXGA/720p/1280x960 Bayer image, QVGA depth, 25 fps depth/image
-    modes, YUYV/Bayer image inputs — configuration only, the machinery
-    (ring, assembler, decoders) already exists; each needs a preset-
-    validated mode + a hardware test.
-16. NESA debug channel (packet 0xd201) and TEC debug (0xd200) capture —
-    diagnostic curiosity, no product value known.
+    SXGA/720p/1280x960 Bayer image, 25 fps depth/image modes (the depth
+    side landed in 0.3.7: the full mode matrix, QVGA@60 and the SXGA
+    probe are hardware test 13), YUYV/Bayer image inputs — configuration
+    only, the machinery (ring, assembler, decoders) already exists;
+    each needs a preset-validated mode + a hardware test.
+16. ~~NESA debug channel (packet 0xd201) and TEC debug (0xd200)
+    capture~~ — **done in 0.3.7** (with the wavelength debug 0xc200
+    decode): `drain_debug_telemetry()` delivers all three; the TEC/NESA
+    BIST bits trigger the text channels; hardware test 14.
 
 ## 3. Excluded features (never in this driver)
 

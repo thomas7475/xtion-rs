@@ -288,6 +288,12 @@ pub const MAX_SHIFT: u16 = 2047;
 
 /// Resolution ids written to PARAM_IMAGE_RESOLUTION / PARAM_DEPTH_RESOLUTION.
 /// Source: Include/XnStreamParams.h `XnResolutions`.
+///
+/// The four classic ids cover every mode the reference driver's depth
+/// fallback table uses; the wide ids (480P/720P/1280x960) appear in the
+/// firmware's own GET_CMOS_PRESETS listings on fw 5.8.22 (480P in the
+/// depth matrix, 720P/1280x960 in the image one) and are modeled so the
+/// full advertised matrix is addressable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 pub enum Resolution {
@@ -295,6 +301,12 @@ pub enum Resolution {
     Vga = 1,   // 640x480
     Sxga = 2,  // 1280x1024
     Qqvga = 4, // 160x120
+    /// 864x480 (`XN_RESOLUTION_480P`, XnStreamParams.h:183-202).
+    Res480p = 9,
+    /// 1280x720 (`XN_RESOLUTION_720P`, XnStreamParams.h:183-202).
+    Res720p = 14,
+    /// 1280x960 (XnStreamParams.h:183-202).
+    Res1280x960 = 15,
 }
 
 impl Resolution {
@@ -309,6 +321,24 @@ impl Resolution {
             Resolution::Vga => (640, 480),
             Resolution::Sxga => (1280, 1024),
             Resolution::Qqvga => (160, 120),
+            Resolution::Res480p => (864, 480),
+            Resolution::Res720p => (1280, 720),
+            Resolution::Res1280x960 => (1280, 960),
+        }
+    }
+
+    /// Parse a wire resolution code (`XnResolutions`); `None` for codes
+    /// this enum does not model.
+    pub fn from_u16(code: u16) -> Option<Resolution> {
+        match code {
+            0 => Some(Resolution::Qvga),
+            1 => Some(Resolution::Vga),
+            2 => Some(Resolution::Sxga),
+            4 => Some(Resolution::Qqvga),
+            9 => Some(Resolution::Res480p),
+            14 => Some(Resolution::Res720p),
+            15 => Some(Resolution::Res1280x960),
+            _ => None,
         }
     }
 }
@@ -376,6 +406,28 @@ pub mod packet_type {
     /// 38 bytes packed): last/new correlation configuration plus whether
     /// the flash reference offset was updated.
     pub const GMC_DEBUG_END: u16 = 0xb500;
+    /// Wavelength-correction debug telemetry
+    /// (`XN_SENSOR_PROTOCOL_RESPONSE_WAVELENGTH_CORRECTION_DEBUG`,
+    /// XnDeviceSensorProtocol.h:51): one packed
+    /// `XnWavelengthCorrectionDebugPacket` (44 bytes) per event — see
+    /// [`crate::stream::WavelengthDebugPacket`]. Routed by the reference
+    /// driver's `XnWavelengthCorrectionDebugProcessor` (dumped to
+    /// WavelengthCorrection.csv). Enabled by param 74 while the depth
+    /// stream runs.
+    pub const WAVELENGTH_CORRECTION_DEBUG: u16 = 0xc200;
+    /// TEC debug channel (`XN_SENSOR_PROTOCOL_RESPONSE_TEC_DEBUG`,
+    /// XnDeviceSensorProtocol.h:53): a UTF-16LE text line (up to 256
+    /// bytes, `XN_SENSOR_TEC_DEBUG_MAX_PACKET_SIZE`), routed by the
+    /// reference's `XnTecDebugProcessor` (dumped to TecDebug.csv). The
+    /// firmware emits it while the TEC built-in self test runs
+    /// (`XN_BIST_TEC_TEST_MASK`, BIST request bit 6).
+    pub const TEC_DEBUG: u16 = 0xd200;
+    /// NESA debug channel (`XN_SENSOR_PROTOCOL_RESPONSE_NESA_DEBUG`,
+    /// XnDeviceSensorProtocol.h:55): a UTF-16LE text line (up to 256
+    /// bytes), routed by the reference's `XnNesaDebugProcessor` (dumped
+    /// to NesaDebug.txt). The firmware emits it while the NESA built-in
+    /// self test runs (`XN_BIST_NESA_TEST_MASK`, BIST request bit 7).
+    pub const NESA_DEBUG: u16 = 0xd201;
     pub const OVERHEAT: u16 = 0xf31f;
     pub const PROJECTOR_FAULT_EVENT: u16 = 0xdead;
 }

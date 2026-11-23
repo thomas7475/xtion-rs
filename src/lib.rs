@@ -74,8 +74,10 @@ pub use protocol::{
 };
 pub use ring::{RingStats, BULK_MULTIPLIER, RING_BUFFERS};
 pub use stream::{
-    DeviceEvent, GmcDebugEnd, GmcLastConfData, GmcLastPacketData, GmcPacket, GmcPoint, GmcPoints,
+    BestTecConf, DebugTelemetryPacket, DebugTextChannel, DebugTextPacket, DeviceEvent, GmcDebugEnd,
+    GmcLastConfData, GmcLastPacketData, GmcPacket, GmcPoint, GmcPoints, WavelengthDebugPacket,
     GMC_LAST_PACKET_WIRE_SIZE, GMC_MAX_POINTS_IN_PACKET, GMC_POINT_WIRE_SIZE,
+    TEC_DEBUG_MAX_PACKET_SIZE, WAVELENGTH_DEBUG_PACKET_WIRE_SIZE,
 };
 pub use timestamp::TimestampConverter;
 pub use usb::{list_devices, UsbDeviceInfo};

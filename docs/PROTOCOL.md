@@ -153,6 +153,45 @@ their fw >= 5.8.9 reference defaults (both TRUE).
   stack uses the PS-COMPRESSED format (1) — see section 7 — while the
   uncompressed modes (5/7) belong to the Windows/ISO path.
 
+### The depth mode matrix (0.3.7)
+
+The depth CMOS preset list IS the depth **mode matrix** — every
+(format, resolution, fps) the firmware advertises for the depth pipe,
+readable with `Xtion::depth_mode_matrix()`. On this unit (fw 5.8.22,
+RD108x) it lists 12 entries: formats 0 and 6 at QVGA@30, QVGA@60,
+VGA@30, QQVGA@30, SXGA@30 and 480P@30 (each fps twice, one per
+format). Two findings matter when USING it:
+
+- **The preset `format` field is NOT the depth stream format (param
+  18).** Format 3 (UNCOMPRESSED_11_BIT, the packed-11 Linux default)
+  streams fine at VGA@30 although the matrix lists only 0 and 6 — and
+  6 is not in `XnIODepthFormats` at all (like the image list's 9): the
+  preset format is the CMOS readout id, not the host-visible format.
+  Depth modes are therefore selected by (resolution, fps) and the
+  stream format stays what the host asks for.
+- **The advertised fps is the CMOS's maximum, not the USB budget.**
+  SXGA 1280x1024 is advertised at 30 — but 30 fps of 1.3 MP depth is
+  11-bit-packed ~52 MiB/s, above the ~40 MiB/s a USB-2 bulk link
+  delivers; **SXGA@15 (~26 MiB/s) is the sustainable 1.3 MP mode**.
+  `start_depth` does not hard-validate the fps (neither do the
+  reference's depth property writes): the firmware answers a refused
+  mode with NACK(BadParams) on the SET_PARAM or on the blanking read
+  (ALGORITHM_PARAMS 0x06 for that (resolution, fps)).
+- **Multi-camera interference**: the projector modulation frequency
+  follows the stream mode — the reference re-reads the device
+  frequency (ALGORITHM_PARAMS 0x80) after every stream configuration
+  because it "might change on specific stream configuration"
+  (XnSensorStreamHelper.cpp:131-136). Two cameras on different
+  matrix entries (e.g. one QVGA@60, one VGA@30) measure at different
+  frequencies: the reference-era recipe for keeping projected
+  patterns from interfering. There is NO runtime frequency WRITE —
+  no SET_PARAM id exists and the reference only reads algorithm
+  0x80; the factory value lives in the AlgorithmParams flash image.
+  The 0.3.7 API therefore exposes the read
+  (`Xtion::device_frequency` + `refresh_device_frequency` after a
+  mode change) plus the wavelength debug channel's hop telemetry as
+  the observable surface.
+
 ### Flash file system (opcodes 16/18/19/25) and fw 5.8.22 quirks
 
 **All flash addresses on this sensor are 16-bit WORDS** — the READ_FLASH
@@ -359,23 +398,25 @@ following frames:
   `XnHostProtocolSetDepthAGCBin`, XnHostProtocol.cpp:3124-3141); the
   wire (and this driver's API) carries raw shifts. Writes are TWO
   separate single SET_PARAMs per bin.
-  **Hardware findings (fw 5.8.22, 0.3.4 + 0.3.5 camera runs): (1)
-  the firmware validates every individual write against the sibling
-  bound's CURRENT value and NACKs `BadParams` when the write would
-  momentarily leave `min > max` — the reference's LOW-then-HIGH order
-  dies on the first bin that grows upward (factory bins are all
-  (0,0)); (2) a NACK does NOT mean the write was refused: the 0.3.5
-  run left bin0 at `0..512` after a NACKed `HIGH <- 512` write —
-  the firmware APPLIES an invariant-preserving write and then
-  rejects the reply (apply-then-reject), while an invariant-
-  VIOLATING write (LOW <- 512 while HIGH is 0) is rejected without
-  applying. 0.3.6 therefore sequences each bin transient-safely
+  **Hardware findings (fw 5.8.22, 0.3.4/0.3.5/0.3.6 camera runs,
+  model corrected 0.3.7): (1) the firmware replies NACK `BadParams`
+  for EVERY SET_PARAM on params 63-70 — a no-op write, an
+  invariant-preserving write and an invariant-VIOLATING write were all
+  observed NACKed; (2) the write is APPLIED anyway — the 0.3.6 run
+  read `bin0 = 0..512` back right after the NACKed `HIGH <- 512`
+  probe and `bin1 = 512..0` right after the NACKed C-order
+  `LOW <- 512` probe, so the NACK reply carries NO information about
+  application. (The 0.3.5 run's final `bin1 = (0,0)` first suggested
+  invariant-violating writes are refused without applying — but the
+  0.3.5 restore's own `LOW <- 0` write, sent-and-NACKed-and-APPLIED,
+  explains that partition completely; the two-tier model is
+  refuted.) 0.3.6 therefore sequences each bin transient-safely
   (raise HIGH first when the new bin sits above the old one, lower
   LOW first otherwise), sends BOTH bounds even under NACK, and makes
   the READBACK the source of truth: `set_depth_agc_bin` returns Ok
   only when the bin reads back exactly as requested. Hardware test
   11 measures every probe against its immediate readback and hard-
-  gates both camera-verified facts.**
+  gates the three camera-verified quirk facts.**
 - **Wavelength correction (params 73/74, fw >= 5.2)**: param 73
   enables the firmware's correction of depth against the projector's
   actual laser wavelength vs. the factory reference; param 74 is a
@@ -437,6 +478,54 @@ between depth frames). Three surfaces:
     f32 ricc_iir}; f32 a; f32 b; f32 c; i16 n; u16 ricc; u32 start_b;
     u32 delta_b; i16 flash_stored_ref_offset` — decoded as
     `GmcPacket::DebugEnd`.
+
+### Debug telemetry channels (0.3.7)
+
+Three more whole-packet families ride the misc endpoint (EP 0x83), all
+routed by the reference driver's `XnFirmwareStreams::ProcessPacketChunk`
+into dedicated `XnWholePacketProcessor`s and decoded by
+`Xtion::drain_debug_telemetry()`:
+
+- **0xc200 — WAVELENGTH_CORRECTION_DEBUG** (enabled by param 74 while
+  the depth stream runs): one packed
+  `XnWavelengthCorrectionDebugPacket` per event (XnHostProtocol.h:
+  289-303, pack(1), **44 bytes**):
+  `f32 fBLast; f32 fBCurrent; u16 nIsHop; u32 nCurrentSlidingWindow;
+  u16 nCurrentHopsCount; u16 nIsTecCalibrated; u32 nWaitPeriod;
+  u16 nIsWavelengthUnstable; {u16 nBestHopsCount; u32 nBestSetPoint;
+  i32 nBestStep} BestConf; u16 nIsTotallyUnstable;
+  u32 nConfiguredTecSetPoint; i32 nCurrentStep` — the wavelength-lock
+  algorithm's state: the B coefficients (the projector's wavelength
+  error term), whether the firmware HOPPED the modulation frequency,
+  the sliding window, and the TEC scan state. The reference only dumps
+  it to `WavelengthCorrection.csv`
+  (XnWavelengthCorrectionDebugProcessor.cpp:42-59).
+- **0xd200 — TEC_DEBUG** and **0xd201 — NESA_DEBUG**: a **UTF-16LE
+  text line** (up to `XN_SENSOR_TEC_DEBUG_MAX_PACKET_SIZE` = 256
+  bytes, NUL-terminated like the reference's wide-char `%S` print).
+  The reference dumps them verbatim to `TecDebug.csv` /
+  `NesaDebug.txt` and never interprets the columns
+  (XnTecDebugProcessor.cpp / XnNesaDebugProcessor.cpp). On this
+  firmware the nearby telemetry strings include `OT %d` /
+  `FRQ %d` (temperature / frequency) and the NESA status lines
+  (`NESA OK / N/A / INV / ERR / TIME / DISABLED`); the exact column
+  layout is firmware-defined, so the decoder delivers the raw text.
+- **The TEC/NESA channels' trigger is BIST** (OPCODE_BIST, 28):
+  running the test with `XN_BIST_TEC_TEST_MASK` (request bit 6) makes
+  the firmware narrate the TEC test on 0xd200, and
+  `XN_BIST_NESA_TEST_MASK` (bit 7) the NESA test on 0xd201 — the
+  official updater's `FinishFunction=RunBISTNESAUnlimited` is exactly
+  this (the UNLIMITED variant, bit 8, never terminates on its own and
+  is deliberately not selectable through the crate's `run_bist`).
+  The BIST request is one LE u16 mask, the reply one u32 failure
+  word whose bits are `XnBistError` names (RAM, the CMOS buses,
+  flash, potentiometer, audio, projector, TEC heater/TEC — decoded
+  by `bist::failure_bits`).
+
+The TEC/NESA lines flow with NO data stream running, so the misc
+endpoint must be captured explicitly for a BIST window
+(`Xtion::enable_misc_capture` before the run, drain after) —
+normally the misc ring only runs while depth/color/IR streams.
 
 ## 4. Calibration
 

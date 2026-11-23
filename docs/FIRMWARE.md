@@ -108,6 +108,14 @@ USB device (VID 1d27)
   36–44, 61, 75) with a point stream on the misc endpoint (up to 100 points
   per packet) and debug channels. Decoded since 0.3.5: plain 0xa200
   points (`XnDeviceSensorGMCPoint`), debug 0xb200, summary 0xb500.
+- **Debug telemetry** (decoded since 0.3.7, layouts from the OpenNI 2.2.0
+  source): the wavelength-correction debug record (0xc200, the packed
+  `XnWavelengthCorrectionDebugPacket`) plus the TEC (0xd200) / NESA
+  (0xd201) channels — plain UTF-16LE text lines the reference dumps to
+  `TecDebug.csv` / `NesaDebug.txt`. Their trigger is BIST: the TEC/NESA
+  test bits (6/7) narrate their runs on these channels — the same
+  `RunBISTNESAUnlimited` the official updater finishes with. The
+  NESA_UNLIMITED variant (bit 8) never terminates on its own.
 
 ## 4. The complete command surface vs xtion-rs
 

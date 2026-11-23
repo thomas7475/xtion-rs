@@ -555,7 +555,82 @@ pub mod bist {
     pub const FLASH: u16 = 1 << 3;
     pub const FULL_FLASH: u16 = 1 << 4;
     pub const PROJECTOR: u16 = 1 << 5;
+    /// The TEC test — the module whose run makes the firmware emit the
+    /// TEC debug channel (0xd200) on the misc endpoint.
     pub const TEC: u16 = 1 << 6;
+    /// The NESA test (manual, bounded) — makes the firmware emit the
+    /// NESA debug channel (0xd201).
+    pub const NESA: u16 = 1 << 7;
+    /// The NESA test in "unlimited" mode — the variant the official
+    /// updater runs as its `RunBISTNESAUnlimited` finish function.
+    /// It does NOT terminate on its own: do not select it through
+    /// [`crate::Xtion::run_bist`] unless you intend to power-cycle.
+    pub const NESA_UNLIMITED: u16 = 1 << 8;
+    /// Mask of all the AUTO tests (`XN_BIST_ALL`) — every bit except
+    /// the two manual NESA ones.
+    pub const ALL: u16 = 0x7f;
+
+    /// One failed BIST module, decoded from the reply's failure
+    /// bitmask (`XnBistError`, Include/PS1080.h:391-414).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct BistFailure {
+        /// The bit position in the reply word.
+        pub bit: u32,
+        /// The reference's name for the failure
+        /// (`XN_BIST_*_FAILURE`, `XN_TEC_TEST_*`).
+        pub name: &'static str,
+    }
+
+    /// Decode every set bit of a BIST failure word (0 = all green) into
+    /// its named failure. Unknown bits (newer firmware) keep their bit
+    /// number with an `unknown` name.
+    pub fn failure_bits(failures: u32) -> Vec<BistFailure> {
+        const NAMES: [&str; 24] = [
+            "RAM_TEST",
+            "IR_CMOS_CONTROL_BUS",
+            "IR_CMOS_DATA_BUS",
+            "IR_CMOS_BAD_VERSION",
+            "IR_CMOS_RESET",
+            "IR_CMOS_TRIGGER",
+            "IR_CMOS_STROBE",
+            "COLOR_CMOS_CONTROL_BUS",
+            "COLOR_CMOS_DATA_BUS",
+            "COLOR_CMOS_BAD_VERSION",
+            "COLOR_CMOS_RESET",
+            "FLASH_WRITE_LINE",
+            "FLASH_TEST",
+            "POTENTIOMETER_CONTROL_BUS",
+            "POTENTIOMETER",
+            "AUDIO_TEST",
+            "PROJECTOR_LD",
+            "PROJECTOR_LD_FAILSAFE_TRIG",
+            "PROJECTOR_FAILSAFE_HIGH",
+            "PROJECTOR_FAILSAFE_LOW",
+            "TEC_HEATER_CROSSED",
+            "TEC_HEATER_DISCONNECTED",
+            "TEC_CROSSED",
+            "TEC_FAULT",
+        ];
+        let mut out = Vec::new();
+        for (bit, name) in NAMES.iter().enumerate() {
+            if failures & (1 << bit) != 0 {
+                out.push(BistFailure {
+                    bit: bit as u32,
+                    name,
+                });
+            }
+        }
+        // bits beyond the named 24 (the reply is a u32)
+        for bit in NAMES.len()..32 {
+            if failures & (1 << bit) != 0 {
+                out.push(BistFailure {
+                    bit: bit as u32,
+                    name: "unknown",
+                });
+            }
+        }
+        out
+    }
 }
 
 /// Run the built-in self-test for the selected modules
@@ -1220,6 +1295,50 @@ mod tests {
         assert_eq!(failures, 0);
         let req = &fake.sent[0];
         assert_eq!(u16::from_le_bytes([req[8], req[9]]), 0b0000_0011);
+    }
+
+    /// The full request-mask set matches `XnBistType`
+    /// (Include/PS1080.h:373-379) and `ALL` excludes the manual NESA
+    /// bits exactly like `XN_BIST_ALL`.
+    #[test]
+    fn bist_masks_match_the_c_header() {
+        assert_eq!(bist::IMAGE_CMOS, 1 << 0);
+        assert_eq!(bist::IR_CMOS, 1 << 1);
+        assert_eq!(bist::POTENTIOMETER, 1 << 2);
+        assert_eq!(bist::FLASH, 1 << 3);
+        assert_eq!(bist::FULL_FLASH, 1 << 4);
+        assert_eq!(bist::PROJECTOR, 1 << 5);
+        assert_eq!(bist::TEC, 1 << 6);
+        assert_eq!(bist::NESA, 1 << 7);
+        assert_eq!(bist::NESA_UNLIMITED, 1 << 8);
+        assert_eq!(bist::ALL, 0x7f, "XN_BIST_ALL = every bit but the NESA ones");
+    }
+
+    /// Failure bits decode to their `XnBistError` names, including the
+    /// TEC block (bits 20-23) and unknown high bits.
+    #[test]
+    fn bist_failure_bits_decode_names() {
+        assert!(bist::failure_bits(0).is_empty());
+        // FLASH_TEST (bit 12) + TEC_CROSSED (bit 22)
+        let failures = bist::failure_bits((1 << 12) | (1 << 22));
+        assert_eq!(
+            failures,
+            vec![
+                bist::BistFailure {
+                    bit: 12,
+                    name: "FLASH_TEST"
+                },
+                bist::BistFailure {
+                    bit: 22,
+                    name: "TEC_CROSSED"
+                },
+            ]
+        );
+        // a bit past the named 24 keeps its number
+        let unknown = bist::failure_bits(1 << 30);
+        assert_eq!(unknown.len(), 1);
+        assert_eq!(unknown[0].bit, 30);
+        assert_eq!(unknown[0].name, "unknown");
     }
 
     #[test]

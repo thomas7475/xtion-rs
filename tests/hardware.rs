@@ -1542,24 +1542,26 @@ fn depth_processing_controls() {
     println!("gain (21): write 42 -> read {gain_echo}, restored {gain0}");
 
     // ---- AGC bins (63-70): the four-bin shift partition. Hardware
-    // findings, pinned by the 0.3.4 and 0.3.5 camera runs: (1) this
-    // firmware validates every individual SET_PARAM against the
-    // sibling bound's CURRENT value and NACKs BadParams when the write
-    // would momentarily leave min > max; (2) a NACK does NOT mean the
-    // write was refused — the 0.3.5 run left bin0 at 0..512 after a
-    // NACKed HIGH <- 512 write: the firmware APPLIES an
-    // invariant-preserving write and then rejects the reply, while an
-    // invariant-VIOLATING write (LOW <- 512 while HIGH is 0) is
-    // rejected without applying. The driver (0.3.6) therefore sends
-    // BOTH bounds in the transient-safe order even under NACK and
-    // takes the READBACK as the source of truth: `set_depth_agc_bin`
-    // returns Ok only when the bin reads back exactly as requested.
-    // (The 0.3.5 suite failure was a bail-out between the two bound
-    // writes: the first NACK aborted the factory restore, the
-    // HIGH <- 0 write never went out, and bin0 stayed at 0..512.)
-    // This section measures every probe against its immediate
-    // readback, restores through the verified API, and runs the
-    // custom-partition cycle whenever the verified writes succeed.
+    // findings, pinned by the 0.3.4/0.3.5/0.3.6 camera runs: (1) this
+    // firmware NACKs `BadParams` for EVERY SET_PARAM on the AGC bin
+    // params — value-preserving no-ops, invariant-preserving writes and
+    // invariant-VIOLATING writes alike (all probed forms NACKed in both
+    // runs); (2) the write is APPLIED anyway — the 0.3.6 run read
+    // bin0 = 0..512 back right after the NACKed `HIGH <- 512` probe AND
+    // bin1 = 512..0 right after the NACKed C-order `LOW <- 512` probe.
+    // The 0.3.5 run first looked like the invariant-violating write was
+    // refused without applying (bin1 read (0,0) at the end), but the
+    // 0.3.5 partition is FULLY explained without that: the 0.3.5
+    // restore's first write for bin1 was `LOW <- 0` — which LANDED
+    // despite its NACK (the 0.3.5 driver then bailed out on that NACK
+    // and never sent the `HIGH <- 0` no-op). So: the NACK reply carries
+    // NO information about application — only the readback is truth,
+    // and the driver (0.3.6) sequences each bin transient-safely, sends
+    // BOTH bounds even under NACK, and returns Ok only when the bin
+    // reads back exactly as requested. This section measures every
+    // probe against its immediate readback and hard-gates the three
+    // camera-verified quirk facts, then restores through the verified
+    // API.
     println!("--- AGC bin write probe ---");
     fn probe_write(cam: &mut Xtion, param: xtion::Param, value: u16, what: &str) -> bool {
         let result = cam.set_param(param, value);
@@ -1584,19 +1586,31 @@ fn depth_processing_controls() {
         &mut cam,
         xtion::Param::DepthAgcBin0Low,
         0,
-        "no-op write, bin0 LOW (factory value)",
+        "no-op write, bin0 LOW <- 0 (already the factory value)",
     );
-    let _p_noop_high = probe_write(
+    // NOTE: 0 is NOT bin0 HIGH's factory value (that is 512 on this
+    // unit) — this probe is a live write that must LAND under the
+    // apply-then-reject quirk, and its readback is the second hard
+    // gate: the write collapses bin0 to (0, 0) despite the NACK.
+    let _p_zero_high = probe_write(
         &mut cam,
         xtion::Param::DepthAgcBin0High,
         0,
-        "no-op write, bin0 HIGH (factory value)",
+        "bin0 HIGH <- 0 (a live write, NOT the factory value — must land under the quirk)",
+    );
+    let zero_back = probe_readback(&mut cam, 0, "readback after the HIGH <- 0 write");
+    assert_eq!(
+        (zero_back.min_shift, zero_back.max_shift),
+        (0, 0),
+        "fw 5.8.22 applies a live AGC bin write while NACKing it — bin0 \
+         must read (0, 0) after the NACKed HIGH <- 0 probe (0.3.6 camera \
+         model: every write to params 63-70 lands; only the readback is truth)"
     );
     let p_grow_high = probe_write(
         &mut cam,
         xtion::Param::DepthAgcBin0High,
         512,
-        "grow bin0: HIGH <- 512 (the invariant-preserving first move)",
+        "grow bin0: HIGH <- 512 (restores the factory HIGH)",
     );
     let grow_back = probe_readback(&mut cam, 0, "readback after the grow write");
     if !p_grow_high {
@@ -1605,8 +1619,8 @@ fn depth_processing_controls() {
     assert_eq!(
         grow_back.max_shift, 512,
         "fw 5.8.22 applies an invariant-preserving AGC bin write even \
-         while NACKing it (0.3.5 camera run: bin0 read 0..512 right after \
-         the NACKed HIGH <- 512 probe)"
+         while NACKing it (0.3.5/0.3.6 camera runs: bin0 read 0..512 \
+         right after the NACKed HIGH <- 512 probe)"
     );
     let p_c_order = probe_write(
         &mut cam,
@@ -1621,11 +1635,20 @@ fn depth_processing_controls() {
              validate the transient min>max; the v0.3.4 failure needs another explanation"
         );
     }
+    // GATE (0.3.7, corrected): the invariant-VIOLATING write LANDS too.
+    // The 0.3.6 camera run read bin1 = 512..0 right after this NACKed
+    // write. The earlier belief that it was refused came from the 0.3.5
+    // run's final partition — which the 0.3.5 restore's own `LOW <- 0`
+    // write (landed despite its NACK) explains without any refusal.
+    // The unconditional restore below MUST therefore bring bin1 back
+    // to the factory (0, 0) and the partition assert verifies it did.
     assert_eq!(
         (c_back.min_shift, c_back.max_shift),
-        (0, 0),
-        "an invariant-VIOLATING write must not land (bin1 LOW <- 512 while \
-         its HIGH is 0; 0.3.5 camera run: bin1 still read 0..0)"
+        (512, 0),
+        "an invariant-VIOLATING write lands anyway on fw 5.8.22 (0.3.6 \
+         camera run: bin1 read 512..0 right after the NACKed C-order \
+         probe; the 0.3.5 'still (0,0)' observation was the restore's \
+         NACKed LOW <- 0 write landing, not a refusal)"
     );
     // Unconditional restore of the factory partition through the
     // verified API — both bounds are sent even under NACK, and any
@@ -1994,4 +2017,359 @@ fn gmc_config_and_motion_data() {
         final_frame.valid_pixels()
     );
     cam.stop_depth().expect("stop depth");
+}
+
+/// Test 13 — the depth mode matrix (0.3.7): enumerate the firmware's
+/// advertised (format, res, fps) surface, then WALK it — every unique
+/// (resolution, fps) pair gets a real stream start, decoded frames and
+/// a timestamp-derived frame-rate measurement, plus the device
+/// frequency read at that mode (the multi-camera interference lever).
+/// QVGA@60 is hard-gated (~60 fps must actually arrive); SXGA gets the
+/// dedicated treatment: 1280x1024@15 (the sustainable 1.3 MP mode on a
+/// USB-2 bulk bus — 11-bit packed ≈ 26 MiB/s) first, and the
+/// advertised 30 fps only as a diagnostic probe if 15 cannot start.
+#[test]
+fn depth_mode_matrix_and_high_fps() {
+    if !hardware_present() {
+        eprintln!("skipped: no Xtion attached");
+        return;
+    }
+    let _lock = lock_device();
+    let mut cam = Xtion::open().expect("open");
+
+    // ---- the advertised matrix (opcode 36, depth CMOS) ----
+    let matrix = cam.depth_mode_matrix().expect("depth mode matrix");
+    println!("depth mode matrix: {} entries", matrix.len());
+    for preset in &matrix {
+        println!("   {preset}");
+    }
+    assert!(
+        !matrix.is_empty(),
+        "the depth CMOS must advertise at least one mode"
+    );
+    // every advertised resolution must decode to real dimensions and be
+    // addressable through the Resolution enum (start_depth needs it)
+    for preset in &matrix {
+        let info = xtion::protocol::presets::resolution_info(preset.resolution);
+        assert!(
+            info.is_some(),
+            "advertised resolution code {} has no known dimensions",
+            preset.resolution
+        );
+        assert!(
+            xtion::Resolution::from_u16(preset.resolution).is_some(),
+            "advertised resolution code {} is not modeled by Resolution",
+            preset.resolution
+        );
+    }
+    // camera-verified (0.3.5/0.3.6 runs): this unit lists QVGA@60
+    assert!(
+        matrix.iter().any(|m| m.resolution == 0 && m.fps == 60),
+        "the depth mode matrix must list QVGA@60 (both camera runs did)"
+    );
+
+    // ---- walk: one pass per unique (resolution, fps) pair ----
+    let mut walked: Vec<(u16, u16)> = Vec::new();
+    for preset in &matrix {
+        let pair = (preset.resolution, preset.fps);
+        if walked.contains(&pair) {
+            continue;
+        }
+        walked.push(pair);
+    }
+    // SXGA@15 first (the requested 1.3 MP mode) so its outcome leads the
+    // log, then the advertised pairs
+    let mut plan: Vec<(xtion::Resolution, u16, bool)> = vec![(
+        xtion::Resolution::Sxga,
+        15,
+        false, // not advertised on this fw — probed deliberately
+    )];
+    for (res, fps) in walked {
+        if let Some(resolution) = xtion::Resolution::from_u16(res) {
+            plan.push((resolution, fps, true));
+        }
+    }
+    // de-duplicate identical (resolution, fps) entries (SXGA@15 vs the
+    // advertised SXGA@30 differ, so nothing collapses)
+    let mut seen: Vec<(u16, u16, u32, u32)> = Vec::new();
+    plan.retain(|(res, fps, _)| {
+        let key = (res.as_u16(), *fps, res.dimensions().0, res.dimensions().1);
+        if seen.contains(&key) {
+            false
+        } else {
+            seen.push(key);
+            true
+        }
+    });
+
+    let mut qvga60: Option<f64> = None;
+    for (resolution, fps, advertised) in plan {
+        let (w, h) = resolution.dimensions();
+        let tag = if advertised { "advertised" } else { "probe" };
+        let config = DepthConfig {
+            resolution,
+            fps,
+            ..DepthConfig::default()
+        };
+        print!("--- {tag}: {w}x{h}@{fps} --- ");
+        match cam.start_depth(config) {
+            Err(err) => {
+                println!("refused: {err}");
+                continue;
+            }
+            Ok(()) => println!("started"),
+        }
+        // the frequency the mode locked to (may change per mode — the
+        // reference re-reads it after every configuration)
+        match cam.refresh_device_frequency() {
+            Ok(frequency) => println!("   device frequency: {frequency:.3} ticks/us"),
+            Err(err) => println!("   device frequency read failed: {err}"),
+        }
+        // collect frames: 12 at high rates, 6 at SXGA-class rates (the
+        // 1.3 MP frames are 1.8 MB each)
+        let wanted = if w * h > 900_000 { 6 } else { 12 };
+        let mut frames = Vec::new();
+        let mut read_err = None;
+        for _ in 0..wanted {
+            match cam.read_depth_frame(Duration::from_secs(10)) {
+                Ok(frame) => frames.push(frame),
+                Err(err) => {
+                    read_err = Some(err);
+                    break;
+                }
+            }
+        }
+        cam.stop_depth().expect("stop between modes");
+        let Some(read_err) = read_err else {
+            // frames decoded -> size and rate gates
+            let frame = frames.last().expect("at least one frame");
+            assert_eq!(
+                (frame.width, frame.height),
+                (w, h),
+                "frame must arrive at the requested {}x{} size",
+                w,
+                h
+            );
+            let timestamps: Vec<u64> = frames
+                .iter()
+                .map(|f| f.timestamp_us.expect("timestamps converted"))
+                .collect();
+            let mut deltas_ms = Vec::with_capacity(timestamps.len().saturating_sub(1));
+            for pair in timestamps.windows(2) {
+                deltas_ms.push((pair[1] - pair[0]) as f64 / 1000.0);
+            }
+            let (mean_delta, monotonic) = if deltas_ms.is_empty() {
+                (f64::NAN, true)
+            } else {
+                (
+                    deltas_ms.iter().sum::<f64>() / deltas_ms.len() as f64,
+                    deltas_ms.iter().all(|d| *d > 0.0),
+                )
+            };
+            let measured_fps = 1000.0 / mean_delta;
+            println!(
+                "   {} frames decoded, {}x{}, {} valid px, {:.2} ms/frame = \
+                 {:.1} fps (nominal {fps}), monotonic: {monotonic}",
+                frames.len(),
+                frame.width,
+                frame.height,
+                frame.valid_pixels(),
+                mean_delta,
+                measured_fps
+            );
+            assert!(monotonic, "timestamps must advance at {w}x{h}@{fps}");
+            if (resolution, fps) == (xtion::Resolution::Qvga, 60) {
+                qvga60 = Some(measured_fps);
+            }
+            continue;
+        };
+        println!("   frame read failed: {read_err}");
+    }
+
+    // ---- hard gate: QVGA@60 must deliver (advertised + probed now) ----
+    let measured = qvga60.expect("QVGA@60 must be in the walk and must start");
+    assert!(
+        (50.0..70.0).contains(&measured),
+        "QVGA@60 measured {measured:.1} fps — expected ~60"
+    );
+    println!("QVGA@60: measured {measured:.1} fps — the high-rate mode works");
+
+    // restore the session's default state for whoever runs next
+    cam.start_depth(DepthConfig::default())
+        .expect("restart default depth");
+    cam.stop_depth().expect("stop default depth");
+}
+
+/// Test 14 — the debug telemetry channels (0.3.7): wavelength-correction
+/// debug (param 74 -> 0xc200 packets while depth streams) and the
+/// TEC/NESA channels (0xd200/0xd201 UTF-16 text lines) emitted while
+/// the matching BIST modules run. The reference driver routes both to
+/// dump files and never interprets them; this test decodes them and
+/// prints the census. First camera exercise of all three channels —
+/// refusals and empty censuses are VERDICTS, not failures.
+#[test]
+fn debug_telemetry_channels() {
+    if !hardware_present() {
+        eprintln!("skipped: no Xtion attached");
+        return;
+    }
+    let _lock = lock_device();
+    let mut cam = Xtion::open().expect("open");
+
+    // ---- wavelength debug telemetry while depth streams ----
+    cam.start_depth(DepthConfig::default())
+        .expect("start depth for the wavelength debug window");
+    let wl0 = cam
+        .wavelength_correction()
+        .expect("wavelength (73) baseline");
+    let dbg0 = cam
+        .wavelength_correction_debug()
+        .expect("wavelength debug (74) baseline");
+    println!("wavelength correction (73): {wl0}, debug (74): {dbg0} (factory baseline)");
+
+    // enable both switches with the readback-verified setters; each
+    // refusal is a verdict (the 0.3.6 camera quirk: a NACK may still
+    // have landed — the setters' Ok/Err already reflects the readback)
+    let wl_enable = cam.set_wavelength_correction(true);
+    let dbg_enable = cam.set_wavelength_correction_debug(true);
+    println!(
+        "enable 73: {}, enable 74: {}",
+        match &wl_enable {
+            Ok(()) => "landed".to_string(),
+            Err(e) => format!("refused ({e})"),
+        },
+        match &dbg_enable {
+            Ok(()) => "landed".to_string(),
+            Err(e) => format!("refused ({e})"),
+        }
+    );
+
+    // stream and drain: 90 VGA frames (~3 s) of window
+    let mut wavelength_packets = 0usize;
+    let mut wavelength_printed = 0usize;
+    let mut text_packets = 0usize;
+    for _ in 0..90 {
+        cam.read_depth_frame(Duration::from_secs(10))
+            .expect("depth frame inside the debug window");
+        for packet in cam.drain_debug_telemetry() {
+            match packet {
+                xtion::DebugTelemetryPacket::Wavelength(w) => {
+                    wavelength_packets += 1;
+                    if wavelength_printed < 3 {
+                        wavelength_printed += 1;
+                        println!(
+                            "0xc200 #{wavelength_packets}: B {:+.4} -> {:+.4}, hop {} \
+                             (hops now {}, window {:#x}), TEC calibrated {} wait {}, \
+                             best (hops {}, set point {}, step {}), unstable {}, \
+                             totally {}, configured set point {}, step {}",
+                            w.b_last,
+                            w.b_current,
+                            w.is_hop,
+                            w.current_hops_count,
+                            w.current_sliding_window,
+                            w.is_tec_calibrated,
+                            w.wait_period,
+                            w.best_conf.best_hops_count,
+                            w.best_conf.best_set_point,
+                            w.best_conf.best_step,
+                            w.is_wavelength_unstable,
+                            w.is_totally_unstable,
+                            w.configured_tec_set_point,
+                            w.current_step
+                        );
+                    }
+                }
+                xtion::DebugTelemetryPacket::Text(t) => {
+                    text_packets += 1;
+                    if text_packets <= 3 {
+                        println!("{} debug text #{}: {}", t.channel, text_packets, t.text);
+                    }
+                }
+            }
+        }
+    }
+    println!(
+        "wavelength debug census: {wavelength_packets} x 0xc200 packets, \
+         {text_packets} x text packets over 90 frames"
+    );
+    // restore both switches whatever the enable results were
+    if wl_enable.is_ok() {
+        cam.set_wavelength_correction(wl0)
+            .expect("restore wavelength correction switch");
+    }
+    if dbg_enable.is_ok() {
+        cam.set_wavelength_correction_debug(dbg0)
+            .expect("restore wavelength debug switch");
+    }
+    cam.stop_depth().expect("stop depth");
+    if wavelength_packets == 0 {
+        println!(
+            "-> VERDICT: no 0xc200 packets while (73,74) were enabled — \
+             either the switches were refused (see the enable lines) or the \
+             wavelength algorithm stayed silent; first camera run of this channel"
+        );
+    }
+
+    // ---- TEC / NESA channels: BIST with the TEC and NESA bits ----
+    // The reference's BIST exchange allows 300 s (full-flash tests are
+    // slow); TEC+NESA are measurement tests — 180 s here. The BIST
+    // control reply blocks until they finish while the misc ring
+    // collects the text lines.
+    cam.enable_misc_capture();
+    let mask = system::bist::TEC | system::bist::NESA;
+    println!("--- BIST (mask {mask:#06x}: TEC | NESA) ---");
+    match cam.run_bist(mask, Duration::from_secs(180)) {
+        Ok(failures) => {
+            if failures == 0 {
+                println!("BIST reply: all selected modules green");
+            } else {
+                let bits = system::bist::failure_bits(failures);
+                println!(
+                    "BIST reply: failures {failures:#010x}: {}",
+                    bits.iter()
+                        .map(|f| format!("bit {} {}", f.bit, f.name))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+        }
+        Err(err) => println!("BIST unavailable: {err} (verdict, not a failure)"),
+    }
+    let packets = cam.drain_debug_telemetry();
+    let mut tec_lines = 0usize;
+    let mut nesa_lines = 0usize;
+    for packet in &packets {
+        if let xtion::DebugTelemetryPacket::Text(t) = packet {
+            match t.channel {
+                xtion::DebugTextChannel::Tec => {
+                    tec_lines += 1;
+                    if tec_lines <= 5 {
+                        println!("TEC 0xd200: {}", t.text);
+                    }
+                }
+                xtion::DebugTextChannel::Nesa => {
+                    nesa_lines += 1;
+                    if nesa_lines <= 5 {
+                        println!("NESA 0xd201: {}", t.text);
+                    }
+                }
+            }
+        }
+    }
+    println!(
+        "BIST debug census: {tec_lines} TEC lines, {nesa_lines} NESA lines \
+         (plus {} wavelength packets that may have trickled in)",
+        packets
+            .iter()
+            .filter(|p| matches!(p, xtion::DebugTelemetryPacket::Wavelength(_)))
+            .count()
+    );
+    cam.disable_misc_capture();
+    if tec_lines + nesa_lines == 0 {
+        println!(
+            "-> VERDICT: no TEC/NESA debug text during the BIST run — first \
+             camera exercise of these channels; if the BIST reply was green \
+             the tests ran, and this firmware simply did not narrate them"
+        );
+    }
 }
