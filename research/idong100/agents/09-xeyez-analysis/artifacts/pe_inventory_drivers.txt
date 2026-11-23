@@ -1,0 +1,2688 @@
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/xeyez.sys
+  machine=i386 timestamp=1320644341 (2011-11-07)
+  sections: .text .rdata .data INIT .rsrc .reloc
+  import HAL.dll: KfAcquireSpinLock, KfReleaseSpinLock
+  import USBD.SYS: USBD_CreateConfigurationRequestEx, USBD_ParseConfigurationDescriptorEx
+  import WMILIB.SYS: WmiSystemControl, WmiCompleteRequest
+  import ntoskrnl.exe: RtlGenerate8dot3Name, RtlIsNameLegalDOS8Dot3, wcsncpy, DbgPrint, RtlUnicodeStringToAnsiString, KeInitializeTimerEx, KeInitializeDpc, IoIsWdmVersionAvailable, IoDetachDevice, IoRegisterDeviceInterface, IoAttachDeviceToDeviceStack, PoSetPowerState, IoDeleteDevice, IoDeleteSymbolicLink ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/xeyezCoIns.dll
+  machine=i386 timestamp=1312440944 (2011-08-04)
+  sections: .text .rdata .data .rsrc .reloc
+  import ADVAPI32.dll: RegEnumKeyExA, RegCloseKey, RegOpenKeyExA
+  import KERNEL32.dll: HeapSize, GetLocaleInfoA, GetStringTypeW, GetStringTypeA, GetVersionExA, lstrcmpiA, GetFullPathNameA, GetLastError, GetSystemTime, GetConsoleMode, HeapFree, HeapAlloc, GetCurrentThreadId, GetCommandLineA ...
+  import SETUPAPI.dll: SetupDiEnumDriverInfoA, SetupDiGetDriverInstallParamsA, SetupDiSetDriverInstallParamsA, SetupDiGetSelectedDriverA, SetupDiGetDriverInfoDetailA, SetupOpenInfFileA, SetupGetInfInformationA, SetupQueryInfOriginalFileInformationA, SetupDiGetActualSectionToInstallA, SetupFindFirstLineA, SetupGetStringFieldA, SetupGetFieldCount, SetupCopyOEMInfA, SetupFindNextMatchLineA ...
+  EXPORTS (1):
+    xeyezCoInstaller
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/SysFxUI.dll
+  machine=i386 timestamp=1200727919 (2008-01-19)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegDeleteValueW, RegCloseKey, RegEnumKeyExW, RegQueryInfoKeyW, RegCreateKeyExW, RegSetValueExW, RegOpenKeyExW, RegDeleteKeyW
+  import COMCTL32.dll: DestroyPropertySheetPage, CreatePropertySheetPageW, PropertySheetW
+  import COMDLG32.dll: GetOpenFileNameW
+  import KERNEL32.dll: OutputDebugStringA, InterlockedCompareExchange, VirtualAlloc, VirtualFree, LoadLibraryA, GetProcAddress, HeapAlloc, GetProcessHeap, HeapFree, GetVersion, InterlockedExchange, GetVersionExA, ExpandEnvironmentStringsW, SetLastError ...
+  import OLEAUT32.dll: SysStringLen, SysAllocString, LoadTypeLib, UnRegisterTypeLib, SysAllocStringLen, LoadRegTypeLib, VarUI4FromStr, RegisterTypeLib, SysFreeString
+  import SHLWAPI.dll: PathRemoveFileSpecW, PathCombineW, PathFindFileNameW
+  import USER32.dll: UnregisterClassA, GetCursorPos, LoadMenuW, GetSubMenu, TrackPopupMenuEx, LoadImageW, InsertMenuItemW, SendDlgItemMessageW, DialogBoxParamW, CallWindowProcW, DestroyWindow, GetWindowLongW, DefWindowProcW, GetWindowRect ...
+  import WINMM.dll: mmioRead, mmioClose, mmioOpenW, mmioDescend
+  import msvcrt.dll: _wcsnicmp, wcsncmp, _purecall, ??2@YAPAXI@Z, memset, _wtoi, memcpy, __CxxFrameHandler, _errno, _wcslwr, _XcptFilter, _initterm, wcstol, _adjust_fdiv ...
+  import ole32.dll: CoInitialize, CoUninitialize, PropVariantClear, CoCreateInstance, StringFromGUID2, CoTaskMemFree, CoTaskMemRealloc, CoTaskMemAlloc
+  EXPORTS (4):
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/USBAUDIO.sys
+  machine=i386 timestamp=1239424974 (2009-04-11)
+  sections: .text .rdata .data .guids PAGE INIT .rsrc .reloc
+  import HAL.DLL: KfAcquireSpinLock, KeQueryPerformanceCounter, KfReleaseSpinLock
+  import USBD.SYS: USBD_ParseConfigurationDescriptorEx, USBD_ParseDescriptors, USBD_CreateConfigurationRequestEx
+  import drmk.sys: DrmForwardContentToDeviceObject
+  import ks.sys: _KsEdit, KsPinGetLeadingEdgeStreamPointer, KsStreamPointerClone, KsStreamPointerAdvanceOffsets, KsStreamPointerUnlock, KsStreamPointerAdvanceOffsetsAndUnlock, KsStreamPointerSetStatusCode, KsStreamPointerDelete, KsGetPinFromIrp, KsPinAttemptProcessing, KsPinGetAndGate, KsPinAcquireProcessingMutex, KsPinReleaseProcessingMutex, KsGetFilterFromIrp ...
+  import ntoskrnl.exe: IoAllocateIrp, RtlCompareMemory, KeRestoreFloatingPointState, KeSaveFloatingPointState, IoQueueWorkItem, RtlInitUnicodeString, IoAllocateWorkItem, KeReleaseSemaphore, KeInitializeSemaphore, IoFreeIrp, KeReleaseMutex, KeInitializeMutex, KeTickCount, KeBugCheckEx ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/WMALFXGFXDSP.dll
+  machine=i386 timestamp=1200728036 (2008-01-19)
+  sections: .text RT_CODE .data RT_DATA .rsrc .reloc
+  import ADVAPI32.dll: GetTraceEnableFlags, RegCloseKey, RegSetValueExW, TraceEvent, RegQueryValueExW, RegOpenKeyExW, GetTraceEnableLevel, RegCreateKeyW, GetTraceLoggerHandle, RegisterTraceGuidsW, RegOpenKeyW, UnregisterTraceGuids, RegDeleteKeyW, RegCreateKeyExW
+  import KERNEL32.dll: InterlockedCompareExchange, LoadLibraryA, InterlockedIncrement, InterlockedDecrement, GetModuleFileNameW, SetEvent, MulDiv, DeleteCriticalSection, InitializeCriticalSection, EnterCriticalSection, LeaveCriticalSection, GetModuleHandleW, LoadLibraryW, HeapFree ...
+  import OLEAUT32.dll: SysFreeString, SysAllocString
+  import msvcrt.dll: _isatty, _write, _lseeki64, _fileno, __pioinfo, __badioinfo, ferror, _itoa, _snprintf, _iob, isleadbyte, __mb_cur_max, mbtowc, _onexit ...
+  import ole32.dll: StringFromGUID2, CoCreateInstance, PropVariantClear, CoTaskMemAlloc, CoTaskMemFree
+  EXPORTS (4):
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/drmk.sys
+  machine=i386 timestamp=1200725582 (2008-01-19)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import HAL.dll: ExAcquireFastMutex, ExReleaseFastMutex
+  import ks.sys: KsGetPinFromIrp, KsPinGetConnectedPinInterface, KsSynchronousIoControlDevice, KsRemoveItemFromObjectBag, KsFilterGetFirstChildPin, KsAddEvent, KsGenerateEvents, KsAcquireControl, KsReleaseControl, KsPinGetConnectedPinDeviceObject, KsPinGetConnectedPinFileObject, _KsEdit, KsPinGetParentFilter
+  import ntoskrnl.exe: KeTickCount, _allrem, _aullrem, KeInitializeEvent, KeBugCheckEx, MmProbeAndLockPages, memcpy, MmUnlockPages, MmProtectMdlSystemAddress, MmMapLockedPagesSpecifyCache, IoAllocateMdl, ObfDereferenceObject, IoGetLowerDeviceObject, KeWaitForSingleObject ...
+  EXPORTS (10):
+    DllInitialize
+    DllUnload
+    DrmAddContentHandlers
+    DrmCreateContentMixed
+    DrmDestroyContent
+    DrmForwardContentToDeviceObject
+    DrmForwardContentToFileObject
+    DrmForwardContentToInterface
+    DrmGetContentRights
+    DrmGetFilterDescriptor
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/drmkaud.sys
+  machine=i386 timestamp=1200721996 (2008-01-19)
+  sections: .text .rdata .data PAGE INIT .rsrc .reloc
+  import drmk.sys: DrmGetFilterDescriptor
+  import ks.sys: KsInitializeDriver
+  import ntoskrnl.exe: KeTickCount
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/ks.sys
+  machine=i386 timestamp=1208114194 (2008-04-13)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import HAL.dll: KfLowerIrql, IoFlushAdapterBuffers, IoFreeMapRegisters, IoMapTransfer, KeGetCurrentIrql, ExAcquireFastMutex, ExReleaseFastMutex, KfAcquireSpinLock, KfReleaseSpinLock, KeQueryPerformanceCounter, KfRaiseIrql
+  import ntoskrnl.exe: ExDeletePagedLookasideList, ExInitializePagedLookasideList, KeInitializeSpinLock, ProbeForRead, _except_handler3, IofCallDriver, IoBuildSynchronousFsdRequest, ZwClose, ExFreePoolWithTag, ZwQueryValueKey, ZwOpenKey, RtlInitUnicodeString, RtlFreeUnicodeString, wcscat ...
+  EXPORTS (228):
+    ??0CBaseUnknown@@QAE@ABU_GUID@@PAUIUnknown@@@Z
+    ??0CBaseUnknown@@QAE@PAUIUnknown@@@Z
+    ??1CBaseUnknown@@UAE@XZ
+    ??_FCBaseUnknown@@QAEXXZ
+    ?IndirectedAddRef@CBaseUnknown@@UAGKXZ
+    ?IndirectedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z
+    ?IndirectedRelease@CBaseUnknown@@UAGKXZ
+    ?NonDelegatedAddRef@CBaseUnknown@@UAGKXZ
+    ?NonDelegatedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z
+    ?NonDelegatedRelease@CBaseUnknown@@UAGKXZ
+    DllInitialize
+    KoCreateInstance
+    KoDeviceInitialize
+    KoDriverInitialize
+    KoRelease
+    KsAcquireControl
+    KsAcquireDevice
+    KsAcquireDeviceSecurityLock
+    KsAcquireResetValue
+    KsAddDevice
+    KsAddEvent
+    KsAddIrpToCancelableQueue
+    KsAddItemToObjectBag
+    KsAddObjectCreateItemToDeviceHeader
+    KsAddObjectCreateItemToObjectHeader
+    KsAllocateDefaultClock
+    KsAllocateDefaultClockEx
+    KsAllocateDeviceHeader
+    KsAllocateExtraData
+    KsAllocateObjectBag
+    KsAllocateObjectCreateItem
+    KsAllocateObjectHeader
+    KsCacheMedium
+    KsCancelIo
+    KsCancelRoutine
+    KsCompletePendingRequest
+    KsCopyObjectBagItems
+    KsCreateAllocator
+    KsCreateBusEnumObject
+    KsCreateClock
+    KsCreateDefaultAllocator
+    KsCreateDefaultAllocatorEx
+    KsCreateDefaultClock
+    KsCreateDefaultSecurity
+    KsCreateDevice
+    KsCreateFilterFactory
+    KsCreatePin
+    KsCreateTopologyNode
+    KsDecrementCountedWorker
+    KsDefaultAddEventHandler
+    KsDefaultDeviceIoCompletion
+    KsDefaultDispatchPnp
+    KsDefaultDispatchPower
+    KsDefaultForwardIrp
+    KsDereferenceBusObject
+    KsDereferenceSoftwareBusObject
+    KsDeviceGetBusData
+    KsDeviceRegisterAdapterObject
+    KsDeviceSetBusData
+    KsDisableEvent
+    KsDiscardEvent
+    KsDispatchFastIoDeviceControlFailure
+    KsDispatchFastReadFailure
+    KsDispatchInvalidDeviceRequest
+    KsDispatchIrp
+    KsDispatchQuerySecurity
+    KsDispatchSetSecurity
+    KsDispatchSpecificMethod
+    KsDispatchSpecificProperty
+    KsEnableEvent
+    KsEnableEventWithAllocator
+    KsFastMethodHandler
+    KsFastPropertyHandler
+    KsFilterAcquireProcessingMutex
+    KsFilterAddTopologyConnections
+    KsFilterAttemptProcessing
+    KsFilterCreateNode
+    KsFilterCreatePinFactory
+    KsFilterFactoryAddCreateItem
+    KsFilterFactoryGetSymbolicLink
+    KsFilterFactorySetDeviceClassesState
+    KsFilterFactoryUpdateCacheData
+    KsFilterGetAndGate
+    KsFilterGetChildPinCount
+    KsFilterGetFirstChildPin
+    KsFilterRegisterPowerCallbacks
+    KsFilterReleaseProcessingMutex
+    KsForwardAndCatchIrp
+    KsForwardIrp
+    KsFreeDefaultClock
+    KsFreeDeviceHeader
+    KsFreeEventList
+    KsFreeObjectBag
+    KsFreeObjectCreateItem
+    KsFreeObjectCreateItemsByContext
+    KsFreeObjectHeader
+    KsGenerateDataEvent
+    KsGenerateEvent
+    KsGenerateEventList
+    KsGenerateEvents
+    KsGetBusEnumIdentifier
+    KsGetBusEnumParentFDOFromChildPDO
+    KsGetBusEnumPnpDeviceObject
+    KsGetDefaultClockState
+    KsGetDefaultClockTime
+    KsGetDevice
+    KsGetDeviceForDeviceObject
+    KsGetFilterFromIrp
+    KsGetFirstChild
+    KsGetImageNameAndResourceId
+    KsGetNextSibling
+    KsGetNodeIdFromIrp
+    KsGetObjectFromFileObject
+    KsGetObjectTypeFromFileObject
+    KsGetObjectTypeFromIrp
+    KsGetOuterUnknown
+    KsGetParent
+    KsGetPinFromIrp
+    KsHandleSizedListQuery
+    KsIncrementCountedWorker
+    KsInitializeDevice
+    KsInitializeDriver
+    KsInstallBusEnumInterface
+    KsIsBusEnumChildDevice
+    KsLoadResource
+    KsMapModuleName
+    KsMergeAutomationTables
+    KsMethodHandler
+    KsMethodHandlerWithAllocator
+    KsMoveIrpsOnCancelableQueue
+    KsNullDriverUnload
+    KsPinAcquireProcessingMutex
+    KsPinAttachAndGate
+    KsPinAttachOrGate
+    KsPinAttemptProcessing
+    KsPinDataIntersection
+    KsPinGetAndGate
+    KsPinGetAvailableByteCount
+    KsPinGetConnectedFilterInterface
+    KsPinGetConnectedPinDeviceObject
+    KsPinGetConnectedPinFileObject
+    KsPinGetConnectedPinInterface
+    KsPinGetCopyRelationships
+    KsPinGetFirstCloneStreamPointer
+    KsPinGetLeadingEdgeStreamPointer
+    KsPinGetNextSiblingPin
+    KsPinGetParentFilter
+    KsPinGetReferenceClockInterface
+    KsPinGetTrailingEdgeStreamPointer
+    KsPinPropertyHandler
+    KsPinRegisterFrameReturnCallback
+    KsPinRegisterHandshakeCallback
+    KsPinRegisterIrpCompletionCallback
+    KsPinRegisterPowerCallbacks
+    KsPinReleaseProcessingMutex
+    KsPinSetPinClockTime
+    KsPinSubmitFrame
+    KsPinSubmitFrameMdl
+    KsProbeStreamIrp
+    KsProcessPinUpdate
+    KsPropertyHandler
+    KsPropertyHandlerWithAllocator
+    KsQueryDevicePnpObject
+    KsQueryInformationFile
+    KsQueryObjectAccessMask
+    KsQueryObjectCreateItem
+    KsQueueWorkItem
+    KsReadFile
+    KsRecalculateStackDepth
+    KsReferenceBusObject
+    KsReferenceSoftwareBusObject
+    KsRegisterAggregatedClientUnknown
+    KsRegisterCountedWorker
+    KsRegisterFilterWithNoKSPins
+    KsRegisterWorker
+    KsReleaseControl
+    KsReleaseDevice
+    KsReleaseDeviceSecurityLock
+    KsReleaseIrpOnCancelableQueue
+    KsRemoveBusEnumInterface
+    KsRemoveIrpFromCancelableQueue
+    KsRemoveItemFromObjectBag
+    KsRemoveSpecificIrpFromCancelableQueue
+    KsServiceBusEnumCreateRequest
+    KsServiceBusEnumPnpRequest
+    KsSetDefaultClockState
+    KsSetDefaultClockTime
+    KsSetDevicePnpAndBaseObject
+    KsSetInformationFile
+    KsSetMajorFunctionHandler
+    KsSetPowerDispatch
+    KsSetTargetDeviceObject
+    KsSetTargetState
+    KsStreamIo
+    KsStreamPointerAdvance
+    KsStreamPointerAdvanceOffsets
+    KsStreamPointerAdvanceOffsetsAndUnlock
+    KsStreamPointerCancelTimeout
+    KsStreamPointerClone
+    KsStreamPointerDelete
+    KsStreamPointerGetIrp
+    KsStreamPointerGetMdl
+    KsStreamPointerGetNextClone
+    KsStreamPointerLock
+    KsStreamPointerScheduleTimeout
+    KsStreamPointerSetStatusCode
+    KsStreamPointerUnlock
+    KsSynchronousIoControlDevice
+    KsTerminateDevice
+    KsTopologyPropertyHandler
+    KsUnregisterWorker
+    KsUnserializeObjectPropertiesFromRegistry
+    KsValidateAllocatorCreateRequest
+    KsValidateAllocatorFramingEx
+    KsValidateClockCreateRequest
+    KsValidateConnectRequest
+    KsValidateTopologyNodeCreateRequest
+    KsWriteFile
+    KsiDefaultClockAddMarkEvent
+    KsiPropertyDefaultClockGetCorrelatedPhysicalTime
+    KsiPropertyDefaultClockGetCorrelatedTime
+    KsiPropertyDefaultClockGetFunctionTable
+    KsiPropertyDefaultClockGetPhysicalTime
+    KsiPropertyDefaultClockGetResolution
+    KsiPropertyDefaultClockGetState
+    KsiPropertyDefaultClockGetTime
+    KsiQueryObjectCreateItemsPresent
+    _KsEdit
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/ksproxy.ax
+  machine=i386 timestamp=1208139150 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegEnumKeyExW, RegQueryValueExW, RegCreateKeyW, RegSetValueW, RegSetValueExW, RegCloseKey, RegDeleteKeyW, RegOpenKeyExW, RegEnumKeyW
+  import KERNEL32.dll: InterlockedCompareExchange, InitializeCriticalSection, DeleteCriticalSection, EnterCriticalSection, LeaveCriticalSection, SetEvent, GetLastError, CreateEventW, CloseHandle, WaitForMultipleObjectsEx, WaitForSingleObjectEx, CreateThread, CreateFileW, ReleaseSemaphore ...
+  import OLEAUT32.dll: SysFreeString
+  import SETUPAPI.dll: SetupDiOpenDeviceInterfaceW, SetupDiGetDeviceInterfaceDetailW, SetupDiGetDeviceInterfaceAlias, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInterfaces, SetupDiOpenDeviceInterfaceRegKey, SetupDiCreateDeviceInfoListExW, SetupDiGetClassDevsW
+  import USER32.dll: wsprintfW
+  import ksuser.dll: KsCreateAllocator, KsCreateClock, KsCreateTopologyNode, KsCreatePin
+  import msvcrt.dll: wcscpy, ??3@YAXPAX@Z, memmove, swscanf, _except_handler3, swprintf, _ftol, _purecall, _CIpow, wcslen, ??2@YAPAXI@Z
+  import ntdll.dll: RtlNtStatusToDosError
+  import ole32.dll: StringFromGUID2, IIDFromString, CoCreateInstance, CoTaskMemAlloc, CoFreeUnusedLibraries, CoInitialize, CoTaskMemFree, CoUninitialize
+  EXPORTS (10):
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
+    KsGetMediaType
+    KsGetMediaTypeCount
+    KsGetMultiplePinFactoryItems
+    KsOpenDefaultDevice
+    KsResolveRequiredAttributes
+    KsSynchronousDeviceControl
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/ksuser.dll
+  machine=i386 timestamp=1208139152 (2008-04-14)
+  sections: .text .rsrc .reloc
+  import KERNEL32.dll: GetProcessHeap, HeapAlloc, HeapFree
+  import ntdll.dll: NtCreateFile, RtlNtStatusToDosError
+  EXPORTS (4):
+    KsCreateAllocator
+    KsCreateClock
+    KsCreatePin
+    KsCreateTopologyNode
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/mskssrv.sys
+  machine=i386 timestamp=1200721759 (2008-01-19)
+  sections: .text .data .guids PAGE INIT .rsrc .reloc
+  import ks.sys: KsDefaultDispatchPower, KsDefaultForwardIrp, KsSetMajorFunctionHandler, KsNullDriverUnload, KsPropertyHandler, KsFreeObjectHeader, KsReferenceSoftwareBusObject, KsAllocateObjectHeader, KsDereferenceSoftwareBusObject, KsCacheMedium, KsSynchronousIoControlDevice, KsAllocateDeviceHeader, KsSetDevicePnpAndBaseObject, KsQueryDevicePnpObject ...
+  import ntoskrnl.exe: memcpy, IofCompleteRequest, RtlInitUnicodeString, KeBugCheckEx, IoOpenDeviceInterfaceRegistryKey, ZwQueryValueKey, IoCreateFile, IoFileObjectType, ObReferenceObjectByHandle, ZwClose, ZwSetValueKey, ObfDereferenceObject, RtlCompareMemory, memmove ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/mspclock.sys
+  machine=i386 timestamp=1200721758 (2008-01-19)
+  sections: .text .data .guids PAGE INIT .rsrc .reloc
+  import ks.sys: KsiPropertyDefaultClockGetTime, KsDefaultDispatchPnp, KsDefaultDispatchPower, KsDefaultForwardIrp, KsSetMajorFunctionHandler, KsNullDriverUnload, KsDisableEvent, KsEnableEvent, KsPropertyHandler, KsFreeEventList, KsFreeDefaultClock, KsFreeObjectHeader, KsReferenceSoftwareBusObject, KsiDefaultClockAddMarkEvent ...
+  import ntoskrnl.exe: KeTickCount, ExAllocatePoolWithTag, ExFreePool, IofCompleteRequest, KeEnterCriticalRegion, ExAcquireFastMutexUnsafe, ExReleaseFastMutexUnsafe, KeLeaveCriticalRegion, IoCreateDevice, IoAttachDeviceToDeviceStack, IoDeleteDevice, KeInitializeEvent
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/mspqm.sys
+  machine=i386 timestamp=1200721758 (2008-01-19)
+  sections: .data .guids PAGE INIT .rsrc .reloc
+  import ks.sys: KsAllocateDeviceHeader, KsDefaultDispatchPnp, KsDefaultDispatchPower, KsDefaultForwardIrp, KsSetMajorFunctionHandler, KsNullDriverUnload, KsPropertyHandler, KsCancelIo, KsFreeObjectHeader, KsReferenceSoftwareBusObject, KsAllocateObjectHeader, KsDereferenceSoftwareBusObject, KsAddIrpToCancelableQueue, KsRemoveIrpFromCancelableQueue ...
+  import ntoskrnl.exe: KeTickCount, KeInitializeSpinLock, ExFreePool, KeEnterCriticalRegion, ExAcquireFastMutexUnsafe, ExReleaseFastMutexUnsafe, KeLeaveCriticalRegion, ExAllocatePoolWithTag, IofCompleteRequest, IoCreateDevice, IoAttachDeviceToDeviceStack, IoDeleteDevice, KeInitializeEvent
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/mstee.sys
+  machine=i386 timestamp=1200721758 (2008-01-19)
+  sections: .text .rdata .data .guids PAGE INIT .rsrc .reloc
+  import ks.sys: KsFilterGetFirstChildPin, KsFilterGetChildPinCount, KsPinGetParentFilter, KsPinGetNextSiblingPin, KsPinGetConnectedPinInterface, _KsEdit, KsInitializeDriver
+  import ntoskrnl.exe: KeTickCount, RtlCompareMemory, ExAllocatePoolWithTag, ExFreePool, memcpy
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/portcls.sys
+  machine=i386 timestamp=1239424968 (2009-04-11)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import HAL.dll: KeStallExecutionProcessor, WRITE_PORT_UCHAR, READ_PORT_UCHAR, KeRaiseIrqlToDpcLevel, KeQueryPerformanceCounter, KfLowerIrql, KfRaiseIrql, KfReleaseSpinLock, KfAcquireSpinLock, KeGetCurrentIrql
+  import drmk.sys: DrmAddContentHandlers, DrmDestroyContent, DrmForwardContentToFileObject, DrmForwardContentToInterface, DrmGetContentRights, DrmForwardContentToDeviceObject, DrmCreateContentMixed
+  import ks.sys: KsValidateClockCreateRequest, KsCreateDefaultAllocator, KsAcquireResetValue, KsTopologyPropertyHandler, KsDispatchInvalidDeviceRequest, KsFreeEventList, KsDefaultDeviceIoCompletion, KsPinPropertyHandler, KsPinDataIntersection, KsPropertyHandler, KsValidateConnectRequest, KsAllocateDeviceHeader, KsSetDevicePnpAndBaseObject, KsSetMajorFunctionHandler ...
+  import ntoskrnl.exe: IoInitializeTimer, IoInitializeRemoveLockEx, PoStartNextPowerIrp, PoUnregisterSystemState, PoRegisterDeviceForIdleDetection, PoRegisterSystemState, ZwClose, ZwQueryValueKey, ZwOpenKey, IoOpenDeviceRegistryKey, PoRequestPowerIrp, ZwCreateKey, IoOpenDeviceInterfaceRegistryKey, ZwQueryKey ...
+  EXPORTS (33):
+    DllInitialize
+    DllUnload
+    PcAddAdapterDevice
+    PcAddContentHandlers
+    PcCompleteIrp
+    PcCompletePendingPropertyRequest
+    PcCreateContentMixed
+    PcDestroyContent
+    PcDispatchIrp
+    PcForwardContentToDeviceObject
+    PcForwardContentToFileObject
+    PcForwardContentToInterface
+    PcForwardIrpSynchronous
+    PcGetContentRights
+    PcGetDeviceProperty
+    PcGetTimeInterval
+    PcInitializeAdapterDriver
+    PcNewDmaChannel
+    PcNewInterruptSync
+    PcNewMiniport
+    PcNewPort
+    PcNewRegistryKey
+    PcNewResourceList
+    PcNewResourceSublist
+    PcNewServiceGroup
+    PcRegisterAdapterPowerManagement
+    PcRegisterIoTimeout
+    PcRegisterPhysicalConnection
+    PcRegisterPhysicalConnectionFromExternal
+    PcRegisterPhysicalConnectionToExternal
+    PcRegisterSubdevice
+    PcRequestNewPowerState
+    PcUnregisterIoTimeout
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/stream.sys
+  machine=i386 timestamp=1208112314 (2008-04-13)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import HAL.DLL: KfRaiseIrql, KfLowerIrql, ExReleaseFastMutex, KeQueryPerformanceCounter, ExAcquireFastMutex, KfAcquireSpinLock, KfReleaseSpinLock
+  import NTOSKRNL.EXE: KefAcquireSpinLockAtDpcLevel, IoFreeMdl, MmMapLockedPagesSpecifyCache, ExAllocatePoolWithTag, IoWriteErrorLogEntry, IoAllocateErrorLogEntry, KeSetEvent, InterlockedDecrement, IoFreeIrp, IofCompleteRequest, IoCancelIrp, ZwQueryValueKey, RtlInitUnicodeString, KeWaitForSingleObject ...
+  import ks.sys: KsUnserializeObjectPropertiesFromRegistry, KsDiscardEvent, KsAllocateExtraData, KsProbeStreamIrp, KsFreeObjectHeader, KsAllocateObjectHeader, KsUnregisterWorker, KsRegisterWorker, KsDispatchIrp, KsAddIrpToCancelableQueue, KsRemoveIrpFromCancelableQueue, KsFreeDeviceHeader, KsAllocateDeviceHeader, KsSetMajorFunctionHandler ...
+  EXPORTS (22):
+    DllInitialize
+    DllUnload
+    StreamClassAbortOutstandingRequests
+    StreamClassCallAtNewPriority
+    StreamClassCompleteRequestAndMarkQueueReady
+    StreamClassDebugAssert
+    StreamClassDebugPrint
+    StreamClassDeviceNotification
+    StreamClassFilterReenumerateStreams
+    StreamClassGetDmaBuffer
+    StreamClassGetNextEvent
+    StreamClassGetPhysicalAddress
+    StreamClassLogError
+    StreamClassPnPAddDeviceWorker
+    StreamClassQueryMasterClock
+    StreamClassQueryMasterClockSync
+    StreamClassReadWriteConfig
+    StreamClassReenumerateStreams
+    StreamClassRegisterAdapter
+    StreamClassRegisterFilterWithNoKSPins
+    StreamClassScheduleTimer
+    StreamClassStreamNotification
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/AudioDriver/wdmaud.drv
+  machine=i386 timestamp=1239431187 (2009-04-11)
+  sections: .text RT_CODE .data RT_DATA .rsrc .reloc
+  import ADVAPI32.dll: RegOpenKeyExW, GetTraceEnableLevel, GetTraceLoggerHandle, RegisterTraceGuidsW, UnregisterTraceGuids, TraceMessage, RegGetValueW, RegCloseKey, RegQueryValueExW, GetTraceEnableFlags
+  import AVRT.dll: AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsA, AvQuerySystemResponsiveness, AvSetMmThreadPriority
+  import KERNEL32.dll: CreateEventA, DeviceIoControl, GetOverlappedResult, GetCurrentThread, OutputDebugStringA, SetUnhandledExceptionFilter, UnhandledExceptionFilter, GetCurrentProcess, TerminateProcess, GetSystemTimeAsFileTime, GetCurrentThreadId, InterlockedCompareExchange, InterlockedIncrement, InterlockedDecrement ...
+  import MMDevAPI.DLL: MMDeviceGetPolicyConfig, MMDeviceGetDeviceEnumerator, AE_FREE, AE_NEW, InitializeDeviceAPI, CleanupDeviceAPI
+  import USER32.dll: LoadStringW, UnregisterClassA
+  import WINMM.dll: waveOutOpen, waveOutPrepareHeader, waveOutWrite, waveOutReset, waveOutGetNumDevs, waveOutClose, timeGetTime, DriverCallback, DefDriverProc, waveOutGetPosition, waveOutSetVolume, waveOutGetVolume, waveOutUnprepareHeader
+  import ksuser.dll: KsCreatePin
+  import msvcrt.dll: _CIpow, _amsg_exit, _adjust_fdiv, _CIlog10, _except_handler4_common, _unlock, _initterm, memset, memcpy, _wcsicmp, __CxxFrameHandler3, _CxxThrowException, _ftol2, memcpy_s ...
+  import ole32.dll: StringFromCLSID, CoCreateInstance, CoInitializeEx, CoUninitialize, CoTaskMemAlloc, CoTaskMemFree, PropVariantClear
+  EXPORTS (6):
+    DriverProc
+    midMessage
+    modMessage
+    mxdMessage
+    widMessage
+    wodMessage
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/videoDriver/dshowext.ax
+  machine=i386 timestamp=1208139203 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import COMCTL32.dll: InitCommonControlsEx
+  import KERNEL32.dll: CloseHandle, GetOverlappedResult, DeviceIoControl, GetLastError, CreateEventA, QueryPerformanceCounter, GetTickCount, GetCurrentThreadId, GetCurrentProcessId, GetSystemTimeAsFileTime, TerminateProcess, GetCurrentProcess, UnhandledExceptionFilter, SetUnhandledExceptionFilter ...
+  import MFC42.DLL: ord823, ord825
+  import USER32.dll: SendMessageA, SetDlgItemInt, EnableWindow, GetDlgItem, wsprintfA, SetDlgItemTextA, GetWindowLongW, SetWindowLongW, CreateDialogParamW, MoveWindow, InvalidateRect, ShowWindow, DestroyWindow, LoadStringW ...
+  import msvcrt.dll: ?terminate@@YAXXZ, _purecall, ??1type_info@@UAE@XZ, __CxxFrameHandler, _except_handler3
+  import ole32.dll: CoTaskMemFree, CoTaskMemAlloc
+  EXPORTS (2):
+    DllCanUnloadNow
+    DllGetClassObject
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/videoDriver/iyuv_32.dll
+  machine=i386 timestamp=1208139178 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import GDI32.dll: DeleteDC, GetSystemPaletteEntries, GetObjectW, CreateCompatibleDC, SelectObject, BitBlt
+  import KERNEL32.dll: GetCurrentProcess, UnhandledExceptionFilter, SetUnhandledExceptionFilter, GetCurrentProcessId, GetSystemTimeAsFileTime, TerminateProcess, QueryPerformanceCounter, GetSystemInfo, LocalFree, GetTickCount, GlobalUnlock, GlobalFree, LocalAlloc, GlobalAlloc ...
+  import USER32.dll: LoadStringW, GetDC, ReleaseDC, BeginPaint, GetWindowLongW, GetWindowRect, EndPaint, EndDialog, LoadBitmapW, DialogBoxParamW
+  import WINMM.dll: DefDriverProc
+  import msvcrt.dll: _adjust_fdiv, malloc, _initterm, free
+  EXPORTS (4):
+    AboutDialogProc
+    DllMain
+    DriverDialogProc
+    DriverProc
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/videoDriver/ks.sys
+  machine=i386 timestamp=1208114194 (2008-04-13)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import HAL.dll: KfLowerIrql, IoFlushAdapterBuffers, IoFreeMapRegisters, IoMapTransfer, KeGetCurrentIrql, ExAcquireFastMutex, ExReleaseFastMutex, KfAcquireSpinLock, KfReleaseSpinLock, KeQueryPerformanceCounter, KfRaiseIrql
+  import ntoskrnl.exe: ExDeletePagedLookasideList, ExInitializePagedLookasideList, KeInitializeSpinLock, ProbeForRead, _except_handler3, IofCallDriver, IoBuildSynchronousFsdRequest, ZwClose, ExFreePoolWithTag, ZwQueryValueKey, ZwOpenKey, RtlInitUnicodeString, RtlFreeUnicodeString, wcscat ...
+  EXPORTS (228):
+    ??0CBaseUnknown@@QAE@ABU_GUID@@PAUIUnknown@@@Z
+    ??0CBaseUnknown@@QAE@PAUIUnknown@@@Z
+    ??1CBaseUnknown@@UAE@XZ
+    ??_FCBaseUnknown@@QAEXXZ
+    ?IndirectedAddRef@CBaseUnknown@@UAGKXZ
+    ?IndirectedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z
+    ?IndirectedRelease@CBaseUnknown@@UAGKXZ
+    ?NonDelegatedAddRef@CBaseUnknown@@UAGKXZ
+    ?NonDelegatedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z
+    ?NonDelegatedRelease@CBaseUnknown@@UAGKXZ
+    DllInitialize
+    KoCreateInstance
+    KoDeviceInitialize
+    KoDriverInitialize
+    KoRelease
+    KsAcquireControl
+    KsAcquireDevice
+    KsAcquireDeviceSecurityLock
+    KsAcquireResetValue
+    KsAddDevice
+    KsAddEvent
+    KsAddIrpToCancelableQueue
+    KsAddItemToObjectBag
+    KsAddObjectCreateItemToDeviceHeader
+    KsAddObjectCreateItemToObjectHeader
+    KsAllocateDefaultClock
+    KsAllocateDefaultClockEx
+    KsAllocateDeviceHeader
+    KsAllocateExtraData
+    KsAllocateObjectBag
+    KsAllocateObjectCreateItem
+    KsAllocateObjectHeader
+    KsCacheMedium
+    KsCancelIo
+    KsCancelRoutine
+    KsCompletePendingRequest
+    KsCopyObjectBagItems
+    KsCreateAllocator
+    KsCreateBusEnumObject
+    KsCreateClock
+    KsCreateDefaultAllocator
+    KsCreateDefaultAllocatorEx
+    KsCreateDefaultClock
+    KsCreateDefaultSecurity
+    KsCreateDevice
+    KsCreateFilterFactory
+    KsCreatePin
+    KsCreateTopologyNode
+    KsDecrementCountedWorker
+    KsDefaultAddEventHandler
+    KsDefaultDeviceIoCompletion
+    KsDefaultDispatchPnp
+    KsDefaultDispatchPower
+    KsDefaultForwardIrp
+    KsDereferenceBusObject
+    KsDereferenceSoftwareBusObject
+    KsDeviceGetBusData
+    KsDeviceRegisterAdapterObject
+    KsDeviceSetBusData
+    KsDisableEvent
+    KsDiscardEvent
+    KsDispatchFastIoDeviceControlFailure
+    KsDispatchFastReadFailure
+    KsDispatchInvalidDeviceRequest
+    KsDispatchIrp
+    KsDispatchQuerySecurity
+    KsDispatchSetSecurity
+    KsDispatchSpecificMethod
+    KsDispatchSpecificProperty
+    KsEnableEvent
+    KsEnableEventWithAllocator
+    KsFastMethodHandler
+    KsFastPropertyHandler
+    KsFilterAcquireProcessingMutex
+    KsFilterAddTopologyConnections
+    KsFilterAttemptProcessing
+    KsFilterCreateNode
+    KsFilterCreatePinFactory
+    KsFilterFactoryAddCreateItem
+    KsFilterFactoryGetSymbolicLink
+    KsFilterFactorySetDeviceClassesState
+    KsFilterFactoryUpdateCacheData
+    KsFilterGetAndGate
+    KsFilterGetChildPinCount
+    KsFilterGetFirstChildPin
+    KsFilterRegisterPowerCallbacks
+    KsFilterReleaseProcessingMutex
+    KsForwardAndCatchIrp
+    KsForwardIrp
+    KsFreeDefaultClock
+    KsFreeDeviceHeader
+    KsFreeEventList
+    KsFreeObjectBag
+    KsFreeObjectCreateItem
+    KsFreeObjectCreateItemsByContext
+    KsFreeObjectHeader
+    KsGenerateDataEvent
+    KsGenerateEvent
+    KsGenerateEventList
+    KsGenerateEvents
+    KsGetBusEnumIdentifier
+    KsGetBusEnumParentFDOFromChildPDO
+    KsGetBusEnumPnpDeviceObject
+    KsGetDefaultClockState
+    KsGetDefaultClockTime
+    KsGetDevice
+    KsGetDeviceForDeviceObject
+    KsGetFilterFromIrp
+    KsGetFirstChild
+    KsGetImageNameAndResourceId
+    KsGetNextSibling
+    KsGetNodeIdFromIrp
+    KsGetObjectFromFileObject
+    KsGetObjectTypeFromFileObject
+    KsGetObjectTypeFromIrp
+    KsGetOuterUnknown
+    KsGetParent
+    KsGetPinFromIrp
+    KsHandleSizedListQuery
+    KsIncrementCountedWorker
+    KsInitializeDevice
+    KsInitializeDriver
+    KsInstallBusEnumInterface
+    KsIsBusEnumChildDevice
+    KsLoadResource
+    KsMapModuleName
+    KsMergeAutomationTables
+    KsMethodHandler
+    KsMethodHandlerWithAllocator
+    KsMoveIrpsOnCancelableQueue
+    KsNullDriverUnload
+    KsPinAcquireProcessingMutex
+    KsPinAttachAndGate
+    KsPinAttachOrGate
+    KsPinAttemptProcessing
+    KsPinDataIntersection
+    KsPinGetAndGate
+    KsPinGetAvailableByteCount
+    KsPinGetConnectedFilterInterface
+    KsPinGetConnectedPinDeviceObject
+    KsPinGetConnectedPinFileObject
+    KsPinGetConnectedPinInterface
+    KsPinGetCopyRelationships
+    KsPinGetFirstCloneStreamPointer
+    KsPinGetLeadingEdgeStreamPointer
+    KsPinGetNextSiblingPin
+    KsPinGetParentFilter
+    KsPinGetReferenceClockInterface
+    KsPinGetTrailingEdgeStreamPointer
+    KsPinPropertyHandler
+    KsPinRegisterFrameReturnCallback
+    KsPinRegisterHandshakeCallback
+    KsPinRegisterIrpCompletionCallback
+    KsPinRegisterPowerCallbacks
+    KsPinReleaseProcessingMutex
+    KsPinSetPinClockTime
+    KsPinSubmitFrame
+    KsPinSubmitFrameMdl
+    KsProbeStreamIrp
+    KsProcessPinUpdate
+    KsPropertyHandler
+    KsPropertyHandlerWithAllocator
+    KsQueryDevicePnpObject
+    KsQueryInformationFile
+    KsQueryObjectAccessMask
+    KsQueryObjectCreateItem
+    KsQueueWorkItem
+    KsReadFile
+    KsRecalculateStackDepth
+    KsReferenceBusObject
+    KsReferenceSoftwareBusObject
+    KsRegisterAggregatedClientUnknown
+    KsRegisterCountedWorker
+    KsRegisterFilterWithNoKSPins
+    KsRegisterWorker
+    KsReleaseControl
+    KsReleaseDevice
+    KsReleaseDeviceSecurityLock
+    KsReleaseIrpOnCancelableQueue
+    KsRemoveBusEnumInterface
+    KsRemoveIrpFromCancelableQueue
+    KsRemoveItemFromObjectBag
+    KsRemoveSpecificIrpFromCancelableQueue
+    KsServiceBusEnumCreateRequest
+    KsServiceBusEnumPnpRequest
+    KsSetDefaultClockState
+    KsSetDefaultClockTime
+    KsSetDevicePnpAndBaseObject
+    KsSetInformationFile
+    KsSetMajorFunctionHandler
+    KsSetPowerDispatch
+    KsSetTargetDeviceObject
+    KsSetTargetState
+    KsStreamIo
+    KsStreamPointerAdvance
+    KsStreamPointerAdvanceOffsets
+    KsStreamPointerAdvanceOffsetsAndUnlock
+    KsStreamPointerCancelTimeout
+    KsStreamPointerClone
+    KsStreamPointerDelete
+    KsStreamPointerGetIrp
+    KsStreamPointerGetMdl
+    KsStreamPointerGetNextClone
+    KsStreamPointerLock
+    KsStreamPointerScheduleTimeout
+    KsStreamPointerSetStatusCode
+    KsStreamPointerUnlock
+    KsSynchronousIoControlDevice
+    KsTerminateDevice
+    KsTopologyPropertyHandler
+    KsUnregisterWorker
+    KsUnserializeObjectPropertiesFromRegistry
+    KsValidateAllocatorCreateRequest
+    KsValidateAllocatorFramingEx
+    KsValidateClockCreateRequest
+    KsValidateConnectRequest
+    KsValidateTopologyNodeCreateRequest
+    KsWriteFile
+    KsiDefaultClockAddMarkEvent
+    KsiPropertyDefaultClockGetCorrelatedPhysicalTime
+    KsiPropertyDefaultClockGetCorrelatedTime
+    KsiPropertyDefaultClockGetFunctionTable
+    KsiPropertyDefaultClockGetPhysicalTime
+    KsiPropertyDefaultClockGetResolution
+    KsiPropertyDefaultClockGetState
+    KsiPropertyDefaultClockGetTime
+    KsiQueryObjectCreateItemsPresent
+    _KsEdit
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/videoDriver/ksproxy.ax
+  machine=i386 timestamp=1208139150 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegEnumKeyExW, RegQueryValueExW, RegCreateKeyW, RegSetValueW, RegSetValueExW, RegCloseKey, RegDeleteKeyW, RegOpenKeyExW, RegEnumKeyW
+  import KERNEL32.dll: InterlockedCompareExchange, InitializeCriticalSection, DeleteCriticalSection, EnterCriticalSection, LeaveCriticalSection, SetEvent, GetLastError, CreateEventW, CloseHandle, WaitForMultipleObjectsEx, WaitForSingleObjectEx, CreateThread, CreateFileW, ReleaseSemaphore ...
+  import OLEAUT32.dll: SysFreeString
+  import SETUPAPI.dll: SetupDiOpenDeviceInterfaceW, SetupDiGetDeviceInterfaceDetailW, SetupDiGetDeviceInterfaceAlias, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInterfaces, SetupDiOpenDeviceInterfaceRegKey, SetupDiCreateDeviceInfoListExW, SetupDiGetClassDevsW
+  import USER32.dll: wsprintfW
+  import ksuser.dll: KsCreateAllocator, KsCreateClock, KsCreateTopologyNode, KsCreatePin
+  import msvcrt.dll: wcscpy, ??3@YAXPAX@Z, memmove, swscanf, _except_handler3, swprintf, _ftol, _purecall, _CIpow, wcslen, ??2@YAPAXI@Z
+  import ntdll.dll: RtlNtStatusToDosError
+  import ole32.dll: StringFromGUID2, IIDFromString, CoCreateInstance, CoTaskMemAlloc, CoFreeUnusedLibraries, CoInitialize, CoTaskMemFree, CoUninitialize
+  EXPORTS (10):
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
+    KsGetMediaType
+    KsGetMediaTypeCount
+    KsGetMultiplePinFactoryItems
+    KsOpenDefaultDevice
+    KsResolveRequiredAttributes
+    KsSynchronousDeviceControl
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/videoDriver/kstvtune.ax
+  machine=i386 timestamp=1208139151 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegSetValueExW, RegDeleteValueW, RegCloseKey, RegOpenKeyExW, RegEnumValueW, RegCreateKeyExW, RegQueryValueExW
+  import COMCTL32.dll: ord17
+  import KERNEL32.dll: EnterCriticalSection, LeaveCriticalSection, IsBadWritePtr, CloseHandle, ReleaseMutex, WaitForSingleObject, CreateMutexW, LockResource, LoadResource, FindResourceW, GetLastError, DeleteCriticalSection, InterlockedCompareExchange, Sleep ...
+  import OLEAUT32.dll: VariantInit, VariantClear
+  import USER32.dll: wsprintfW, KillTimer, MessageBoxW, LoadStringW, CheckRadioButton, SetDlgItemTextW, SetDlgItemInt, SendMessageW, GetDlgItem, SetWindowTextW, EnableWindow, SetTimer, PostMessageW, UpdateWindow ...
+  import ksproxy.ax: KsSynchronousDeviceControl
+  import msvcrt.dll: _purecall, ??2@YAPAXI@Z, wcstol, ??3@YAXPAX@Z
+  import ole32.dll: CoTaskMemFree, CoInitialize, CoFreeUnusedLibraries, CoUninitialize, CoCreateInstance, CoTaskMemAlloc
+  EXPORTS (2):
+    DllCanUnloadNow
+    DllGetClassObject
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/videoDriver/ksuser.dll
+  machine=i386 timestamp=1208139152 (2008-04-14)
+  sections: .text .rsrc .reloc
+  import KERNEL32.dll: GetProcessHeap, HeapAlloc, HeapFree
+  import ntdll.dll: NtCreateFile, RtlNtStatusToDosError
+  EXPORTS (4):
+    KsCreateAllocator
+    KsCreateClock
+    KsCreatePin
+    KsCreateTopologyNode
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/videoDriver/kswdmcap.ax
+  machine=i386 timestamp=1208139153 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegCreateKeyW, RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegSetValueExW, RegDeleteKeyW, RegSetValueW
+  import COMCTL32.dll: InitCommonControlsEx
+  import KERNEL32.dll: CloseHandle, GetOverlappedResult, DeviceIoControl, GetLastError, CreateEventW, lstrcpynW, lstrcpyW, lstrcmpW, Sleep, lstrlenW, WaitForSingleObjectEx, SetEvent, DeleteCriticalSection, LeaveCriticalSection ...
+  import MFC42.DLL: ord823, ord825
+  import USER32.dll: GetDesktopWindow, GetWindowRect, SetRect, IsRectEmpty, SendMessageW, SetDlgItemInt, EnableWindow, GetDlgItem, SetWindowTextW, GetWindowTextW, GetDlgItemInt, IsWindowEnabled, MessageBoxW, LoadStringW ...
+  import msvcrt.dll: wcsncpy, _wtoi, sprintf, ??1type_info@@UAE@XZ, wcstod, _except_handler3, _ftol, __CxxFrameHandler, swprintf, ?terminate@@YAXXZ, _purecall
+  import ole32.dll: StringFromGUID2, CoUninitialize, CoFreeUnusedLibraries, CoInitialize, CoTaskMemAlloc, CoTaskMemFree, CoCreateInstance
+  EXPORTS (8):
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
+    FilterHandleFromPin
+    PerformDataIntersection
+    PinFactoryIDFromPin
+    RedundantKsGetMultiplePinFactoryItems
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/videoDriver/ksxbar.ax
+  machine=i386 timestamp=1208139154 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import KERNEL32.dll: InitializeCriticalSection, DeleteCriticalSection, EnterCriticalSection, LeaveCriticalSection, lstrcpynW, CloseHandle, WaitForSingleObject, GetLastError, DeviceIoControl, CreateEventW, IsBadWritePtr, CreateFileW, lstrcpyW, QueryPerformanceCounter ...
+  import OLEAUT32.dll: VariantInit, VariantClear
+  import USER32.dll: GetWindowRect, MessageBoxW, SetRect, SetDlgItemTextW, SendMessageW, GetDlgItem, CheckRadioButton, EnableWindow, wsprintfW, GetWindowLongW, SetWindowLongW, CreateDialogParamW, MoveWindow, InvalidateRect ...
+  import msvcrt.dll: ??3@YAXPAX@Z, ??2@YAPAXI@Z, wcslen, _purecall, swprintf
+  import ole32.dll: CoUninitialize, CoCreateInstance, CoTaskMemFree, CoTaskMemAlloc, CoInitialize, CoFreeUnusedLibraries
+  EXPORTS (2):
+    DllCanUnloadNow
+    DllGetClassObject
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/videoDriver/msh263.drv
+  machine=i386 timestamp=1208139270 (2008-04-14)
+  sections: .text MMXCODE1 IACODE2 IACODE1 EDTQ .data MMXDATA1 MMXCCDAT MMXMEDAT H26xColo IARDATA2 IADATA1 .rsrc .reloc
+  import GDI32.dll: GetDeviceCaps, GetSystemPaletteEntries
+  import KERNEL32.dll: SetUnhandledExceptionFilter, UnhandledExceptionFilter, GetCurrentProcess, TerminateProcess, GetSystemTimeAsFileTime, GetCurrentProcessId, GetCurrentThreadId, GetTickCount, QueryPerformanceCounter, VirtualFree, HeapFree, GetProcessHeap, IsBadReadPtr, MultiByteToWideChar ...
+  import USER32.dll: PostMessageA, GetDC, ReleaseDC, DialogBoxParamA, EndDialog
+  import WINMM.dll: DefDriverProc
+  import msvcrt.dll: free, _initterm, srand, rand, __CxxFrameHandler, malloc, _adjust_fdiv, _except_handler3, _clearfp, toupper, _ftol
+  EXPORTS (2):
+    DllMain
+    DriverProc
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/videoDriver/msyuv.dll
+  machine=i386 timestamp=1208139338 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import GDI32.dll: GetSystemPaletteEntries
+  import KERNEL32.dll: GetCurrentProcessId, GetSystemTimeAsFileTime, VirtualAlloc, GetCurrentThreadId, GetTickCount, QueryPerformanceCounter, DisableThreadLibraryCalls, VirtualFree, LocalAlloc, LocalFree
+  import USER32.dll: GetDesktopWindow, GetDC, ReleaseDC, MessageBoxW
+  import WINMM.dll: GetDriverModuleHandle, DefDriverProc
+  import msvcrt.dll: _ftol, wcscpy
+  EXPORTS (1):
+    DriverProc
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/videoDriver/tsbyuv.dll
+  machine=i386 timestamp=999298741 (2001-08-31)
+  sections: .text .data .rsrc .reloc
+  import KERNEL32.dll: GlobalFree, GlobalHandle, LocalAlloc, LocalFree, GlobalLock, GlobalAlloc
+  import USER32.dll: MessageBoxW
+  import WINMM.dll: GetDriverModuleHandle, DefDriverProc
+  EXPORTS (1):
+    DriverProc
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/videoDriver/usbvideo.sys
+  machine=i386 timestamp=1208112378 (2008-04-13)
+  sections: .text .rdata .data PAGE INIT .rsrc .reloc
+  import HAL.DLL: KfReleaseSpinLock, KfAcquireSpinLock
+  import NTOSKRNL.EXE: WmiTraceMessage, ExfInterlockedRemoveHeadList, KeInitializeSpinLock, ExFreePoolWithTag, ExfInterlockedInsertHeadList, ExfInterlockedInsertTailList, KeReleaseSemaphore, KeReadStateSemaphore, KeWaitForSingleObject, KeSetEvent, InterlockedDecrement, IoInitializeIrp, IofCallDriver, InterlockedIncrement ...
+  import USBD.SYS: USBD_ParseDescriptors, USBD_ParseConfigurationDescriptorEx, USBD_CreateConfigurationRequestEx
+  import ks.sys: KsIncrementCountedWorker, KsStreamPointerUnlock, KsStreamPointerClone, KsPinGetLeadingEdgeStreamPointer, KsDecrementCountedWorker, KsRegisterCountedWorker, KsAddItemToObjectBag, KsGetFirstChild, KsGetNextSibling, KsAcquireControl, KsReleaseControl, KsReleaseDevice, KsAcquireDevice, KsPinGetNextSiblingPin ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/videoDriver/vfwwdm32.dll
+  machine=i386 timestamp=1208139200 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegQueryValueExA, RegSetValueExA, RegCloseKey, RegCreateKeyExA
+  import COMCTL32.dll: PropertySheetA, ord17, CreatePropertySheetPageA
+  import KERNEL32.dll: FreeLibrary, InterlockedDecrement, InterlockedIncrement, WideCharToMultiByte, SetUnhandledExceptionFilter, UnhandledExceptionFilter, GetCurrentProcess, TerminateProcess, GetSystemTimeAsFileTime, GetCurrentProcessId, GetCurrentThreadId, GetTickCount, QueryPerformanceCounter, CreateThread ...
+  import OLEAUT32.dll: OleCreatePropertyFrame, SysFreeString
+  import USER32.dll: SetForegroundWindow, LoadCursorA, RegisterClassA, CreateWindowExA, GetWindowRect, GetClientRect, DefWindowProcA, PostQuitMessage, GetMessageA, DispatchMessageA, GetClassInfoA, UnregisterClassA, GetWindowLongA, WinHelpA ...
+  import WINMM.dll: timeGetTime, DefDriverProc, DriverCallback
+  import ksuser.dll: KsCreatePin
+  import msvcrt.dll: strtol, ??2@YAPAXI@Z, _purecall, ??3@YAXPAX@Z, _except_handler3, wcscmp
+  import ole32.dll: CoUninitialize, CoInitialize, CoCreateInstance, CoTaskMemFree
+  EXPORTS (3):
+    DllMain
+    DriverProc
+    VfwWdm
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/videoDriver/vidcap.ax
+  machine=i386 timestamp=1208139202 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegQueryValueExA, RegOpenKeyExA, RegCloseKey
+  import ATL.DLL: ord15, ord57, ord30, ord18, ord21, ord32, ord23, ord16
+  import KERNEL32.dll: InitializeCriticalSection, DeleteCriticalSection, InterlockedIncrement, InterlockedDecrement, LeaveCriticalSection, EnterCriticalSection, WideCharToMultiByte, OutputDebugStringA, QueryPerformanceCounter, GetTickCount, GetCurrentThreadId, GetCurrentProcessId, GetSystemTimeAsFileTime, TerminateProcess ...
+  import msvcrt.dll: _adjust_fdiv, ??3@YAXPAX@Z, _purecall, ??2@YAPAXI@Z, _except_handler3, _vsnprintf, free, _initterm, malloc
+  import ole32.dll: StringFromGUID2, CoCreateInstance
+  EXPORTS (4):
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/xeyezDriver64/xeyez.sys
+  machine=x64 timestamp=1320638346 (2011-11-07)
+  sections: .text .rdata .data .pdata INIT .rsrc .reloc
+  import USBD.SYS: USBD_ParseConfigurationDescriptorEx, USBD_CreateConfigurationRequestEx
+  import WMILIB.SYS: WmiSystemControl, WmiCompleteRequest
+  import ntoskrnl.exe: RtlIsNameLegalDOS8Dot3, KeInitializeEvent, RtlUnicodeStringToAnsiString, KeInitializeDpc, IoDetachDevice, PoSetPowerState, ZwQueryValueKey, ExFreePool, ZwClose, IoAttachDeviceToDeviceStack, IoIsWdmVersionAvailable, IoCreateSymbolicLink, IoCreateDevice, KeInitializeTimerEx ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/xeyezDriver64/xeyezCoIns.dll
+  machine=i386 timestamp=1311925601 (2011-07-29)
+  sections: .text .rdata .data .rsrc .reloc
+  import ADVAPI32.dll: RegEnumKeyExA, RegCloseKey, RegOpenKeyExA
+  import KERNEL32.dll: HeapSize, GetLocaleInfoA, GetStringTypeW, GetStringTypeA, GetVersionExA, lstrcmpiA, GetFullPathNameA, GetLastError, GetSystemTime, GetConsoleMode, HeapFree, HeapAlloc, GetCurrentThreadId, GetCommandLineA ...
+  import SETUPAPI.dll: SetupDiEnumDriverInfoA, SetupDiGetDriverInstallParamsA, SetupDiSetDriverInstallParamsA, SetupDiGetSelectedDriverA, SetupDiGetDriverInfoDetailA, SetupOpenInfFileA, SetupGetInfInformationA, SetupQueryInfOriginalFileInformationA, SetupDiGetActualSectionToInstallA, SetupFindFirstLineA, SetupGetStringFieldA, SetupGetFieldCount, SetupCopyOEMInfA, SetupFindNextMatchLineA ...
+  EXPORTS (1):
+    xeyezCoInstaller
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/USBHubDriver/usbhub.sys
+  machine=i386 timestamp=1208112336 (2008-04-13)
+  sections: .text .rdata .data PAGE PAGECONS INIT .rsrc .reloc
+  import HAL.dll: KfAcquireSpinLock, KfReleaseSpinLock
+  import USBD.SYS: USBD_CreateConfigurationRequestEx, USBD_ParseConfigurationDescriptorEx, USBD_GetPdoRegistryParameter, USBD_CalculateUsbBandwidth
+  import WMILIB.SYS: WmiSystemControl, WmiFireEvent, WmiCompleteRequest
+  import ntoskrnl.exe: InterlockedDecrement, IoInvalidateDeviceRelations, InterlockedIncrement, KeSetTimer, KeInitializeDpc, KeInitializeTimer, IoGetDeviceProperty, IoDeleteDevice, IoWMIRegistrationControl, KeInitializeSemaphore, IoAttachDeviceToDeviceStack, IoCreateDevice, IoReleaseCancelSpinLock, IoAcquireCancelSpinLock ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/virtualDriver64/vKeyboard.sys
+  machine=x64 timestamp=1274158968 (2010-05-18)
+  sections: .text .rdata .data .pdata PAGE INIT .rsrc
+  import ntoskrnl.exe: DbgPrint, IofCompleteRequest, IofCallDriver, IoDeleteSymbolicLink, RtlInitUnicodeString, IoDeleteDevice, IoDetachDevice, PoStartNextPowerIrp, IoAttachDeviceToDeviceStack, PoCallDriver, IoCreateSymbolicLink, IoCreateDevice, KeBugCheckEx
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/virtualDriver64/vMouse.sys
+  machine=x64 timestamp=1274159097 (2010-05-18)
+  sections: .text .rdata .data .pdata PAGE INIT .rsrc
+  import ntoskrnl.exe: DbgPrint, IofCompleteRequest, IofCallDriver, IoDeleteSymbolicLink, RtlInitUnicodeString, IoDeleteDevice, IoDetachDevice, PoStartNextPowerIrp, IoAttachDeviceToDeviceStack, PoCallDriver, IoCreateSymbolicLink, IoCreateDevice, KeBugCheckEx
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/xeyezDriver/xeyez.sys
+  machine=i386 timestamp=1320644341 (2011-11-07)
+  sections: .text .rdata .data INIT .rsrc .reloc
+  import HAL.dll: KfAcquireSpinLock, KfReleaseSpinLock
+  import USBD.SYS: USBD_CreateConfigurationRequestEx, USBD_ParseConfigurationDescriptorEx
+  import WMILIB.SYS: WmiSystemControl, WmiCompleteRequest
+  import ntoskrnl.exe: RtlGenerate8dot3Name, RtlIsNameLegalDOS8Dot3, wcsncpy, DbgPrint, RtlUnicodeStringToAnsiString, KeInitializeTimerEx, KeInitializeDpc, IoIsWdmVersionAvailable, IoDetachDevice, IoRegisterDeviceInterface, IoAttachDeviceToDeviceStack, PoSetPowerState, IoDeleteDevice, IoDeleteSymbolicLink ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/xeyezDriver/xeyezCoIns.dll
+  machine=i386 timestamp=1312440944 (2011-08-04)
+  sections: .text .rdata .data .rsrc .reloc
+  import ADVAPI32.dll: RegEnumKeyExA, RegCloseKey, RegOpenKeyExA
+  import KERNEL32.dll: HeapSize, GetLocaleInfoA, GetStringTypeW, GetStringTypeA, GetVersionExA, lstrcmpiA, GetFullPathNameA, GetLastError, GetSystemTime, GetConsoleMode, HeapFree, HeapAlloc, GetCurrentThreadId, GetCommandLineA ...
+  import SETUPAPI.dll: SetupDiEnumDriverInfoA, SetupDiGetDriverInstallParamsA, SetupDiSetDriverInstallParamsA, SetupDiGetSelectedDriverA, SetupDiGetDriverInfoDetailA, SetupOpenInfFileA, SetupGetInfInformationA, SetupQueryInfOriginalFileInformationA, SetupDiGetActualSectionToInstallA, SetupFindFirstLineA, SetupGetStringFieldA, SetupGetFieldCount, SetupCopyOEMInfA, SetupFindNextMatchLineA ...
+  EXPORTS (1):
+    xeyezCoInstaller
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/virtualDriver/vKeyboard.sys
+  machine=i386 timestamp=1249697160 (2009-08-08)
+  sections: .text .data PAGE INIT .rsrc .reloc
+  import ntoskrnl.exe: IofCompleteRequest, IofCallDriver, DbgPrint, memset, IoDeleteSymbolicLink, RtlInitUnicodeString, IoDeleteDevice, IoCreateSymbolicLink, IoCreateDevice, IoAttachDeviceToDeviceStack, IoDetachDevice, PoCallDriver, PoStartNextPowerIrp
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Win7/virtualDriver/vMouse.sys
+  machine=i386 timestamp=1249697098 (2009-08-08)
+  sections: .text .data PAGE INIT .rsrc .reloc
+  import ntoskrnl.exe: DbgPrint, IofCallDriver, IofCompleteRequest, IoDeleteDevice, IoCreateSymbolicLink, IoCreateDevice, RtlInitUnicodeString, IoAttachDeviceToDeviceStack, IoDetachDevice, PoCallDriver, PoStartNextPowerIrp
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/AudioDriver/USBAUDIO.sys
+  machine=i386 timestamp=1208112311 (2008-04-13)
+  sections: .text .rdata .data PAGECONS INIT .rsrc .reloc
+  import HAL.DLL: KfAcquireSpinLock, KfReleaseSpinLock, KeQueryPerformanceCounter
+  import NTOSKRNL.EXE: KeInitializeEvent, ExFreePool, ExAllocatePoolWithTag, IoAllocateIrp, ZwSetValueKey, RtlInitUnicodeString, ZwQueryValueKey, ZwClose, ZwCreateKey, ZwOpenKey, RtlFreeUnicodeString, RtlStringFromGUID, IofCallDriver, InterlockedDecrement ...
+  import USBD.SYS: USBD_ParseConfigurationDescriptorEx, USBD_CreateConfigurationRequestEx, USBD_ParseDescriptors
+  import drmk.sys: DrmForwardContentToDeviceObject
+  import ks.sys: KsGetNextSibling, KsAcquireControl, KsReleaseControl, KsReleaseDevice, KsPinGetNextSiblingPin, KsStreamPointerUnlock, KsStreamPointerSetStatusCode, KsPinGetLeadingEdgeStreamPointer, KsFilterGetFirstChildPin, KsAcquireDevice, KsAddItemToObjectBag, KsGetParent, KsCreateFilterFactory, _KsEdit ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/AudioDriver/drmk.sys
+  machine=i386 timestamp=1208112312 (2008-04-13)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import ks.sys: KsSynchronousIoControlDevice, KsRemoveItemFromObjectBag, KsPinGetParentFilter, _KsEdit, KsPinGetConnectedPinFileObject, KsFilterGetFirstChildPin, KsAddEvent, KsGenerateEvents, KsAcquireControl, KsReleaseControl, KsGetPinFromIrp, KsPinGetConnectedPinDeviceObject, KsPinGetConnectedPinInterface
+  import ntoskrnl.exe: KeTickCount, _allrem, _aullrem, KeBugCheckEx, ExFreePool, ObfDereferenceObject, IoGetLowerDeviceObject, KeWaitForSingleObject, IofCallDriver, IoBuildDeviceIoControlRequest, KeInitializeEvent, ExAllocatePoolWithTag, MmIsVerifierEnabled, KeInitializeMutex ...
+  EXPORTS (10):
+    DllInitialize
+    DllUnload
+    DrmAddContentHandlers
+    DrmCreateContentMixed
+    DrmDestroyContent
+    DrmForwardContentToDeviceObject
+    DrmForwardContentToFileObject
+    DrmForwardContentToInterface
+    DrmGetContentRights
+    DrmGetFilterDescriptor
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/AudioDriver/ks.sys
+  machine=i386 timestamp=1208114194 (2008-04-13)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import HAL.dll: KfLowerIrql, IoFlushAdapterBuffers, IoFreeMapRegisters, IoMapTransfer, KeGetCurrentIrql, ExAcquireFastMutex, ExReleaseFastMutex, KfAcquireSpinLock, KfReleaseSpinLock, KeQueryPerformanceCounter, KfRaiseIrql
+  import ntoskrnl.exe: ExDeletePagedLookasideList, ExInitializePagedLookasideList, KeInitializeSpinLock, ProbeForRead, _except_handler3, IofCallDriver, IoBuildSynchronousFsdRequest, ZwClose, ExFreePoolWithTag, ZwQueryValueKey, ZwOpenKey, RtlInitUnicodeString, RtlFreeUnicodeString, wcscat ...
+  EXPORTS (228):
+    ??0CBaseUnknown@@QAE@ABU_GUID@@PAUIUnknown@@@Z
+    ??0CBaseUnknown@@QAE@PAUIUnknown@@@Z
+    ??1CBaseUnknown@@UAE@XZ
+    ??_FCBaseUnknown@@QAEXXZ
+    ?IndirectedAddRef@CBaseUnknown@@UAGKXZ
+    ?IndirectedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z
+    ?IndirectedRelease@CBaseUnknown@@UAGKXZ
+    ?NonDelegatedAddRef@CBaseUnknown@@UAGKXZ
+    ?NonDelegatedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z
+    ?NonDelegatedRelease@CBaseUnknown@@UAGKXZ
+    DllInitialize
+    KoCreateInstance
+    KoDeviceInitialize
+    KoDriverInitialize
+    KoRelease
+    KsAcquireControl
+    KsAcquireDevice
+    KsAcquireDeviceSecurityLock
+    KsAcquireResetValue
+    KsAddDevice
+    KsAddEvent
+    KsAddIrpToCancelableQueue
+    KsAddItemToObjectBag
+    KsAddObjectCreateItemToDeviceHeader
+    KsAddObjectCreateItemToObjectHeader
+    KsAllocateDefaultClock
+    KsAllocateDefaultClockEx
+    KsAllocateDeviceHeader
+    KsAllocateExtraData
+    KsAllocateObjectBag
+    KsAllocateObjectCreateItem
+    KsAllocateObjectHeader
+    KsCacheMedium
+    KsCancelIo
+    KsCancelRoutine
+    KsCompletePendingRequest
+    KsCopyObjectBagItems
+    KsCreateAllocator
+    KsCreateBusEnumObject
+    KsCreateClock
+    KsCreateDefaultAllocator
+    KsCreateDefaultAllocatorEx
+    KsCreateDefaultClock
+    KsCreateDefaultSecurity
+    KsCreateDevice
+    KsCreateFilterFactory
+    KsCreatePin
+    KsCreateTopologyNode
+    KsDecrementCountedWorker
+    KsDefaultAddEventHandler
+    KsDefaultDeviceIoCompletion
+    KsDefaultDispatchPnp
+    KsDefaultDispatchPower
+    KsDefaultForwardIrp
+    KsDereferenceBusObject
+    KsDereferenceSoftwareBusObject
+    KsDeviceGetBusData
+    KsDeviceRegisterAdapterObject
+    KsDeviceSetBusData
+    KsDisableEvent
+    KsDiscardEvent
+    KsDispatchFastIoDeviceControlFailure
+    KsDispatchFastReadFailure
+    KsDispatchInvalidDeviceRequest
+    KsDispatchIrp
+    KsDispatchQuerySecurity
+    KsDispatchSetSecurity
+    KsDispatchSpecificMethod
+    KsDispatchSpecificProperty
+    KsEnableEvent
+    KsEnableEventWithAllocator
+    KsFastMethodHandler
+    KsFastPropertyHandler
+    KsFilterAcquireProcessingMutex
+    KsFilterAddTopologyConnections
+    KsFilterAttemptProcessing
+    KsFilterCreateNode
+    KsFilterCreatePinFactory
+    KsFilterFactoryAddCreateItem
+    KsFilterFactoryGetSymbolicLink
+    KsFilterFactorySetDeviceClassesState
+    KsFilterFactoryUpdateCacheData
+    KsFilterGetAndGate
+    KsFilterGetChildPinCount
+    KsFilterGetFirstChildPin
+    KsFilterRegisterPowerCallbacks
+    KsFilterReleaseProcessingMutex
+    KsForwardAndCatchIrp
+    KsForwardIrp
+    KsFreeDefaultClock
+    KsFreeDeviceHeader
+    KsFreeEventList
+    KsFreeObjectBag
+    KsFreeObjectCreateItem
+    KsFreeObjectCreateItemsByContext
+    KsFreeObjectHeader
+    KsGenerateDataEvent
+    KsGenerateEvent
+    KsGenerateEventList
+    KsGenerateEvents
+    KsGetBusEnumIdentifier
+    KsGetBusEnumParentFDOFromChildPDO
+    KsGetBusEnumPnpDeviceObject
+    KsGetDefaultClockState
+    KsGetDefaultClockTime
+    KsGetDevice
+    KsGetDeviceForDeviceObject
+    KsGetFilterFromIrp
+    KsGetFirstChild
+    KsGetImageNameAndResourceId
+    KsGetNextSibling
+    KsGetNodeIdFromIrp
+    KsGetObjectFromFileObject
+    KsGetObjectTypeFromFileObject
+    KsGetObjectTypeFromIrp
+    KsGetOuterUnknown
+    KsGetParent
+    KsGetPinFromIrp
+    KsHandleSizedListQuery
+    KsIncrementCountedWorker
+    KsInitializeDevice
+    KsInitializeDriver
+    KsInstallBusEnumInterface
+    KsIsBusEnumChildDevice
+    KsLoadResource
+    KsMapModuleName
+    KsMergeAutomationTables
+    KsMethodHandler
+    KsMethodHandlerWithAllocator
+    KsMoveIrpsOnCancelableQueue
+    KsNullDriverUnload
+    KsPinAcquireProcessingMutex
+    KsPinAttachAndGate
+    KsPinAttachOrGate
+    KsPinAttemptProcessing
+    KsPinDataIntersection
+    KsPinGetAndGate
+    KsPinGetAvailableByteCount
+    KsPinGetConnectedFilterInterface
+    KsPinGetConnectedPinDeviceObject
+    KsPinGetConnectedPinFileObject
+    KsPinGetConnectedPinInterface
+    KsPinGetCopyRelationships
+    KsPinGetFirstCloneStreamPointer
+    KsPinGetLeadingEdgeStreamPointer
+    KsPinGetNextSiblingPin
+    KsPinGetParentFilter
+    KsPinGetReferenceClockInterface
+    KsPinGetTrailingEdgeStreamPointer
+    KsPinPropertyHandler
+    KsPinRegisterFrameReturnCallback
+    KsPinRegisterHandshakeCallback
+    KsPinRegisterIrpCompletionCallback
+    KsPinRegisterPowerCallbacks
+    KsPinReleaseProcessingMutex
+    KsPinSetPinClockTime
+    KsPinSubmitFrame
+    KsPinSubmitFrameMdl
+    KsProbeStreamIrp
+    KsProcessPinUpdate
+    KsPropertyHandler
+    KsPropertyHandlerWithAllocator
+    KsQueryDevicePnpObject
+    KsQueryInformationFile
+    KsQueryObjectAccessMask
+    KsQueryObjectCreateItem
+    KsQueueWorkItem
+    KsReadFile
+    KsRecalculateStackDepth
+    KsReferenceBusObject
+    KsReferenceSoftwareBusObject
+    KsRegisterAggregatedClientUnknown
+    KsRegisterCountedWorker
+    KsRegisterFilterWithNoKSPins
+    KsRegisterWorker
+    KsReleaseControl
+    KsReleaseDevice
+    KsReleaseDeviceSecurityLock
+    KsReleaseIrpOnCancelableQueue
+    KsRemoveBusEnumInterface
+    KsRemoveIrpFromCancelableQueue
+    KsRemoveItemFromObjectBag
+    KsRemoveSpecificIrpFromCancelableQueue
+    KsServiceBusEnumCreateRequest
+    KsServiceBusEnumPnpRequest
+    KsSetDefaultClockState
+    KsSetDefaultClockTime
+    KsSetDevicePnpAndBaseObject
+    KsSetInformationFile
+    KsSetMajorFunctionHandler
+    KsSetPowerDispatch
+    KsSetTargetDeviceObject
+    KsSetTargetState
+    KsStreamIo
+    KsStreamPointerAdvance
+    KsStreamPointerAdvanceOffsets
+    KsStreamPointerAdvanceOffsetsAndUnlock
+    KsStreamPointerCancelTimeout
+    KsStreamPointerClone
+    KsStreamPointerDelete
+    KsStreamPointerGetIrp
+    KsStreamPointerGetMdl
+    KsStreamPointerGetNextClone
+    KsStreamPointerLock
+    KsStreamPointerScheduleTimeout
+    KsStreamPointerSetStatusCode
+    KsStreamPointerUnlock
+    KsSynchronousIoControlDevice
+    KsTerminateDevice
+    KsTopologyPropertyHandler
+    KsUnregisterWorker
+    KsUnserializeObjectPropertiesFromRegistry
+    KsValidateAllocatorCreateRequest
+    KsValidateAllocatorFramingEx
+    KsValidateClockCreateRequest
+    KsValidateConnectRequest
+    KsValidateTopologyNodeCreateRequest
+    KsWriteFile
+    KsiDefaultClockAddMarkEvent
+    KsiPropertyDefaultClockGetCorrelatedPhysicalTime
+    KsiPropertyDefaultClockGetCorrelatedTime
+    KsiPropertyDefaultClockGetFunctionTable
+    KsiPropertyDefaultClockGetPhysicalTime
+    KsiPropertyDefaultClockGetResolution
+    KsiPropertyDefaultClockGetState
+    KsiPropertyDefaultClockGetTime
+    KsiQueryObjectCreateItemsPresent
+    _KsEdit
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/AudioDriver/ksproxy.ax
+  machine=i386 timestamp=1208139150 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegEnumKeyExW, RegQueryValueExW, RegCreateKeyW, RegSetValueW, RegSetValueExW, RegCloseKey, RegDeleteKeyW, RegOpenKeyExW, RegEnumKeyW
+  import KERNEL32.dll: InterlockedCompareExchange, InitializeCriticalSection, DeleteCriticalSection, EnterCriticalSection, LeaveCriticalSection, SetEvent, GetLastError, CreateEventW, CloseHandle, WaitForMultipleObjectsEx, WaitForSingleObjectEx, CreateThread, CreateFileW, ReleaseSemaphore ...
+  import OLEAUT32.dll: SysFreeString
+  import SETUPAPI.dll: SetupDiOpenDeviceInterfaceW, SetupDiGetDeviceInterfaceDetailW, SetupDiGetDeviceInterfaceAlias, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInterfaces, SetupDiOpenDeviceInterfaceRegKey, SetupDiCreateDeviceInfoListExW, SetupDiGetClassDevsW
+  import USER32.dll: wsprintfW
+  import ksuser.dll: KsCreateAllocator, KsCreateClock, KsCreateTopologyNode, KsCreatePin
+  import msvcrt.dll: wcscpy, ??3@YAXPAX@Z, memmove, swscanf, _except_handler3, swprintf, _ftol, _purecall, _CIpow, wcslen, ??2@YAPAXI@Z
+  import ntdll.dll: RtlNtStatusToDosError
+  import ole32.dll: StringFromGUID2, IIDFromString, CoCreateInstance, CoTaskMemAlloc, CoFreeUnusedLibraries, CoInitialize, CoTaskMemFree, CoUninitialize
+  EXPORTS (10):
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
+    KsGetMediaType
+    KsGetMediaTypeCount
+    KsGetMultiplePinFactoryItems
+    KsOpenDefaultDevice
+    KsResolveRequiredAttributes
+    KsSynchronousDeviceControl
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/AudioDriver/ksuser.dll
+  machine=i386 timestamp=1208139152 (2008-04-14)
+  sections: .text .rsrc .reloc
+  import KERNEL32.dll: GetProcessHeap, HeapAlloc, HeapFree
+  import ntdll.dll: NtCreateFile, RtlNtStatusToDosError
+  EXPORTS (4):
+    KsCreateAllocator
+    KsCreateClock
+    KsCreatePin
+    KsCreateTopologyNode
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/AudioDriver/portcls.sys
+  machine=i386 timestamp=1208114380 (2008-04-13)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import HAL.dll: WRITE_PORT_UCHAR, KeQueryPerformanceCounter, KfAcquireSpinLock, KfReleaseSpinLock, KeStallExecutionProcessor, KfRaiseIrql, KfLowerIrql, KeGetCurrentIrql, READ_PORT_UCHAR
+  import drmk.sys: DrmAddContentHandlers, DrmDestroyContent, DrmForwardContentToDeviceObject, DrmForwardContentToFileObject, DrmForwardContentToInterface, DrmGetContentRights, DrmCreateContentMixed
+  import ks.sys: KsDecrementCountedWorker, ??0CBaseUnknown@@QAE@PAUIUnknown@@@Z, KsIncrementCountedWorker, ?NonDelegatedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z, KsUnregisterWorker, ??1CBaseUnknown@@UAE@XZ, ?NonDelegatedAddRef@CBaseUnknown@@UAGKXZ, ?NonDelegatedRelease@CBaseUnknown@@UAGKXZ, ?IndirectedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z, ?IndirectedAddRef@CBaseUnknown@@UAGKXZ, ?IndirectedRelease@CBaseUnknown@@UAGKXZ, KsRegisterCountedWorker, KsSynchronousIoControlDevice, KsPinPropertyHandler ...
+  import ntoskrnl.exe: ZwCreateKey, IoOpenDeviceInterfaceRegistryKey, ZwQueryKey, ZwEnumerateKey, ZwEnumerateValueKey, ZwSetValueKey, RtlQueryRegistryValues, ZwDeleteKey, KeCancelTimer, KeSetTimer, KeInitializeTimer, ExfInterlockedInsertTailList, IoFreeIrp, MmUnlockPages ...
+  EXPORTS (56):
+    DllInitialize
+    DllUnload
+    KsoDispatchCreateWithGenericFactory
+    KsoGetIrpTargetFromFileObject
+    KsoGetIrpTargetFromIrp
+    PcAcquireFormatResources
+    PcAddAdapterDevice
+    PcAddContentHandlers
+    PcAddToEventTable
+    PcAddToPropertyTable
+    PcCaptureFormat
+    PcCompleteIrp
+    PcCompletePendingEventRequest
+    PcCompletePendingPropertyRequest
+    PcCreateContentMixed
+    PcCreateSubdeviceDescriptor
+    PcDeleteSubdeviceDescriptor
+    PcDestroyContent
+    PcDispatchIrp
+    PcDmaMasterDescription
+    PcDmaSlaveDescription
+    PcForwardContentToDeviceObject
+    PcForwardContentToFileObject
+    PcForwardContentToInterface
+    PcForwardIrpSynchronous
+    PcFreeEventTable
+    PcFreePropertyTable
+    PcGenerateEventDeferredRoutine
+    PcGenerateEventList
+    PcGetContentRights
+    PcGetDeviceProperty
+    PcGetTimeInterval
+    PcHandleDisableEventWithTable
+    PcHandleEnableEventWithTable
+    PcHandlePropertyWithTable
+    PcInitializeAdapterDriver
+    PcNewDmaChannel
+    PcNewInterruptSync
+    PcNewMiniport
+    PcNewPort
+    PcNewRegistryKey
+    PcNewResourceList
+    PcNewResourceSublist
+    PcNewServiceGroup
+    PcPinPropertyHandler
+    PcRegisterAdapterPowerManagement
+    PcRegisterIoTimeout
+    PcRegisterPhysicalConnection
+    PcRegisterPhysicalConnectionFromExternal
+    PcRegisterPhysicalConnectionToExternal
+    PcRegisterSubdevice
+    PcRequestNewPowerState
+    PcTerminateConnection
+    PcUnregisterIoTimeout
+    PcValidateConnectRequest
+    PcVerifyFilterIsReady
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/AudioDriver/stream.sys
+  machine=i386 timestamp=1208112314 (2008-04-13)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import HAL.DLL: KfRaiseIrql, KfLowerIrql, ExReleaseFastMutex, KeQueryPerformanceCounter, ExAcquireFastMutex, KfAcquireSpinLock, KfReleaseSpinLock
+  import NTOSKRNL.EXE: KefAcquireSpinLockAtDpcLevel, IoFreeMdl, MmMapLockedPagesSpecifyCache, ExAllocatePoolWithTag, IoWriteErrorLogEntry, IoAllocateErrorLogEntry, KeSetEvent, InterlockedDecrement, IoFreeIrp, IofCompleteRequest, IoCancelIrp, ZwQueryValueKey, RtlInitUnicodeString, KeWaitForSingleObject ...
+  import ks.sys: KsUnserializeObjectPropertiesFromRegistry, KsDiscardEvent, KsAllocateExtraData, KsProbeStreamIrp, KsFreeObjectHeader, KsAllocateObjectHeader, KsUnregisterWorker, KsRegisterWorker, KsDispatchIrp, KsAddIrpToCancelableQueue, KsRemoveIrpFromCancelableQueue, KsFreeDeviceHeader, KsAllocateDeviceHeader, KsSetMajorFunctionHandler ...
+  EXPORTS (22):
+    DllInitialize
+    DllUnload
+    StreamClassAbortOutstandingRequests
+    StreamClassCallAtNewPriority
+    StreamClassCompleteRequestAndMarkQueueReady
+    StreamClassDebugAssert
+    StreamClassDebugPrint
+    StreamClassDeviceNotification
+    StreamClassFilterReenumerateStreams
+    StreamClassGetDmaBuffer
+    StreamClassGetNextEvent
+    StreamClassGetPhysicalAddress
+    StreamClassLogError
+    StreamClassPnPAddDeviceWorker
+    StreamClassQueryMasterClock
+    StreamClassQueryMasterClockSync
+    StreamClassReadWriteConfig
+    StreamClassReenumerateStreams
+    StreamClassRegisterAdapter
+    StreamClassRegisterFilterWithNoKSPins
+    StreamClassScheduleTimer
+    StreamClassStreamNotification
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/AudioDriver/usbccgp.sys
+  machine=i386 timestamp=1091599725 (2004-08-04)
+  sections: .text .rdata .data PAGE PAGECONS INIT .rsrc .reloc
+  import HAL.DLL: KfReleaseSpinLock, KfAcquireSpinLock
+  import NTOSKRNL.EXE: RtlQueryRegistryValues, KeInitializeSpinLock, KeInitializeEvent, IoAttachDeviceToDeviceStack, IoCreateDevice, ExAllocatePoolWithTag, IofCallDriver, IofCompleteRequest, PoStartNextPowerIrp, IoFreeIrp, IoAllocateIrp, KeWaitForSingleObject, memset, ExFreePool ...
+  import USBD.SYS: USBD_ParseConfigurationDescriptorEx, USBD_CreateConfigurationRequestEx
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/AudioDriver/wdmaud.drv
+  machine=i386 timestamp=1208139213 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: GetSecurityDescriptorDacl, InitializeSecurityDescriptor, InitializeAcl, AddAccessAllowedAce, SetSecurityDescriptorDacl, FreeSid, AllocateAndInitializeSid, GetLengthSid
+  import KERNEL32.dll: GlobalHandle, IsBadReadPtr, InterlockedExchange, LeaveCriticalSection, EnterCriticalSection, IsBadWritePtr, DeleteCriticalSection, InitializeCriticalSection, HeapFree, CreateEventW, HeapAlloc, GetProcessHeap, CloseHandle, SetEvent ...
+  import WINMM.dll: DriverCallback, DefDriverProc
+  import ntdll.dll: NtQueryVirtualMemory, RtlUnwind
+  EXPORTS (7):
+    DriverProc
+    auxMessage
+    midMessage
+    modMessage
+    mxdMessage
+    widMessage
+    wodMessage
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/dshowext.ax
+  machine=i386 timestamp=1208139203 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import COMCTL32.dll: InitCommonControlsEx
+  import KERNEL32.dll: CloseHandle, GetOverlappedResult, DeviceIoControl, GetLastError, CreateEventA, QueryPerformanceCounter, GetTickCount, GetCurrentThreadId, GetCurrentProcessId, GetSystemTimeAsFileTime, TerminateProcess, GetCurrentProcess, UnhandledExceptionFilter, SetUnhandledExceptionFilter ...
+  import MFC42.DLL: ord823, ord825
+  import USER32.dll: SendMessageA, SetDlgItemInt, EnableWindow, GetDlgItem, wsprintfA, SetDlgItemTextA, GetWindowLongW, SetWindowLongW, CreateDialogParamW, MoveWindow, InvalidateRect, ShowWindow, DestroyWindow, LoadStringW ...
+  import msvcrt.dll: ?terminate@@YAXXZ, _purecall, ??1type_info@@UAE@XZ, __CxxFrameHandler, _except_handler3
+  import ole32.dll: CoTaskMemFree, CoTaskMemAlloc
+  EXPORTS (2):
+    DllCanUnloadNow
+    DllGetClassObject
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/iyuv_32.dll
+  machine=i386 timestamp=1208139178 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import GDI32.dll: DeleteDC, GetSystemPaletteEntries, GetObjectW, CreateCompatibleDC, SelectObject, BitBlt
+  import KERNEL32.dll: GetCurrentProcess, UnhandledExceptionFilter, SetUnhandledExceptionFilter, GetCurrentProcessId, GetSystemTimeAsFileTime, TerminateProcess, QueryPerformanceCounter, GetSystemInfo, LocalFree, GetTickCount, GlobalUnlock, GlobalFree, LocalAlloc, GlobalAlloc ...
+  import USER32.dll: LoadStringW, GetDC, ReleaseDC, BeginPaint, GetWindowLongW, GetWindowRect, EndPaint, EndDialog, LoadBitmapW, DialogBoxParamW
+  import WINMM.dll: DefDriverProc
+  import msvcrt.dll: _adjust_fdiv, malloc, _initterm, free
+  EXPORTS (4):
+    AboutDialogProc
+    DllMain
+    DriverDialogProc
+    DriverProc
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/ks.sys
+  machine=i386 timestamp=1208114194 (2008-04-13)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import HAL.dll: KfLowerIrql, IoFlushAdapterBuffers, IoFreeMapRegisters, IoMapTransfer, KeGetCurrentIrql, ExAcquireFastMutex, ExReleaseFastMutex, KfAcquireSpinLock, KfReleaseSpinLock, KeQueryPerformanceCounter, KfRaiseIrql
+  import ntoskrnl.exe: ExDeletePagedLookasideList, ExInitializePagedLookasideList, KeInitializeSpinLock, ProbeForRead, _except_handler3, IofCallDriver, IoBuildSynchronousFsdRequest, ZwClose, ExFreePoolWithTag, ZwQueryValueKey, ZwOpenKey, RtlInitUnicodeString, RtlFreeUnicodeString, wcscat ...
+  EXPORTS (228):
+    ??0CBaseUnknown@@QAE@ABU_GUID@@PAUIUnknown@@@Z
+    ??0CBaseUnknown@@QAE@PAUIUnknown@@@Z
+    ??1CBaseUnknown@@UAE@XZ
+    ??_FCBaseUnknown@@QAEXXZ
+    ?IndirectedAddRef@CBaseUnknown@@UAGKXZ
+    ?IndirectedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z
+    ?IndirectedRelease@CBaseUnknown@@UAGKXZ
+    ?NonDelegatedAddRef@CBaseUnknown@@UAGKXZ
+    ?NonDelegatedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z
+    ?NonDelegatedRelease@CBaseUnknown@@UAGKXZ
+    DllInitialize
+    KoCreateInstance
+    KoDeviceInitialize
+    KoDriverInitialize
+    KoRelease
+    KsAcquireControl
+    KsAcquireDevice
+    KsAcquireDeviceSecurityLock
+    KsAcquireResetValue
+    KsAddDevice
+    KsAddEvent
+    KsAddIrpToCancelableQueue
+    KsAddItemToObjectBag
+    KsAddObjectCreateItemToDeviceHeader
+    KsAddObjectCreateItemToObjectHeader
+    KsAllocateDefaultClock
+    KsAllocateDefaultClockEx
+    KsAllocateDeviceHeader
+    KsAllocateExtraData
+    KsAllocateObjectBag
+    KsAllocateObjectCreateItem
+    KsAllocateObjectHeader
+    KsCacheMedium
+    KsCancelIo
+    KsCancelRoutine
+    KsCompletePendingRequest
+    KsCopyObjectBagItems
+    KsCreateAllocator
+    KsCreateBusEnumObject
+    KsCreateClock
+    KsCreateDefaultAllocator
+    KsCreateDefaultAllocatorEx
+    KsCreateDefaultClock
+    KsCreateDefaultSecurity
+    KsCreateDevice
+    KsCreateFilterFactory
+    KsCreatePin
+    KsCreateTopologyNode
+    KsDecrementCountedWorker
+    KsDefaultAddEventHandler
+    KsDefaultDeviceIoCompletion
+    KsDefaultDispatchPnp
+    KsDefaultDispatchPower
+    KsDefaultForwardIrp
+    KsDereferenceBusObject
+    KsDereferenceSoftwareBusObject
+    KsDeviceGetBusData
+    KsDeviceRegisterAdapterObject
+    KsDeviceSetBusData
+    KsDisableEvent
+    KsDiscardEvent
+    KsDispatchFastIoDeviceControlFailure
+    KsDispatchFastReadFailure
+    KsDispatchInvalidDeviceRequest
+    KsDispatchIrp
+    KsDispatchQuerySecurity
+    KsDispatchSetSecurity
+    KsDispatchSpecificMethod
+    KsDispatchSpecificProperty
+    KsEnableEvent
+    KsEnableEventWithAllocator
+    KsFastMethodHandler
+    KsFastPropertyHandler
+    KsFilterAcquireProcessingMutex
+    KsFilterAddTopologyConnections
+    KsFilterAttemptProcessing
+    KsFilterCreateNode
+    KsFilterCreatePinFactory
+    KsFilterFactoryAddCreateItem
+    KsFilterFactoryGetSymbolicLink
+    KsFilterFactorySetDeviceClassesState
+    KsFilterFactoryUpdateCacheData
+    KsFilterGetAndGate
+    KsFilterGetChildPinCount
+    KsFilterGetFirstChildPin
+    KsFilterRegisterPowerCallbacks
+    KsFilterReleaseProcessingMutex
+    KsForwardAndCatchIrp
+    KsForwardIrp
+    KsFreeDefaultClock
+    KsFreeDeviceHeader
+    KsFreeEventList
+    KsFreeObjectBag
+    KsFreeObjectCreateItem
+    KsFreeObjectCreateItemsByContext
+    KsFreeObjectHeader
+    KsGenerateDataEvent
+    KsGenerateEvent
+    KsGenerateEventList
+    KsGenerateEvents
+    KsGetBusEnumIdentifier
+    KsGetBusEnumParentFDOFromChildPDO
+    KsGetBusEnumPnpDeviceObject
+    KsGetDefaultClockState
+    KsGetDefaultClockTime
+    KsGetDevice
+    KsGetDeviceForDeviceObject
+    KsGetFilterFromIrp
+    KsGetFirstChild
+    KsGetImageNameAndResourceId
+    KsGetNextSibling
+    KsGetNodeIdFromIrp
+    KsGetObjectFromFileObject
+    KsGetObjectTypeFromFileObject
+    KsGetObjectTypeFromIrp
+    KsGetOuterUnknown
+    KsGetParent
+    KsGetPinFromIrp
+    KsHandleSizedListQuery
+    KsIncrementCountedWorker
+    KsInitializeDevice
+    KsInitializeDriver
+    KsInstallBusEnumInterface
+    KsIsBusEnumChildDevice
+    KsLoadResource
+    KsMapModuleName
+    KsMergeAutomationTables
+    KsMethodHandler
+    KsMethodHandlerWithAllocator
+    KsMoveIrpsOnCancelableQueue
+    KsNullDriverUnload
+    KsPinAcquireProcessingMutex
+    KsPinAttachAndGate
+    KsPinAttachOrGate
+    KsPinAttemptProcessing
+    KsPinDataIntersection
+    KsPinGetAndGate
+    KsPinGetAvailableByteCount
+    KsPinGetConnectedFilterInterface
+    KsPinGetConnectedPinDeviceObject
+    KsPinGetConnectedPinFileObject
+    KsPinGetConnectedPinInterface
+    KsPinGetCopyRelationships
+    KsPinGetFirstCloneStreamPointer
+    KsPinGetLeadingEdgeStreamPointer
+    KsPinGetNextSiblingPin
+    KsPinGetParentFilter
+    KsPinGetReferenceClockInterface
+    KsPinGetTrailingEdgeStreamPointer
+    KsPinPropertyHandler
+    KsPinRegisterFrameReturnCallback
+    KsPinRegisterHandshakeCallback
+    KsPinRegisterIrpCompletionCallback
+    KsPinRegisterPowerCallbacks
+    KsPinReleaseProcessingMutex
+    KsPinSetPinClockTime
+    KsPinSubmitFrame
+    KsPinSubmitFrameMdl
+    KsProbeStreamIrp
+    KsProcessPinUpdate
+    KsPropertyHandler
+    KsPropertyHandlerWithAllocator
+    KsQueryDevicePnpObject
+    KsQueryInformationFile
+    KsQueryObjectAccessMask
+    KsQueryObjectCreateItem
+    KsQueueWorkItem
+    KsReadFile
+    KsRecalculateStackDepth
+    KsReferenceBusObject
+    KsReferenceSoftwareBusObject
+    KsRegisterAggregatedClientUnknown
+    KsRegisterCountedWorker
+    KsRegisterFilterWithNoKSPins
+    KsRegisterWorker
+    KsReleaseControl
+    KsReleaseDevice
+    KsReleaseDeviceSecurityLock
+    KsReleaseIrpOnCancelableQueue
+    KsRemoveBusEnumInterface
+    KsRemoveIrpFromCancelableQueue
+    KsRemoveItemFromObjectBag
+    KsRemoveSpecificIrpFromCancelableQueue
+    KsServiceBusEnumCreateRequest
+    KsServiceBusEnumPnpRequest
+    KsSetDefaultClockState
+    KsSetDefaultClockTime
+    KsSetDevicePnpAndBaseObject
+    KsSetInformationFile
+    KsSetMajorFunctionHandler
+    KsSetPowerDispatch
+    KsSetTargetDeviceObject
+    KsSetTargetState
+    KsStreamIo
+    KsStreamPointerAdvance
+    KsStreamPointerAdvanceOffsets
+    KsStreamPointerAdvanceOffsetsAndUnlock
+    KsStreamPointerCancelTimeout
+    KsStreamPointerClone
+    KsStreamPointerDelete
+    KsStreamPointerGetIrp
+    KsStreamPointerGetMdl
+    KsStreamPointerGetNextClone
+    KsStreamPointerLock
+    KsStreamPointerScheduleTimeout
+    KsStreamPointerSetStatusCode
+    KsStreamPointerUnlock
+    KsSynchronousIoControlDevice
+    KsTerminateDevice
+    KsTopologyPropertyHandler
+    KsUnregisterWorker
+    KsUnserializeObjectPropertiesFromRegistry
+    KsValidateAllocatorCreateRequest
+    KsValidateAllocatorFramingEx
+    KsValidateClockCreateRequest
+    KsValidateConnectRequest
+    KsValidateTopologyNodeCreateRequest
+    KsWriteFile
+    KsiDefaultClockAddMarkEvent
+    KsiPropertyDefaultClockGetCorrelatedPhysicalTime
+    KsiPropertyDefaultClockGetCorrelatedTime
+    KsiPropertyDefaultClockGetFunctionTable
+    KsiPropertyDefaultClockGetPhysicalTime
+    KsiPropertyDefaultClockGetResolution
+    KsiPropertyDefaultClockGetState
+    KsiPropertyDefaultClockGetTime
+    KsiQueryObjectCreateItemsPresent
+    _KsEdit
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/ksproxy.ax
+  machine=i386 timestamp=1208139150 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegEnumKeyExW, RegQueryValueExW, RegCreateKeyW, RegSetValueW, RegSetValueExW, RegCloseKey, RegDeleteKeyW, RegOpenKeyExW, RegEnumKeyW
+  import KERNEL32.dll: InterlockedCompareExchange, InitializeCriticalSection, DeleteCriticalSection, EnterCriticalSection, LeaveCriticalSection, SetEvent, GetLastError, CreateEventW, CloseHandle, WaitForMultipleObjectsEx, WaitForSingleObjectEx, CreateThread, CreateFileW, ReleaseSemaphore ...
+  import OLEAUT32.dll: SysFreeString
+  import SETUPAPI.dll: SetupDiOpenDeviceInterfaceW, SetupDiGetDeviceInterfaceDetailW, SetupDiGetDeviceInterfaceAlias, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInterfaces, SetupDiOpenDeviceInterfaceRegKey, SetupDiCreateDeviceInfoListExW, SetupDiGetClassDevsW
+  import USER32.dll: wsprintfW
+  import ksuser.dll: KsCreateAllocator, KsCreateClock, KsCreateTopologyNode, KsCreatePin
+  import msvcrt.dll: wcscpy, ??3@YAXPAX@Z, memmove, swscanf, _except_handler3, swprintf, _ftol, _purecall, _CIpow, wcslen, ??2@YAPAXI@Z
+  import ntdll.dll: RtlNtStatusToDosError
+  import ole32.dll: StringFromGUID2, IIDFromString, CoCreateInstance, CoTaskMemAlloc, CoFreeUnusedLibraries, CoInitialize, CoTaskMemFree, CoUninitialize
+  EXPORTS (10):
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
+    KsGetMediaType
+    KsGetMediaTypeCount
+    KsGetMultiplePinFactoryItems
+    KsOpenDefaultDevice
+    KsResolveRequiredAttributes
+    KsSynchronousDeviceControl
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/kstvtune.ax
+  machine=i386 timestamp=1208139151 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegSetValueExW, RegDeleteValueW, RegCloseKey, RegOpenKeyExW, RegEnumValueW, RegCreateKeyExW, RegQueryValueExW
+  import COMCTL32.dll: ord17
+  import KERNEL32.dll: EnterCriticalSection, LeaveCriticalSection, IsBadWritePtr, CloseHandle, ReleaseMutex, WaitForSingleObject, CreateMutexW, LockResource, LoadResource, FindResourceW, GetLastError, DeleteCriticalSection, InterlockedCompareExchange, Sleep ...
+  import OLEAUT32.dll: VariantInit, VariantClear
+  import USER32.dll: wsprintfW, KillTimer, MessageBoxW, LoadStringW, CheckRadioButton, SetDlgItemTextW, SetDlgItemInt, SendMessageW, GetDlgItem, SetWindowTextW, EnableWindow, SetTimer, PostMessageW, UpdateWindow ...
+  import ksproxy.ax: KsSynchronousDeviceControl
+  import msvcrt.dll: _purecall, ??2@YAPAXI@Z, wcstol, ??3@YAXPAX@Z
+  import ole32.dll: CoTaskMemFree, CoInitialize, CoFreeUnusedLibraries, CoUninitialize, CoCreateInstance, CoTaskMemAlloc
+  EXPORTS (2):
+    DllCanUnloadNow
+    DllGetClassObject
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/ksuser.dll
+  machine=i386 timestamp=1208139152 (2008-04-14)
+  sections: .text .rsrc .reloc
+  import KERNEL32.dll: GetProcessHeap, HeapAlloc, HeapFree
+  import ntdll.dll: NtCreateFile, RtlNtStatusToDosError
+  EXPORTS (4):
+    KsCreateAllocator
+    KsCreateClock
+    KsCreatePin
+    KsCreateTopologyNode
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/kswdmcap.ax
+  machine=i386 timestamp=1208139153 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegCreateKeyW, RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegSetValueExW, RegDeleteKeyW, RegSetValueW
+  import COMCTL32.dll: InitCommonControlsEx
+  import KERNEL32.dll: CloseHandle, GetOverlappedResult, DeviceIoControl, GetLastError, CreateEventW, lstrcpynW, lstrcpyW, lstrcmpW, Sleep, lstrlenW, WaitForSingleObjectEx, SetEvent, DeleteCriticalSection, LeaveCriticalSection ...
+  import MFC42.DLL: ord823, ord825
+  import USER32.dll: GetDesktopWindow, GetWindowRect, SetRect, IsRectEmpty, SendMessageW, SetDlgItemInt, EnableWindow, GetDlgItem, SetWindowTextW, GetWindowTextW, GetDlgItemInt, IsWindowEnabled, MessageBoxW, LoadStringW ...
+  import msvcrt.dll: wcsncpy, _wtoi, sprintf, ??1type_info@@UAE@XZ, wcstod, _except_handler3, _ftol, __CxxFrameHandler, swprintf, ?terminate@@YAXXZ, _purecall
+  import ole32.dll: StringFromGUID2, CoUninitialize, CoFreeUnusedLibraries, CoInitialize, CoTaskMemAlloc, CoTaskMemFree, CoCreateInstance
+  EXPORTS (8):
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
+    FilterHandleFromPin
+    PerformDataIntersection
+    PinFactoryIDFromPin
+    RedundantKsGetMultiplePinFactoryItems
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/ksxbar.ax
+  machine=i386 timestamp=1208139154 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import KERNEL32.dll: InitializeCriticalSection, DeleteCriticalSection, EnterCriticalSection, LeaveCriticalSection, lstrcpynW, CloseHandle, WaitForSingleObject, GetLastError, DeviceIoControl, CreateEventW, IsBadWritePtr, CreateFileW, lstrcpyW, QueryPerformanceCounter ...
+  import OLEAUT32.dll: VariantInit, VariantClear
+  import USER32.dll: GetWindowRect, MessageBoxW, SetRect, SetDlgItemTextW, SendMessageW, GetDlgItem, CheckRadioButton, EnableWindow, wsprintfW, GetWindowLongW, SetWindowLongW, CreateDialogParamW, MoveWindow, InvalidateRect ...
+  import msvcrt.dll: ??3@YAXPAX@Z, ??2@YAPAXI@Z, wcslen, _purecall, swprintf
+  import ole32.dll: CoUninitialize, CoCreateInstance, CoTaskMemFree, CoTaskMemAlloc, CoInitialize, CoFreeUnusedLibraries
+  EXPORTS (2):
+    DllCanUnloadNow
+    DllGetClassObject
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/msh263.drv
+  machine=i386 timestamp=1208139270 (2008-04-14)
+  sections: .text MMXCODE1 IACODE2 IACODE1 EDTQ .data MMXDATA1 MMXCCDAT MMXMEDAT H26xColo IARDATA2 IADATA1 .rsrc .reloc
+  import GDI32.dll: GetDeviceCaps, GetSystemPaletteEntries
+  import KERNEL32.dll: SetUnhandledExceptionFilter, UnhandledExceptionFilter, GetCurrentProcess, TerminateProcess, GetSystemTimeAsFileTime, GetCurrentProcessId, GetCurrentThreadId, GetTickCount, QueryPerformanceCounter, VirtualFree, HeapFree, GetProcessHeap, IsBadReadPtr, MultiByteToWideChar ...
+  import USER32.dll: PostMessageA, GetDC, ReleaseDC, DialogBoxParamA, EndDialog
+  import WINMM.dll: DefDriverProc
+  import msvcrt.dll: free, _initterm, srand, rand, __CxxFrameHandler, malloc, _adjust_fdiv, _except_handler3, _clearfp, toupper, _ftol
+  EXPORTS (2):
+    DllMain
+    DriverProc
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/msyuv.dll
+  machine=i386 timestamp=1208139338 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import GDI32.dll: GetSystemPaletteEntries
+  import KERNEL32.dll: GetCurrentProcessId, GetSystemTimeAsFileTime, VirtualAlloc, GetCurrentThreadId, GetTickCount, QueryPerformanceCounter, DisableThreadLibraryCalls, VirtualFree, LocalAlloc, LocalFree
+  import USER32.dll: GetDesktopWindow, GetDC, ReleaseDC, MessageBoxW
+  import WINMM.dll: GetDriverModuleHandle, DefDriverProc
+  import msvcrt.dll: _ftol, wcscpy
+  EXPORTS (1):
+    DriverProc
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/tsbyuv.dll
+  machine=i386 timestamp=999298741 (2001-08-31)
+  sections: .text .data .rsrc .reloc
+  import KERNEL32.dll: GlobalFree, GlobalHandle, LocalAlloc, LocalFree, GlobalLock, GlobalAlloc
+  import USER32.dll: MessageBoxW
+  import WINMM.dll: GetDriverModuleHandle, DefDriverProc
+  EXPORTS (1):
+    DriverProc
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/usbccgp.sys
+  machine=i386 timestamp=1091599725 (2004-08-04)
+  sections: .text .rdata .data PAGE PAGECONS INIT .rsrc .reloc
+  import HAL.DLL: KfReleaseSpinLock, KfAcquireSpinLock
+  import NTOSKRNL.EXE: RtlQueryRegistryValues, KeInitializeSpinLock, KeInitializeEvent, IoAttachDeviceToDeviceStack, IoCreateDevice, ExAllocatePoolWithTag, IofCallDriver, IofCompleteRequest, PoStartNextPowerIrp, IoFreeIrp, IoAllocateIrp, KeWaitForSingleObject, memset, ExFreePool ...
+  import USBD.SYS: USBD_ParseConfigurationDescriptorEx, USBD_CreateConfigurationRequestEx
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/usbvideo.sys
+  machine=i386 timestamp=1208112378 (2008-04-13)
+  sections: .text .rdata .data PAGE INIT .rsrc .reloc
+  import HAL.DLL: KfReleaseSpinLock, KfAcquireSpinLock
+  import NTOSKRNL.EXE: WmiTraceMessage, ExfInterlockedRemoveHeadList, KeInitializeSpinLock, ExFreePoolWithTag, ExfInterlockedInsertHeadList, ExfInterlockedInsertTailList, KeReleaseSemaphore, KeReadStateSemaphore, KeWaitForSingleObject, KeSetEvent, InterlockedDecrement, IoInitializeIrp, IofCallDriver, InterlockedIncrement ...
+  import USBD.SYS: USBD_ParseDescriptors, USBD_ParseConfigurationDescriptorEx, USBD_CreateConfigurationRequestEx
+  import ks.sys: KsIncrementCountedWorker, KsStreamPointerUnlock, KsStreamPointerClone, KsPinGetLeadingEdgeStreamPointer, KsDecrementCountedWorker, KsRegisterCountedWorker, KsAddItemToObjectBag, KsGetFirstChild, KsGetNextSibling, KsAcquireControl, KsReleaseControl, KsReleaseDevice, KsAcquireDevice, KsPinGetNextSiblingPin ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/vfwwdm32.dll
+  machine=i386 timestamp=1208139200 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegQueryValueExA, RegSetValueExA, RegCloseKey, RegCreateKeyExA
+  import COMCTL32.dll: PropertySheetA, ord17, CreatePropertySheetPageA
+  import KERNEL32.dll: FreeLibrary, InterlockedDecrement, InterlockedIncrement, WideCharToMultiByte, SetUnhandledExceptionFilter, UnhandledExceptionFilter, GetCurrentProcess, TerminateProcess, GetSystemTimeAsFileTime, GetCurrentProcessId, GetCurrentThreadId, GetTickCount, QueryPerformanceCounter, CreateThread ...
+  import OLEAUT32.dll: OleCreatePropertyFrame, SysFreeString
+  import USER32.dll: SetForegroundWindow, LoadCursorA, RegisterClassA, CreateWindowExA, GetWindowRect, GetClientRect, DefWindowProcA, PostQuitMessage, GetMessageA, DispatchMessageA, GetClassInfoA, UnregisterClassA, GetWindowLongA, WinHelpA ...
+  import WINMM.dll: timeGetTime, DefDriverProc, DriverCallback
+  import ksuser.dll: KsCreatePin
+  import msvcrt.dll: strtol, ??2@YAPAXI@Z, _purecall, ??3@YAXPAX@Z, _except_handler3, wcscmp
+  import ole32.dll: CoUninitialize, CoInitialize, CoCreateInstance, CoTaskMemFree
+  EXPORTS (3):
+    DllMain
+    DriverProc
+    VfwWdm
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/videoDriver/vidcap.ax
+  machine=i386 timestamp=1208139202 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegQueryValueExA, RegOpenKeyExA, RegCloseKey
+  import ATL.DLL: ord15, ord57, ord30, ord18, ord21, ord32, ord23, ord16
+  import KERNEL32.dll: InitializeCriticalSection, DeleteCriticalSection, InterlockedIncrement, InterlockedDecrement, LeaveCriticalSection, EnterCriticalSection, WideCharToMultiByte, OutputDebugStringA, QueryPerformanceCounter, GetTickCount, GetCurrentThreadId, GetCurrentProcessId, GetSystemTimeAsFileTime, TerminateProcess ...
+  import msvcrt.dll: _adjust_fdiv, ??3@YAXPAX@Z, _purecall, ??2@YAPAXI@Z, _except_handler3, _vsnprintf, free, _initterm, malloc
+  import ole32.dll: StringFromGUID2, CoCreateInstance
+  EXPORTS (4):
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/USBHubDriver/usbhub.sys
+  machine=i386 timestamp=1208112336 (2008-04-13)
+  sections: .text .rdata .data PAGE PAGECONS INIT .rsrc .reloc
+  import HAL.dll: KfAcquireSpinLock, KfReleaseSpinLock
+  import USBD.SYS: USBD_CreateConfigurationRequestEx, USBD_ParseConfigurationDescriptorEx, USBD_GetPdoRegistryParameter, USBD_CalculateUsbBandwidth
+  import WMILIB.SYS: WmiSystemControl, WmiFireEvent, WmiCompleteRequest
+  import ntoskrnl.exe: InterlockedDecrement, IoInvalidateDeviceRelations, InterlockedIncrement, KeSetTimer, KeInitializeDpc, KeInitializeTimer, IoGetDeviceProperty, IoDeleteDevice, IoWMIRegistrationControl, KeInitializeSemaphore, IoAttachDeviceToDeviceStack, IoCreateDevice, IoReleaseCancelSpinLock, IoAcquireCancelSpinLock ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/xeyezDriver/xeyez.sys
+  machine=i386 timestamp=1320644341 (2011-11-07)
+  sections: .text .rdata .data INIT .rsrc .reloc
+  import HAL.dll: KfAcquireSpinLock, KfReleaseSpinLock
+  import USBD.SYS: USBD_CreateConfigurationRequestEx, USBD_ParseConfigurationDescriptorEx
+  import WMILIB.SYS: WmiSystemControl, WmiCompleteRequest
+  import ntoskrnl.exe: RtlGenerate8dot3Name, RtlIsNameLegalDOS8Dot3, wcsncpy, DbgPrint, RtlUnicodeStringToAnsiString, KeInitializeTimerEx, KeInitializeDpc, IoIsWdmVersionAvailable, IoDetachDevice, IoRegisterDeviceInterface, IoAttachDeviceToDeviceStack, PoSetPowerState, IoDeleteDevice, IoDeleteSymbolicLink ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/xeyezDriver/xeyezCoIns.dll
+  machine=i386 timestamp=1312440944 (2011-08-04)
+  sections: .text .rdata .data .rsrc .reloc
+  import ADVAPI32.dll: RegEnumKeyExA, RegCloseKey, RegOpenKeyExA
+  import KERNEL32.dll: HeapSize, GetLocaleInfoA, GetStringTypeW, GetStringTypeA, GetVersionExA, lstrcmpiA, GetFullPathNameA, GetLastError, GetSystemTime, GetConsoleMode, HeapFree, HeapAlloc, GetCurrentThreadId, GetCommandLineA ...
+  import SETUPAPI.dll: SetupDiEnumDriverInfoA, SetupDiGetDriverInstallParamsA, SetupDiSetDriverInstallParamsA, SetupDiGetSelectedDriverA, SetupDiGetDriverInfoDetailA, SetupOpenInfFileA, SetupGetInfInformationA, SetupQueryInfOriginalFileInformationA, SetupDiGetActualSectionToInstallA, SetupFindFirstLineA, SetupGetStringFieldA, SetupGetFieldCount, SetupCopyOEMInfA, SetupFindNextMatchLineA ...
+  EXPORTS (1):
+    xeyezCoInstaller
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/virtualDriver/vKeyboard.sys
+  machine=i386 timestamp=1249697160 (2009-08-08)
+  sections: .text .data PAGE INIT .rsrc .reloc
+  import ntoskrnl.exe: IofCompleteRequest, IofCallDriver, DbgPrint, memset, IoDeleteSymbolicLink, RtlInitUnicodeString, IoDeleteDevice, IoCreateSymbolicLink, IoCreateDevice, IoAttachDeviceToDeviceStack, IoDetachDevice, PoCallDriver, PoStartNextPowerIrp
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/Vista/virtualDriver/vMouse.sys
+  machine=i386 timestamp=1249697098 (2009-08-08)
+  sections: .text .data PAGE INIT .rsrc .reloc
+  import ntoskrnl.exe: DbgPrint, IofCallDriver, IofCompleteRequest, IoDeleteDevice, IoCreateSymbolicLink, IoCreateDevice, RtlInitUnicodeString, IoAttachDeviceToDeviceStack, IoDetachDevice, PoCallDriver, PoStartNextPowerIrp
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/AudioDriver/USBAUDIO.sys
+  machine=i386 timestamp=1208112311 (2008-04-13)
+  sections: .text .rdata .data PAGECONS INIT .rsrc .reloc
+  import HAL.DLL: KfAcquireSpinLock, KfReleaseSpinLock, KeQueryPerformanceCounter
+  import NTOSKRNL.EXE: KeInitializeEvent, ExFreePool, ExAllocatePoolWithTag, IoAllocateIrp, ZwSetValueKey, RtlInitUnicodeString, ZwQueryValueKey, ZwClose, ZwCreateKey, ZwOpenKey, RtlFreeUnicodeString, RtlStringFromGUID, IofCallDriver, InterlockedDecrement ...
+  import USBD.SYS: USBD_ParseConfigurationDescriptorEx, USBD_CreateConfigurationRequestEx, USBD_ParseDescriptors
+  import drmk.sys: DrmForwardContentToDeviceObject
+  import ks.sys: KsGetNextSibling, KsAcquireControl, KsReleaseControl, KsReleaseDevice, KsPinGetNextSiblingPin, KsStreamPointerUnlock, KsStreamPointerSetStatusCode, KsPinGetLeadingEdgeStreamPointer, KsFilterGetFirstChildPin, KsAcquireDevice, KsAddItemToObjectBag, KsGetParent, KsCreateFilterFactory, _KsEdit ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/AudioDriver/drmk.sys
+  machine=i386 timestamp=1208112312 (2008-04-13)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import ks.sys: KsSynchronousIoControlDevice, KsRemoveItemFromObjectBag, KsPinGetParentFilter, _KsEdit, KsPinGetConnectedPinFileObject, KsFilterGetFirstChildPin, KsAddEvent, KsGenerateEvents, KsAcquireControl, KsReleaseControl, KsGetPinFromIrp, KsPinGetConnectedPinDeviceObject, KsPinGetConnectedPinInterface
+  import ntoskrnl.exe: KeTickCount, _allrem, _aullrem, KeBugCheckEx, ExFreePool, ObfDereferenceObject, IoGetLowerDeviceObject, KeWaitForSingleObject, IofCallDriver, IoBuildDeviceIoControlRequest, KeInitializeEvent, ExAllocatePoolWithTag, MmIsVerifierEnabled, KeInitializeMutex ...
+  EXPORTS (10):
+    DllInitialize
+    DllUnload
+    DrmAddContentHandlers
+    DrmCreateContentMixed
+    DrmDestroyContent
+    DrmForwardContentToDeviceObject
+    DrmForwardContentToFileObject
+    DrmForwardContentToInterface
+    DrmGetContentRights
+    DrmGetFilterDescriptor
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/AudioDriver/ks.sys
+  machine=i386 timestamp=1208114194 (2008-04-13)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import HAL.dll: KfLowerIrql, IoFlushAdapterBuffers, IoFreeMapRegisters, IoMapTransfer, KeGetCurrentIrql, ExAcquireFastMutex, ExReleaseFastMutex, KfAcquireSpinLock, KfReleaseSpinLock, KeQueryPerformanceCounter, KfRaiseIrql
+  import ntoskrnl.exe: ExDeletePagedLookasideList, ExInitializePagedLookasideList, KeInitializeSpinLock, ProbeForRead, _except_handler3, IofCallDriver, IoBuildSynchronousFsdRequest, ZwClose, ExFreePoolWithTag, ZwQueryValueKey, ZwOpenKey, RtlInitUnicodeString, RtlFreeUnicodeString, wcscat ...
+  EXPORTS (228):
+    ??0CBaseUnknown@@QAE@ABU_GUID@@PAUIUnknown@@@Z
+    ??0CBaseUnknown@@QAE@PAUIUnknown@@@Z
+    ??1CBaseUnknown@@UAE@XZ
+    ??_FCBaseUnknown@@QAEXXZ
+    ?IndirectedAddRef@CBaseUnknown@@UAGKXZ
+    ?IndirectedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z
+    ?IndirectedRelease@CBaseUnknown@@UAGKXZ
+    ?NonDelegatedAddRef@CBaseUnknown@@UAGKXZ
+    ?NonDelegatedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z
+    ?NonDelegatedRelease@CBaseUnknown@@UAGKXZ
+    DllInitialize
+    KoCreateInstance
+    KoDeviceInitialize
+    KoDriverInitialize
+    KoRelease
+    KsAcquireControl
+    KsAcquireDevice
+    KsAcquireDeviceSecurityLock
+    KsAcquireResetValue
+    KsAddDevice
+    KsAddEvent
+    KsAddIrpToCancelableQueue
+    KsAddItemToObjectBag
+    KsAddObjectCreateItemToDeviceHeader
+    KsAddObjectCreateItemToObjectHeader
+    KsAllocateDefaultClock
+    KsAllocateDefaultClockEx
+    KsAllocateDeviceHeader
+    KsAllocateExtraData
+    KsAllocateObjectBag
+    KsAllocateObjectCreateItem
+    KsAllocateObjectHeader
+    KsCacheMedium
+    KsCancelIo
+    KsCancelRoutine
+    KsCompletePendingRequest
+    KsCopyObjectBagItems
+    KsCreateAllocator
+    KsCreateBusEnumObject
+    KsCreateClock
+    KsCreateDefaultAllocator
+    KsCreateDefaultAllocatorEx
+    KsCreateDefaultClock
+    KsCreateDefaultSecurity
+    KsCreateDevice
+    KsCreateFilterFactory
+    KsCreatePin
+    KsCreateTopologyNode
+    KsDecrementCountedWorker
+    KsDefaultAddEventHandler
+    KsDefaultDeviceIoCompletion
+    KsDefaultDispatchPnp
+    KsDefaultDispatchPower
+    KsDefaultForwardIrp
+    KsDereferenceBusObject
+    KsDereferenceSoftwareBusObject
+    KsDeviceGetBusData
+    KsDeviceRegisterAdapterObject
+    KsDeviceSetBusData
+    KsDisableEvent
+    KsDiscardEvent
+    KsDispatchFastIoDeviceControlFailure
+    KsDispatchFastReadFailure
+    KsDispatchInvalidDeviceRequest
+    KsDispatchIrp
+    KsDispatchQuerySecurity
+    KsDispatchSetSecurity
+    KsDispatchSpecificMethod
+    KsDispatchSpecificProperty
+    KsEnableEvent
+    KsEnableEventWithAllocator
+    KsFastMethodHandler
+    KsFastPropertyHandler
+    KsFilterAcquireProcessingMutex
+    KsFilterAddTopologyConnections
+    KsFilterAttemptProcessing
+    KsFilterCreateNode
+    KsFilterCreatePinFactory
+    KsFilterFactoryAddCreateItem
+    KsFilterFactoryGetSymbolicLink
+    KsFilterFactorySetDeviceClassesState
+    KsFilterFactoryUpdateCacheData
+    KsFilterGetAndGate
+    KsFilterGetChildPinCount
+    KsFilterGetFirstChildPin
+    KsFilterRegisterPowerCallbacks
+    KsFilterReleaseProcessingMutex
+    KsForwardAndCatchIrp
+    KsForwardIrp
+    KsFreeDefaultClock
+    KsFreeDeviceHeader
+    KsFreeEventList
+    KsFreeObjectBag
+    KsFreeObjectCreateItem
+    KsFreeObjectCreateItemsByContext
+    KsFreeObjectHeader
+    KsGenerateDataEvent
+    KsGenerateEvent
+    KsGenerateEventList
+    KsGenerateEvents
+    KsGetBusEnumIdentifier
+    KsGetBusEnumParentFDOFromChildPDO
+    KsGetBusEnumPnpDeviceObject
+    KsGetDefaultClockState
+    KsGetDefaultClockTime
+    KsGetDevice
+    KsGetDeviceForDeviceObject
+    KsGetFilterFromIrp
+    KsGetFirstChild
+    KsGetImageNameAndResourceId
+    KsGetNextSibling
+    KsGetNodeIdFromIrp
+    KsGetObjectFromFileObject
+    KsGetObjectTypeFromFileObject
+    KsGetObjectTypeFromIrp
+    KsGetOuterUnknown
+    KsGetParent
+    KsGetPinFromIrp
+    KsHandleSizedListQuery
+    KsIncrementCountedWorker
+    KsInitializeDevice
+    KsInitializeDriver
+    KsInstallBusEnumInterface
+    KsIsBusEnumChildDevice
+    KsLoadResource
+    KsMapModuleName
+    KsMergeAutomationTables
+    KsMethodHandler
+    KsMethodHandlerWithAllocator
+    KsMoveIrpsOnCancelableQueue
+    KsNullDriverUnload
+    KsPinAcquireProcessingMutex
+    KsPinAttachAndGate
+    KsPinAttachOrGate
+    KsPinAttemptProcessing
+    KsPinDataIntersection
+    KsPinGetAndGate
+    KsPinGetAvailableByteCount
+    KsPinGetConnectedFilterInterface
+    KsPinGetConnectedPinDeviceObject
+    KsPinGetConnectedPinFileObject
+    KsPinGetConnectedPinInterface
+    KsPinGetCopyRelationships
+    KsPinGetFirstCloneStreamPointer
+    KsPinGetLeadingEdgeStreamPointer
+    KsPinGetNextSiblingPin
+    KsPinGetParentFilter
+    KsPinGetReferenceClockInterface
+    KsPinGetTrailingEdgeStreamPointer
+    KsPinPropertyHandler
+    KsPinRegisterFrameReturnCallback
+    KsPinRegisterHandshakeCallback
+    KsPinRegisterIrpCompletionCallback
+    KsPinRegisterPowerCallbacks
+    KsPinReleaseProcessingMutex
+    KsPinSetPinClockTime
+    KsPinSubmitFrame
+    KsPinSubmitFrameMdl
+    KsProbeStreamIrp
+    KsProcessPinUpdate
+    KsPropertyHandler
+    KsPropertyHandlerWithAllocator
+    KsQueryDevicePnpObject
+    KsQueryInformationFile
+    KsQueryObjectAccessMask
+    KsQueryObjectCreateItem
+    KsQueueWorkItem
+    KsReadFile
+    KsRecalculateStackDepth
+    KsReferenceBusObject
+    KsReferenceSoftwareBusObject
+    KsRegisterAggregatedClientUnknown
+    KsRegisterCountedWorker
+    KsRegisterFilterWithNoKSPins
+    KsRegisterWorker
+    KsReleaseControl
+    KsReleaseDevice
+    KsReleaseDeviceSecurityLock
+    KsReleaseIrpOnCancelableQueue
+    KsRemoveBusEnumInterface
+    KsRemoveIrpFromCancelableQueue
+    KsRemoveItemFromObjectBag
+    KsRemoveSpecificIrpFromCancelableQueue
+    KsServiceBusEnumCreateRequest
+    KsServiceBusEnumPnpRequest
+    KsSetDefaultClockState
+    KsSetDefaultClockTime
+    KsSetDevicePnpAndBaseObject
+    KsSetInformationFile
+    KsSetMajorFunctionHandler
+    KsSetPowerDispatch
+    KsSetTargetDeviceObject
+    KsSetTargetState
+    KsStreamIo
+    KsStreamPointerAdvance
+    KsStreamPointerAdvanceOffsets
+    KsStreamPointerAdvanceOffsetsAndUnlock
+    KsStreamPointerCancelTimeout
+    KsStreamPointerClone
+    KsStreamPointerDelete
+    KsStreamPointerGetIrp
+    KsStreamPointerGetMdl
+    KsStreamPointerGetNextClone
+    KsStreamPointerLock
+    KsStreamPointerScheduleTimeout
+    KsStreamPointerSetStatusCode
+    KsStreamPointerUnlock
+    KsSynchronousIoControlDevice
+    KsTerminateDevice
+    KsTopologyPropertyHandler
+    KsUnregisterWorker
+    KsUnserializeObjectPropertiesFromRegistry
+    KsValidateAllocatorCreateRequest
+    KsValidateAllocatorFramingEx
+    KsValidateClockCreateRequest
+    KsValidateConnectRequest
+    KsValidateTopologyNodeCreateRequest
+    KsWriteFile
+    KsiDefaultClockAddMarkEvent
+    KsiPropertyDefaultClockGetCorrelatedPhysicalTime
+    KsiPropertyDefaultClockGetCorrelatedTime
+    KsiPropertyDefaultClockGetFunctionTable
+    KsiPropertyDefaultClockGetPhysicalTime
+    KsiPropertyDefaultClockGetResolution
+    KsiPropertyDefaultClockGetState
+    KsiPropertyDefaultClockGetTime
+    KsiQueryObjectCreateItemsPresent
+    _KsEdit
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/AudioDriver/ksproxy.ax
+  machine=i386 timestamp=1208139150 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegEnumKeyExW, RegQueryValueExW, RegCreateKeyW, RegSetValueW, RegSetValueExW, RegCloseKey, RegDeleteKeyW, RegOpenKeyExW, RegEnumKeyW
+  import KERNEL32.dll: InterlockedCompareExchange, InitializeCriticalSection, DeleteCriticalSection, EnterCriticalSection, LeaveCriticalSection, SetEvent, GetLastError, CreateEventW, CloseHandle, WaitForMultipleObjectsEx, WaitForSingleObjectEx, CreateThread, CreateFileW, ReleaseSemaphore ...
+  import OLEAUT32.dll: SysFreeString
+  import SETUPAPI.dll: SetupDiOpenDeviceInterfaceW, SetupDiGetDeviceInterfaceDetailW, SetupDiGetDeviceInterfaceAlias, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInterfaces, SetupDiOpenDeviceInterfaceRegKey, SetupDiCreateDeviceInfoListExW, SetupDiGetClassDevsW
+  import USER32.dll: wsprintfW
+  import ksuser.dll: KsCreateAllocator, KsCreateClock, KsCreateTopologyNode, KsCreatePin
+  import msvcrt.dll: wcscpy, ??3@YAXPAX@Z, memmove, swscanf, _except_handler3, swprintf, _ftol, _purecall, _CIpow, wcslen, ??2@YAPAXI@Z
+  import ntdll.dll: RtlNtStatusToDosError
+  import ole32.dll: StringFromGUID2, IIDFromString, CoCreateInstance, CoTaskMemAlloc, CoFreeUnusedLibraries, CoInitialize, CoTaskMemFree, CoUninitialize
+  EXPORTS (10):
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
+    KsGetMediaType
+    KsGetMediaTypeCount
+    KsGetMultiplePinFactoryItems
+    KsOpenDefaultDevice
+    KsResolveRequiredAttributes
+    KsSynchronousDeviceControl
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/AudioDriver/ksuser.dll
+  machine=i386 timestamp=1208139152 (2008-04-14)
+  sections: .text .rsrc .reloc
+  import KERNEL32.dll: GetProcessHeap, HeapAlloc, HeapFree
+  import ntdll.dll: NtCreateFile, RtlNtStatusToDosError
+  EXPORTS (4):
+    KsCreateAllocator
+    KsCreateClock
+    KsCreatePin
+    KsCreateTopologyNode
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/AudioDriver/portcls.sys
+  machine=i386 timestamp=1208114380 (2008-04-13)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import HAL.dll: WRITE_PORT_UCHAR, KeQueryPerformanceCounter, KfAcquireSpinLock, KfReleaseSpinLock, KeStallExecutionProcessor, KfRaiseIrql, KfLowerIrql, KeGetCurrentIrql, READ_PORT_UCHAR
+  import drmk.sys: DrmAddContentHandlers, DrmDestroyContent, DrmForwardContentToDeviceObject, DrmForwardContentToFileObject, DrmForwardContentToInterface, DrmGetContentRights, DrmCreateContentMixed
+  import ks.sys: KsDecrementCountedWorker, ??0CBaseUnknown@@QAE@PAUIUnknown@@@Z, KsIncrementCountedWorker, ?NonDelegatedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z, KsUnregisterWorker, ??1CBaseUnknown@@UAE@XZ, ?NonDelegatedAddRef@CBaseUnknown@@UAGKXZ, ?NonDelegatedRelease@CBaseUnknown@@UAGKXZ, ?IndirectedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z, ?IndirectedAddRef@CBaseUnknown@@UAGKXZ, ?IndirectedRelease@CBaseUnknown@@UAGKXZ, KsRegisterCountedWorker, KsSynchronousIoControlDevice, KsPinPropertyHandler ...
+  import ntoskrnl.exe: ZwCreateKey, IoOpenDeviceInterfaceRegistryKey, ZwQueryKey, ZwEnumerateKey, ZwEnumerateValueKey, ZwSetValueKey, RtlQueryRegistryValues, ZwDeleteKey, KeCancelTimer, KeSetTimer, KeInitializeTimer, ExfInterlockedInsertTailList, IoFreeIrp, MmUnlockPages ...
+  EXPORTS (56):
+    DllInitialize
+    DllUnload
+    KsoDispatchCreateWithGenericFactory
+    KsoGetIrpTargetFromFileObject
+    KsoGetIrpTargetFromIrp
+    PcAcquireFormatResources
+    PcAddAdapterDevice
+    PcAddContentHandlers
+    PcAddToEventTable
+    PcAddToPropertyTable
+    PcCaptureFormat
+    PcCompleteIrp
+    PcCompletePendingEventRequest
+    PcCompletePendingPropertyRequest
+    PcCreateContentMixed
+    PcCreateSubdeviceDescriptor
+    PcDeleteSubdeviceDescriptor
+    PcDestroyContent
+    PcDispatchIrp
+    PcDmaMasterDescription
+    PcDmaSlaveDescription
+    PcForwardContentToDeviceObject
+    PcForwardContentToFileObject
+    PcForwardContentToInterface
+    PcForwardIrpSynchronous
+    PcFreeEventTable
+    PcFreePropertyTable
+    PcGenerateEventDeferredRoutine
+    PcGenerateEventList
+    PcGetContentRights
+    PcGetDeviceProperty
+    PcGetTimeInterval
+    PcHandleDisableEventWithTable
+    PcHandleEnableEventWithTable
+    PcHandlePropertyWithTable
+    PcInitializeAdapterDriver
+    PcNewDmaChannel
+    PcNewInterruptSync
+    PcNewMiniport
+    PcNewPort
+    PcNewRegistryKey
+    PcNewResourceList
+    PcNewResourceSublist
+    PcNewServiceGroup
+    PcPinPropertyHandler
+    PcRegisterAdapterPowerManagement
+    PcRegisterIoTimeout
+    PcRegisterPhysicalConnection
+    PcRegisterPhysicalConnectionFromExternal
+    PcRegisterPhysicalConnectionToExternal
+    PcRegisterSubdevice
+    PcRequestNewPowerState
+    PcTerminateConnection
+    PcUnregisterIoTimeout
+    PcValidateConnectRequest
+    PcVerifyFilterIsReady
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/AudioDriver/stream.sys
+  machine=i386 timestamp=1208112314 (2008-04-13)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import HAL.DLL: KfRaiseIrql, KfLowerIrql, ExReleaseFastMutex, KeQueryPerformanceCounter, ExAcquireFastMutex, KfAcquireSpinLock, KfReleaseSpinLock
+  import NTOSKRNL.EXE: KefAcquireSpinLockAtDpcLevel, IoFreeMdl, MmMapLockedPagesSpecifyCache, ExAllocatePoolWithTag, IoWriteErrorLogEntry, IoAllocateErrorLogEntry, KeSetEvent, InterlockedDecrement, IoFreeIrp, IofCompleteRequest, IoCancelIrp, ZwQueryValueKey, RtlInitUnicodeString, KeWaitForSingleObject ...
+  import ks.sys: KsUnserializeObjectPropertiesFromRegistry, KsDiscardEvent, KsAllocateExtraData, KsProbeStreamIrp, KsFreeObjectHeader, KsAllocateObjectHeader, KsUnregisterWorker, KsRegisterWorker, KsDispatchIrp, KsAddIrpToCancelableQueue, KsRemoveIrpFromCancelableQueue, KsFreeDeviceHeader, KsAllocateDeviceHeader, KsSetMajorFunctionHandler ...
+  EXPORTS (22):
+    DllInitialize
+    DllUnload
+    StreamClassAbortOutstandingRequests
+    StreamClassCallAtNewPriority
+    StreamClassCompleteRequestAndMarkQueueReady
+    StreamClassDebugAssert
+    StreamClassDebugPrint
+    StreamClassDeviceNotification
+    StreamClassFilterReenumerateStreams
+    StreamClassGetDmaBuffer
+    StreamClassGetNextEvent
+    StreamClassGetPhysicalAddress
+    StreamClassLogError
+    StreamClassPnPAddDeviceWorker
+    StreamClassQueryMasterClock
+    StreamClassQueryMasterClockSync
+    StreamClassReadWriteConfig
+    StreamClassReenumerateStreams
+    StreamClassRegisterAdapter
+    StreamClassRegisterFilterWithNoKSPins
+    StreamClassScheduleTimer
+    StreamClassStreamNotification
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/AudioDriver/usbccgp.sys
+  machine=i386 timestamp=1091599725 (2004-08-04)
+  sections: .text .rdata .data PAGE PAGECONS INIT .rsrc .reloc
+  import HAL.DLL: KfReleaseSpinLock, KfAcquireSpinLock
+  import NTOSKRNL.EXE: RtlQueryRegistryValues, KeInitializeSpinLock, KeInitializeEvent, IoAttachDeviceToDeviceStack, IoCreateDevice, ExAllocatePoolWithTag, IofCallDriver, IofCompleteRequest, PoStartNextPowerIrp, IoFreeIrp, IoAllocateIrp, KeWaitForSingleObject, memset, ExFreePool ...
+  import USBD.SYS: USBD_ParseConfigurationDescriptorEx, USBD_CreateConfigurationRequestEx
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/AudioDriver/wdmaud.drv
+  machine=i386 timestamp=1208139213 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: GetSecurityDescriptorDacl, InitializeSecurityDescriptor, InitializeAcl, AddAccessAllowedAce, SetSecurityDescriptorDacl, FreeSid, AllocateAndInitializeSid, GetLengthSid
+  import KERNEL32.dll: GlobalHandle, IsBadReadPtr, InterlockedExchange, LeaveCriticalSection, EnterCriticalSection, IsBadWritePtr, DeleteCriticalSection, InitializeCriticalSection, HeapFree, CreateEventW, HeapAlloc, GetProcessHeap, CloseHandle, SetEvent ...
+  import WINMM.dll: DriverCallback, DefDriverProc
+  import ntdll.dll: NtQueryVirtualMemory, RtlUnwind
+  EXPORTS (7):
+    DriverProc
+    auxMessage
+    midMessage
+    modMessage
+    mxdMessage
+    widMessage
+    wodMessage
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/dshowext.ax
+  machine=i386 timestamp=1208139203 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import COMCTL32.dll: InitCommonControlsEx
+  import KERNEL32.dll: CloseHandle, GetOverlappedResult, DeviceIoControl, GetLastError, CreateEventA, QueryPerformanceCounter, GetTickCount, GetCurrentThreadId, GetCurrentProcessId, GetSystemTimeAsFileTime, TerminateProcess, GetCurrentProcess, UnhandledExceptionFilter, SetUnhandledExceptionFilter ...
+  import MFC42.DLL: ord823, ord825
+  import USER32.dll: SendMessageA, SetDlgItemInt, EnableWindow, GetDlgItem, wsprintfA, SetDlgItemTextA, GetWindowLongW, SetWindowLongW, CreateDialogParamW, MoveWindow, InvalidateRect, ShowWindow, DestroyWindow, LoadStringW ...
+  import msvcrt.dll: ?terminate@@YAXXZ, _purecall, ??1type_info@@UAE@XZ, __CxxFrameHandler, _except_handler3
+  import ole32.dll: CoTaskMemFree, CoTaskMemAlloc
+  EXPORTS (2):
+    DllCanUnloadNow
+    DllGetClassObject
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/iyuv_32.dll
+  machine=i386 timestamp=1208139178 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import GDI32.dll: DeleteDC, GetSystemPaletteEntries, GetObjectW, CreateCompatibleDC, SelectObject, BitBlt
+  import KERNEL32.dll: GetCurrentProcess, UnhandledExceptionFilter, SetUnhandledExceptionFilter, GetCurrentProcessId, GetSystemTimeAsFileTime, TerminateProcess, QueryPerformanceCounter, GetSystemInfo, LocalFree, GetTickCount, GlobalUnlock, GlobalFree, LocalAlloc, GlobalAlloc ...
+  import USER32.dll: LoadStringW, GetDC, ReleaseDC, BeginPaint, GetWindowLongW, GetWindowRect, EndPaint, EndDialog, LoadBitmapW, DialogBoxParamW
+  import WINMM.dll: DefDriverProc
+  import msvcrt.dll: _adjust_fdiv, malloc, _initterm, free
+  EXPORTS (4):
+    AboutDialogProc
+    DllMain
+    DriverDialogProc
+    DriverProc
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/ks.sys
+  machine=i386 timestamp=1208114194 (2008-04-13)
+  sections: .text .rdata .data PAGE .edata INIT .rsrc .reloc
+  import HAL.dll: KfLowerIrql, IoFlushAdapterBuffers, IoFreeMapRegisters, IoMapTransfer, KeGetCurrentIrql, ExAcquireFastMutex, ExReleaseFastMutex, KfAcquireSpinLock, KfReleaseSpinLock, KeQueryPerformanceCounter, KfRaiseIrql
+  import ntoskrnl.exe: ExDeletePagedLookasideList, ExInitializePagedLookasideList, KeInitializeSpinLock, ProbeForRead, _except_handler3, IofCallDriver, IoBuildSynchronousFsdRequest, ZwClose, ExFreePoolWithTag, ZwQueryValueKey, ZwOpenKey, RtlInitUnicodeString, RtlFreeUnicodeString, wcscat ...
+  EXPORTS (228):
+    ??0CBaseUnknown@@QAE@ABU_GUID@@PAUIUnknown@@@Z
+    ??0CBaseUnknown@@QAE@PAUIUnknown@@@Z
+    ??1CBaseUnknown@@UAE@XZ
+    ??_FCBaseUnknown@@QAEXXZ
+    ?IndirectedAddRef@CBaseUnknown@@UAGKXZ
+    ?IndirectedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z
+    ?IndirectedRelease@CBaseUnknown@@UAGKXZ
+    ?NonDelegatedAddRef@CBaseUnknown@@UAGKXZ
+    ?NonDelegatedQueryInterface@CBaseUnknown@@UAGJABU_GUID@@PAPAX@Z
+    ?NonDelegatedRelease@CBaseUnknown@@UAGKXZ
+    DllInitialize
+    KoCreateInstance
+    KoDeviceInitialize
+    KoDriverInitialize
+    KoRelease
+    KsAcquireControl
+    KsAcquireDevice
+    KsAcquireDeviceSecurityLock
+    KsAcquireResetValue
+    KsAddDevice
+    KsAddEvent
+    KsAddIrpToCancelableQueue
+    KsAddItemToObjectBag
+    KsAddObjectCreateItemToDeviceHeader
+    KsAddObjectCreateItemToObjectHeader
+    KsAllocateDefaultClock
+    KsAllocateDefaultClockEx
+    KsAllocateDeviceHeader
+    KsAllocateExtraData
+    KsAllocateObjectBag
+    KsAllocateObjectCreateItem
+    KsAllocateObjectHeader
+    KsCacheMedium
+    KsCancelIo
+    KsCancelRoutine
+    KsCompletePendingRequest
+    KsCopyObjectBagItems
+    KsCreateAllocator
+    KsCreateBusEnumObject
+    KsCreateClock
+    KsCreateDefaultAllocator
+    KsCreateDefaultAllocatorEx
+    KsCreateDefaultClock
+    KsCreateDefaultSecurity
+    KsCreateDevice
+    KsCreateFilterFactory
+    KsCreatePin
+    KsCreateTopologyNode
+    KsDecrementCountedWorker
+    KsDefaultAddEventHandler
+    KsDefaultDeviceIoCompletion
+    KsDefaultDispatchPnp
+    KsDefaultDispatchPower
+    KsDefaultForwardIrp
+    KsDereferenceBusObject
+    KsDereferenceSoftwareBusObject
+    KsDeviceGetBusData
+    KsDeviceRegisterAdapterObject
+    KsDeviceSetBusData
+    KsDisableEvent
+    KsDiscardEvent
+    KsDispatchFastIoDeviceControlFailure
+    KsDispatchFastReadFailure
+    KsDispatchInvalidDeviceRequest
+    KsDispatchIrp
+    KsDispatchQuerySecurity
+    KsDispatchSetSecurity
+    KsDispatchSpecificMethod
+    KsDispatchSpecificProperty
+    KsEnableEvent
+    KsEnableEventWithAllocator
+    KsFastMethodHandler
+    KsFastPropertyHandler
+    KsFilterAcquireProcessingMutex
+    KsFilterAddTopologyConnections
+    KsFilterAttemptProcessing
+    KsFilterCreateNode
+    KsFilterCreatePinFactory
+    KsFilterFactoryAddCreateItem
+    KsFilterFactoryGetSymbolicLink
+    KsFilterFactorySetDeviceClassesState
+    KsFilterFactoryUpdateCacheData
+    KsFilterGetAndGate
+    KsFilterGetChildPinCount
+    KsFilterGetFirstChildPin
+    KsFilterRegisterPowerCallbacks
+    KsFilterReleaseProcessingMutex
+    KsForwardAndCatchIrp
+    KsForwardIrp
+    KsFreeDefaultClock
+    KsFreeDeviceHeader
+    KsFreeEventList
+    KsFreeObjectBag
+    KsFreeObjectCreateItem
+    KsFreeObjectCreateItemsByContext
+    KsFreeObjectHeader
+    KsGenerateDataEvent
+    KsGenerateEvent
+    KsGenerateEventList
+    KsGenerateEvents
+    KsGetBusEnumIdentifier
+    KsGetBusEnumParentFDOFromChildPDO
+    KsGetBusEnumPnpDeviceObject
+    KsGetDefaultClockState
+    KsGetDefaultClockTime
+    KsGetDevice
+    KsGetDeviceForDeviceObject
+    KsGetFilterFromIrp
+    KsGetFirstChild
+    KsGetImageNameAndResourceId
+    KsGetNextSibling
+    KsGetNodeIdFromIrp
+    KsGetObjectFromFileObject
+    KsGetObjectTypeFromFileObject
+    KsGetObjectTypeFromIrp
+    KsGetOuterUnknown
+    KsGetParent
+    KsGetPinFromIrp
+    KsHandleSizedListQuery
+    KsIncrementCountedWorker
+    KsInitializeDevice
+    KsInitializeDriver
+    KsInstallBusEnumInterface
+    KsIsBusEnumChildDevice
+    KsLoadResource
+    KsMapModuleName
+    KsMergeAutomationTables
+    KsMethodHandler
+    KsMethodHandlerWithAllocator
+    KsMoveIrpsOnCancelableQueue
+    KsNullDriverUnload
+    KsPinAcquireProcessingMutex
+    KsPinAttachAndGate
+    KsPinAttachOrGate
+    KsPinAttemptProcessing
+    KsPinDataIntersection
+    KsPinGetAndGate
+    KsPinGetAvailableByteCount
+    KsPinGetConnectedFilterInterface
+    KsPinGetConnectedPinDeviceObject
+    KsPinGetConnectedPinFileObject
+    KsPinGetConnectedPinInterface
+    KsPinGetCopyRelationships
+    KsPinGetFirstCloneStreamPointer
+    KsPinGetLeadingEdgeStreamPointer
+    KsPinGetNextSiblingPin
+    KsPinGetParentFilter
+    KsPinGetReferenceClockInterface
+    KsPinGetTrailingEdgeStreamPointer
+    KsPinPropertyHandler
+    KsPinRegisterFrameReturnCallback
+    KsPinRegisterHandshakeCallback
+    KsPinRegisterIrpCompletionCallback
+    KsPinRegisterPowerCallbacks
+    KsPinReleaseProcessingMutex
+    KsPinSetPinClockTime
+    KsPinSubmitFrame
+    KsPinSubmitFrameMdl
+    KsProbeStreamIrp
+    KsProcessPinUpdate
+    KsPropertyHandler
+    KsPropertyHandlerWithAllocator
+    KsQueryDevicePnpObject
+    KsQueryInformationFile
+    KsQueryObjectAccessMask
+    KsQueryObjectCreateItem
+    KsQueueWorkItem
+    KsReadFile
+    KsRecalculateStackDepth
+    KsReferenceBusObject
+    KsReferenceSoftwareBusObject
+    KsRegisterAggregatedClientUnknown
+    KsRegisterCountedWorker
+    KsRegisterFilterWithNoKSPins
+    KsRegisterWorker
+    KsReleaseControl
+    KsReleaseDevice
+    KsReleaseDeviceSecurityLock
+    KsReleaseIrpOnCancelableQueue
+    KsRemoveBusEnumInterface
+    KsRemoveIrpFromCancelableQueue
+    KsRemoveItemFromObjectBag
+    KsRemoveSpecificIrpFromCancelableQueue
+    KsServiceBusEnumCreateRequest
+    KsServiceBusEnumPnpRequest
+    KsSetDefaultClockState
+    KsSetDefaultClockTime
+    KsSetDevicePnpAndBaseObject
+    KsSetInformationFile
+    KsSetMajorFunctionHandler
+    KsSetPowerDispatch
+    KsSetTargetDeviceObject
+    KsSetTargetState
+    KsStreamIo
+    KsStreamPointerAdvance
+    KsStreamPointerAdvanceOffsets
+    KsStreamPointerAdvanceOffsetsAndUnlock
+    KsStreamPointerCancelTimeout
+    KsStreamPointerClone
+    KsStreamPointerDelete
+    KsStreamPointerGetIrp
+    KsStreamPointerGetMdl
+    KsStreamPointerGetNextClone
+    KsStreamPointerLock
+    KsStreamPointerScheduleTimeout
+    KsStreamPointerSetStatusCode
+    KsStreamPointerUnlock
+    KsSynchronousIoControlDevice
+    KsTerminateDevice
+    KsTopologyPropertyHandler
+    KsUnregisterWorker
+    KsUnserializeObjectPropertiesFromRegistry
+    KsValidateAllocatorCreateRequest
+    KsValidateAllocatorFramingEx
+    KsValidateClockCreateRequest
+    KsValidateConnectRequest
+    KsValidateTopologyNodeCreateRequest
+    KsWriteFile
+    KsiDefaultClockAddMarkEvent
+    KsiPropertyDefaultClockGetCorrelatedPhysicalTime
+    KsiPropertyDefaultClockGetCorrelatedTime
+    KsiPropertyDefaultClockGetFunctionTable
+    KsiPropertyDefaultClockGetPhysicalTime
+    KsiPropertyDefaultClockGetResolution
+    KsiPropertyDefaultClockGetState
+    KsiPropertyDefaultClockGetTime
+    KsiQueryObjectCreateItemsPresent
+    _KsEdit
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/ksproxy.ax
+  machine=i386 timestamp=1208139150 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegEnumKeyExW, RegQueryValueExW, RegCreateKeyW, RegSetValueW, RegSetValueExW, RegCloseKey, RegDeleteKeyW, RegOpenKeyExW, RegEnumKeyW
+  import KERNEL32.dll: InterlockedCompareExchange, InitializeCriticalSection, DeleteCriticalSection, EnterCriticalSection, LeaveCriticalSection, SetEvent, GetLastError, CreateEventW, CloseHandle, WaitForMultipleObjectsEx, WaitForSingleObjectEx, CreateThread, CreateFileW, ReleaseSemaphore ...
+  import OLEAUT32.dll: SysFreeString
+  import SETUPAPI.dll: SetupDiOpenDeviceInterfaceW, SetupDiGetDeviceInterfaceDetailW, SetupDiGetDeviceInterfaceAlias, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInterfaces, SetupDiOpenDeviceInterfaceRegKey, SetupDiCreateDeviceInfoListExW, SetupDiGetClassDevsW
+  import USER32.dll: wsprintfW
+  import ksuser.dll: KsCreateAllocator, KsCreateClock, KsCreateTopologyNode, KsCreatePin
+  import msvcrt.dll: wcscpy, ??3@YAXPAX@Z, memmove, swscanf, _except_handler3, swprintf, _ftol, _purecall, _CIpow, wcslen, ??2@YAPAXI@Z
+  import ntdll.dll: RtlNtStatusToDosError
+  import ole32.dll: StringFromGUID2, IIDFromString, CoCreateInstance, CoTaskMemAlloc, CoFreeUnusedLibraries, CoInitialize, CoTaskMemFree, CoUninitialize
+  EXPORTS (10):
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
+    KsGetMediaType
+    KsGetMediaTypeCount
+    KsGetMultiplePinFactoryItems
+    KsOpenDefaultDevice
+    KsResolveRequiredAttributes
+    KsSynchronousDeviceControl
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/kstvtune.ax
+  machine=i386 timestamp=1208139151 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegSetValueExW, RegDeleteValueW, RegCloseKey, RegOpenKeyExW, RegEnumValueW, RegCreateKeyExW, RegQueryValueExW
+  import COMCTL32.dll: ord17
+  import KERNEL32.dll: EnterCriticalSection, LeaveCriticalSection, IsBadWritePtr, CloseHandle, ReleaseMutex, WaitForSingleObject, CreateMutexW, LockResource, LoadResource, FindResourceW, GetLastError, DeleteCriticalSection, InterlockedCompareExchange, Sleep ...
+  import OLEAUT32.dll: VariantInit, VariantClear
+  import USER32.dll: wsprintfW, KillTimer, MessageBoxW, LoadStringW, CheckRadioButton, SetDlgItemTextW, SetDlgItemInt, SendMessageW, GetDlgItem, SetWindowTextW, EnableWindow, SetTimer, PostMessageW, UpdateWindow ...
+  import ksproxy.ax: KsSynchronousDeviceControl
+  import msvcrt.dll: _purecall, ??2@YAPAXI@Z, wcstol, ??3@YAXPAX@Z
+  import ole32.dll: CoTaskMemFree, CoInitialize, CoFreeUnusedLibraries, CoUninitialize, CoCreateInstance, CoTaskMemAlloc
+  EXPORTS (2):
+    DllCanUnloadNow
+    DllGetClassObject
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/ksuser.dll
+  machine=i386 timestamp=1208139152 (2008-04-14)
+  sections: .text .rsrc .reloc
+  import KERNEL32.dll: GetProcessHeap, HeapAlloc, HeapFree
+  import ntdll.dll: NtCreateFile, RtlNtStatusToDosError
+  EXPORTS (4):
+    KsCreateAllocator
+    KsCreateClock
+    KsCreatePin
+    KsCreateTopologyNode
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/kswdmcap.ax
+  machine=i386 timestamp=1208139153 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegCreateKeyW, RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegSetValueExW, RegDeleteKeyW, RegSetValueW
+  import COMCTL32.dll: InitCommonControlsEx
+  import KERNEL32.dll: CloseHandle, GetOverlappedResult, DeviceIoControl, GetLastError, CreateEventW, lstrcpynW, lstrcpyW, lstrcmpW, Sleep, lstrlenW, WaitForSingleObjectEx, SetEvent, DeleteCriticalSection, LeaveCriticalSection ...
+  import MFC42.DLL: ord823, ord825
+  import USER32.dll: GetDesktopWindow, GetWindowRect, SetRect, IsRectEmpty, SendMessageW, SetDlgItemInt, EnableWindow, GetDlgItem, SetWindowTextW, GetWindowTextW, GetDlgItemInt, IsWindowEnabled, MessageBoxW, LoadStringW ...
+  import msvcrt.dll: wcsncpy, _wtoi, sprintf, ??1type_info@@UAE@XZ, wcstod, _except_handler3, _ftol, __CxxFrameHandler, swprintf, ?terminate@@YAXXZ, _purecall
+  import ole32.dll: StringFromGUID2, CoUninitialize, CoFreeUnusedLibraries, CoInitialize, CoTaskMemAlloc, CoTaskMemFree, CoCreateInstance
+  EXPORTS (8):
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
+    FilterHandleFromPin
+    PerformDataIntersection
+    PinFactoryIDFromPin
+    RedundantKsGetMultiplePinFactoryItems
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/ksxbar.ax
+  machine=i386 timestamp=1208139154 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import KERNEL32.dll: InitializeCriticalSection, DeleteCriticalSection, EnterCriticalSection, LeaveCriticalSection, lstrcpynW, CloseHandle, WaitForSingleObject, GetLastError, DeviceIoControl, CreateEventW, IsBadWritePtr, CreateFileW, lstrcpyW, QueryPerformanceCounter ...
+  import OLEAUT32.dll: VariantInit, VariantClear
+  import USER32.dll: GetWindowRect, MessageBoxW, SetRect, SetDlgItemTextW, SendMessageW, GetDlgItem, CheckRadioButton, EnableWindow, wsprintfW, GetWindowLongW, SetWindowLongW, CreateDialogParamW, MoveWindow, InvalidateRect ...
+  import msvcrt.dll: ??3@YAXPAX@Z, ??2@YAPAXI@Z, wcslen, _purecall, swprintf
+  import ole32.dll: CoUninitialize, CoCreateInstance, CoTaskMemFree, CoTaskMemAlloc, CoInitialize, CoFreeUnusedLibraries
+  EXPORTS (2):
+    DllCanUnloadNow
+    DllGetClassObject
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/msh263.drv
+  machine=i386 timestamp=1208139270 (2008-04-14)
+  sections: .text MMXCODE1 IACODE2 IACODE1 EDTQ .data MMXDATA1 MMXCCDAT MMXMEDAT H26xColo IARDATA2 IADATA1 .rsrc .reloc
+  import GDI32.dll: GetDeviceCaps, GetSystemPaletteEntries
+  import KERNEL32.dll: SetUnhandledExceptionFilter, UnhandledExceptionFilter, GetCurrentProcess, TerminateProcess, GetSystemTimeAsFileTime, GetCurrentProcessId, GetCurrentThreadId, GetTickCount, QueryPerformanceCounter, VirtualFree, HeapFree, GetProcessHeap, IsBadReadPtr, MultiByteToWideChar ...
+  import USER32.dll: PostMessageA, GetDC, ReleaseDC, DialogBoxParamA, EndDialog
+  import WINMM.dll: DefDriverProc
+  import msvcrt.dll: free, _initterm, srand, rand, __CxxFrameHandler, malloc, _adjust_fdiv, _except_handler3, _clearfp, toupper, _ftol
+  EXPORTS (2):
+    DllMain
+    DriverProc
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/msyuv.dll
+  machine=i386 timestamp=1208139338 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import GDI32.dll: GetSystemPaletteEntries
+  import KERNEL32.dll: GetCurrentProcessId, GetSystemTimeAsFileTime, VirtualAlloc, GetCurrentThreadId, GetTickCount, QueryPerformanceCounter, DisableThreadLibraryCalls, VirtualFree, LocalAlloc, LocalFree
+  import USER32.dll: GetDesktopWindow, GetDC, ReleaseDC, MessageBoxW
+  import WINMM.dll: GetDriverModuleHandle, DefDriverProc
+  import msvcrt.dll: _ftol, wcscpy
+  EXPORTS (1):
+    DriverProc
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/tsbyuv.dll
+  machine=i386 timestamp=999298741 (2001-08-31)
+  sections: .text .data .rsrc .reloc
+  import KERNEL32.dll: GlobalFree, GlobalHandle, LocalAlloc, LocalFree, GlobalLock, GlobalAlloc
+  import USER32.dll: MessageBoxW
+  import WINMM.dll: GetDriverModuleHandle, DefDriverProc
+  EXPORTS (1):
+    DriverProc
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/usbccgp.sys
+  machine=i386 timestamp=1091599725 (2004-08-04)
+  sections: .text .rdata .data PAGE PAGECONS INIT .rsrc .reloc
+  import HAL.DLL: KfReleaseSpinLock, KfAcquireSpinLock
+  import NTOSKRNL.EXE: RtlQueryRegistryValues, KeInitializeSpinLock, KeInitializeEvent, IoAttachDeviceToDeviceStack, IoCreateDevice, ExAllocatePoolWithTag, IofCallDriver, IofCompleteRequest, PoStartNextPowerIrp, IoFreeIrp, IoAllocateIrp, KeWaitForSingleObject, memset, ExFreePool ...
+  import USBD.SYS: USBD_ParseConfigurationDescriptorEx, USBD_CreateConfigurationRequestEx
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/usbvideo.sys
+  machine=i386 timestamp=1208112378 (2008-04-13)
+  sections: .text .rdata .data PAGE INIT .rsrc .reloc
+  import HAL.DLL: KfReleaseSpinLock, KfAcquireSpinLock
+  import NTOSKRNL.EXE: WmiTraceMessage, ExfInterlockedRemoveHeadList, KeInitializeSpinLock, ExFreePoolWithTag, ExfInterlockedInsertHeadList, ExfInterlockedInsertTailList, KeReleaseSemaphore, KeReadStateSemaphore, KeWaitForSingleObject, KeSetEvent, InterlockedDecrement, IoInitializeIrp, IofCallDriver, InterlockedIncrement ...
+  import USBD.SYS: USBD_ParseDescriptors, USBD_ParseConfigurationDescriptorEx, USBD_CreateConfigurationRequestEx
+  import ks.sys: KsIncrementCountedWorker, KsStreamPointerUnlock, KsStreamPointerClone, KsPinGetLeadingEdgeStreamPointer, KsDecrementCountedWorker, KsRegisterCountedWorker, KsAddItemToObjectBag, KsGetFirstChild, KsGetNextSibling, KsAcquireControl, KsReleaseControl, KsReleaseDevice, KsAcquireDevice, KsPinGetNextSiblingPin ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/vfwwdm32.dll
+  machine=i386 timestamp=1208139200 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegQueryValueExA, RegSetValueExA, RegCloseKey, RegCreateKeyExA
+  import COMCTL32.dll: PropertySheetA, ord17, CreatePropertySheetPageA
+  import KERNEL32.dll: FreeLibrary, InterlockedDecrement, InterlockedIncrement, WideCharToMultiByte, SetUnhandledExceptionFilter, UnhandledExceptionFilter, GetCurrentProcess, TerminateProcess, GetSystemTimeAsFileTime, GetCurrentProcessId, GetCurrentThreadId, GetTickCount, QueryPerformanceCounter, CreateThread ...
+  import OLEAUT32.dll: OleCreatePropertyFrame, SysFreeString
+  import USER32.dll: SetForegroundWindow, LoadCursorA, RegisterClassA, CreateWindowExA, GetWindowRect, GetClientRect, DefWindowProcA, PostQuitMessage, GetMessageA, DispatchMessageA, GetClassInfoA, UnregisterClassA, GetWindowLongA, WinHelpA ...
+  import WINMM.dll: timeGetTime, DefDriverProc, DriverCallback
+  import ksuser.dll: KsCreatePin
+  import msvcrt.dll: strtol, ??2@YAPAXI@Z, _purecall, ??3@YAXPAX@Z, _except_handler3, wcscmp
+  import ole32.dll: CoUninitialize, CoInitialize, CoCreateInstance, CoTaskMemFree
+  EXPORTS (3):
+    DllMain
+    DriverProc
+    VfwWdm
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/videoDriver/vidcap.ax
+  machine=i386 timestamp=1208139202 (2008-04-14)
+  sections: .text .data .rsrc .reloc
+  import ADVAPI32.dll: RegQueryValueExA, RegOpenKeyExA, RegCloseKey
+  import ATL.DLL: ord15, ord57, ord30, ord18, ord21, ord32, ord23, ord16
+  import KERNEL32.dll: InitializeCriticalSection, DeleteCriticalSection, InterlockedIncrement, InterlockedDecrement, LeaveCriticalSection, EnterCriticalSection, WideCharToMultiByte, OutputDebugStringA, QueryPerformanceCounter, GetTickCount, GetCurrentThreadId, GetCurrentProcessId, GetSystemTimeAsFileTime, TerminateProcess ...
+  import msvcrt.dll: _adjust_fdiv, ??3@YAXPAX@Z, _purecall, ??2@YAPAXI@Z, _except_handler3, _vsnprintf, free, _initterm, malloc
+  import ole32.dll: StringFromGUID2, CoCreateInstance
+  EXPORTS (4):
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/USBHubDriver/usbhub.sys
+  machine=i386 timestamp=1208112336 (2008-04-13)
+  sections: .text .rdata .data PAGE PAGECONS INIT .rsrc .reloc
+  import HAL.dll: KfAcquireSpinLock, KfReleaseSpinLock
+  import USBD.SYS: USBD_CreateConfigurationRequestEx, USBD_ParseConfigurationDescriptorEx, USBD_GetPdoRegistryParameter, USBD_CalculateUsbBandwidth
+  import WMILIB.SYS: WmiSystemControl, WmiFireEvent, WmiCompleteRequest
+  import ntoskrnl.exe: InterlockedDecrement, IoInvalidateDeviceRelations, InterlockedIncrement, KeSetTimer, KeInitializeDpc, KeInitializeTimer, IoGetDeviceProperty, IoDeleteDevice, IoWMIRegistrationControl, KeInitializeSemaphore, IoAttachDeviceToDeviceStack, IoCreateDevice, IoReleaseCancelSpinLock, IoAcquireCancelSpinLock ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/xeyezDriver/xeyez.sys
+  machine=i386 timestamp=1320644341 (2011-11-07)
+  sections: .text .rdata .data INIT .rsrc .reloc
+  import HAL.dll: KfAcquireSpinLock, KfReleaseSpinLock
+  import USBD.SYS: USBD_CreateConfigurationRequestEx, USBD_ParseConfigurationDescriptorEx
+  import WMILIB.SYS: WmiSystemControl, WmiCompleteRequest
+  import ntoskrnl.exe: RtlGenerate8dot3Name, RtlIsNameLegalDOS8Dot3, wcsncpy, DbgPrint, RtlUnicodeStringToAnsiString, KeInitializeTimerEx, KeInitializeDpc, IoIsWdmVersionAvailable, IoDetachDevice, IoRegisterDeviceInterface, IoAttachDeviceToDeviceStack, PoSetPowerState, IoDeleteDevice, IoDeleteSymbolicLink ...
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/xeyezDriver/xeyezCoIns.dll
+  machine=i386 timestamp=1312440944 (2011-08-04)
+  sections: .text .rdata .data .rsrc .reloc
+  import ADVAPI32.dll: RegEnumKeyExA, RegCloseKey, RegOpenKeyExA
+  import KERNEL32.dll: HeapSize, GetLocaleInfoA, GetStringTypeW, GetStringTypeA, GetVersionExA, lstrcmpiA, GetFullPathNameA, GetLastError, GetSystemTime, GetConsoleMode, HeapFree, HeapAlloc, GetCurrentThreadId, GetCommandLineA ...
+  import SETUPAPI.dll: SetupDiEnumDriverInfoA, SetupDiGetDriverInstallParamsA, SetupDiSetDriverInstallParamsA, SetupDiGetSelectedDriverA, SetupDiGetDriverInfoDetailA, SetupOpenInfFileA, SetupGetInfInformationA, SetupQueryInfOriginalFileInformationA, SetupDiGetActualSectionToInstallA, SetupFindFirstLineA, SetupGetStringFieldA, SetupGetFieldCount, SetupCopyOEMInfA, SetupFindNextMatchLineA ...
+  EXPORTS (1):
+    xeyezCoInstaller
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/virtualDriver/vKeyboard.sys
+  machine=i386 timestamp=1249697160 (2009-08-08)
+  sections: .text .data PAGE INIT .rsrc .reloc
+  import ntoskrnl.exe: IofCompleteRequest, IofCallDriver, DbgPrint, memset, IoDeleteSymbolicLink, RtlInitUnicodeString, IoDeleteDevice, IoCreateSymbolicLink, IoCreateDevice, IoAttachDeviceToDeviceStack, IoDetachDevice, PoCallDriver, PoStartNextPowerIrp
+
+=== analysis/nsis/v2.6.0.6/xeyez_Lobby/DriverInstall/WinXP/virtualDriver/vMouse.sys
+  machine=i386 timestamp=1249697098 (2009-08-08)
+  sections: .text .data PAGE INIT .rsrc .reloc
+  import ntoskrnl.exe: DbgPrint, IofCallDriver, IofCompleteRequest, IoDeleteDevice, IoCreateSymbolicLink, IoCreateDevice, RtlInitUnicodeString, IoAttachDeviceToDeviceStack, IoDetachDevice, PoCallDriver, PoStartNextPowerIrp
+

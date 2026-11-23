@@ -32,14 +32,14 @@ onboard stereo processing, marker-coordinate output).
 | Branch | Agent | Topic |
 |---|---|---|
 | `research/idong100` | — | Parent branch (this tree + SUMMARY.md) |
-| `research/idong100/01-chinese-web` | 01 | Chinese-language web deep dive (tech communities, job ads, supply mentions) |
-| `research/idong100/02-products-software` | 02 | i-dong consumer products and their host software (PC clients, drivers, downloads) |
-| `research/idong100/03-code-hosting` | 03 | Code hosting: GitHub, Gitee, GitCode, SourceForge, kernel/usb.ids/linux-hardware |
-| `research/idong100/04-chip-docs` | 04 | Chip documentation & IC supply chain (datasheets, part listings, teardowns) |
-| `research/idong100/05-web-archives` | 05 | Wayback / archive.today deep dive (CDX enumeration, recovered snapshots) |
-| `research/idong100/06-usb-vid` | 06 | USB VID 0471 / PID 2600 angle (NXP reference-firmware theory, device databases) |
-| `research/idong100/07-ecosystem` | 07 | Product ecosystem: games, TV/STB integrations, press, manuals, procurement |
-| `research/idong100/08-patents-fcc` | 08 | Patents, academic papers, FCC certifications, trademarks, software copyrights |
+| `research/idong100-01-chinese-web` | 01 | Chinese-language web deep dive (tech communities, job ads, supply mentions) |
+| `research/idong100-02-products-software` | 02 | i-dong consumer products and their host software (PC clients, drivers, downloads) |
+| `research/idong100-03-code-hosting` | 03 | Code hosting: GitHub, Gitee, GitCode, SourceForge, kernel/usb.ids/linux-hardware |
+| `research/idong100-04-chip-docs` | 04 | Chip documentation & IC supply chain (datasheets, part listings, teardowns) |
+| `research/idong100-05-web-archives` | 05 | Wayback / archive.today deep dive (CDX enumeration, recovered snapshots) |
+| `research/idong100-06-usb-vid` | 06 | USB VID 0471 / PID 2600 angle (NXP reference-firmware theory, device databases) |
+| `research/idong100-07-ecosystem` | 07 | Product ecosystem: games, TV/STB integrations, press, manuals, procurement |
+| `research/idong100-08-patents-fcc` | 08 | Patents, academic papers, FCC certifications, trademarks, software copyrights |
 
 ## Status
 

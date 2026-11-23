@@ -1,0 +1,105 @@
+[Version]
+Signature="$CHICAGO$"
+Class=USB
+ClassGUID={36FC9E60-C465-11CF-8056-444553540000}
+provider=%MSFT%
+DriverVer=07/30/2009,2.0.0.3
+CatalogFile=xeyez.cat
+
+
+[Manufacturer]
+%MfgName%=XEYEZ,NTx86,NTia64,Ntamd64
+
+[XEYEZ.NTx86]
+%USB_DeviceDescV26%=XEYEZ.Dev, USB\VID_0471&PID_2600
+%USB_DeviceDescV25%=XEYEZ.Dev, USB\VID_0471&PID_2500&MI_04
+%USB_DeviceDescV21%=XEYEZ.Dev, USB\VID_0471&PID_2100
+%USB_DeviceDescV20%=XEYEZ.Dev, USB\VID_0471&PID_0668
+%USB_DeviceDescV10%=XEYEZ.Dev, USB\VID_0471&PID_0666
+
+[XEYEZ.NTia64]
+%USB_DeviceDescV26%=XEYEZ.Dev, USB\VID_0471&PID_2600
+%USB_DeviceDescV25%=XEYEZ.Dev, USB\VID_0471&PID_2500&MI_04
+%USB_DeviceDescV21%=XEYEZ.Dev, USB\VID_0471&PID_2100
+%USB_DeviceDescV20%=XEYEZ.Dev, USB\VID_0471&PID_0668
+%USB_DeviceDescV10%=XEYEZ.Dev, USB\VID_0471&PID_0666
+
+[XEYEZ.Ntamd64]
+%USB_DeviceDescV26%=XEYEZ.Dev, USB\VID_0471&PID_2600
+%USB_DeviceDescV25%=XEYEZ.Dev, USB\VID_0471&PID_2500&MI_04
+%USB_DeviceDescV21%=XEYEZ.Dev, USB\VID_0471&PID_2100
+%USB_DeviceDescV20%=XEYEZ.Dev, USB\VID_0471&PID_0668
+%USB_DeviceDescV10%=XEYEZ.Dev, USB\VID_0471&PID_0666
+
+[SourceDisksNames]
+1="TOLtech xeyez v3.0 Installation Disk",,,
+
+[SourceDisksFiles]
+xeyez.sys=1
+xeyezCoIns.dll=1
+
+[DestinationDirs]
+XEYEZ.CopyDrivers=10,System32\Drivers
+System32.CopyDlls=11
+
+[XEYEZ.CopyDrivers]
+xeyez.sys
+
+[System32.CopyDlls]
+xeyezCoIns.dll
+
+[XEYEZ.KnownFiles]
+xeyez.sys=safe
+xeyezCoIns.dll=safe
+
+
+
+[XEYEZ.Dev]
+CopyFiles=XEYEZ.CopyDrivers, System32.CopyDlls
+AddReg=XEYEZ.AddReg
+KnownFiles=XEYEZ.KnownFiles
+
+[XEYEZ.Dev.NT]
+CopyFiles=XEYEZ.CopyDrivers, System32.CopyDlls
+AddReg=XEYEZ.AddReg
+KnownFiles=XEYEZ.KnownFiles
+
+[XEYEZ.Dev.NT.Services]
+Addservice = XEYEZ, 0x00000002, XEYEZ.AddService
+
+[XEYEZ.AddService]
+DisplayName    = %XEYEZ.DevDesc%
+ServiceType    = 1                  ; SERVICE_KERNEL_DRIVER
+StartType      = 3                  ; SERVICE_DEMAND_START
+ErrorControl   = 1                  ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %10%\System32\Drivers\xeyez.sys
+AddReg         = XEYEZ.AddReg
+;LoadOrderGroup = Base
+
+[XEYEZ.AddReg]
+HKR,,DevLoader,,*ntkern
+HKR,,NTMPDriver,,xeyez.sys
+HKLM,"System\Currentcontrolset\Services\XEYEZ\Parameters","MaximumTransferSize",0x10001,4096
+HKLM,"System\Currentcontrolset\Services\XEYEZ\Parameters","DebugLevel",0x10001,2
+HKLM,"System\Currentcontrolset\services\XEYEZ\Parameters","BulkUsbEnable",0x10001,1
+;HKR,,CoInstallers32,0x00010000,"xeyezCoIns.dll,xeyezCoInstaller"
+HKLM,System\CurrentControlSet\Control\CoDeviceInstallers, {36FC9E60-C465-11CF-8056-444553540000}, 0x00010000,"xeyezCoIns.dll,xeyezCoInstaller"
+
+[Strings]
+;Provider = "TOLTech"
+MSFT="TOLTech"
+MfgName="TOLtech"
+USB_DeviceDescV26="TOLTech xeyez Bootloader"
+USB_DeviceDescV25="TOLTech xeyez v2.5"
+USB_DeviceDescV20="TOLTech xeyez v2.0"
+USB_DeviceDescV21="TOLTech xeyez v2.1"
+USB_DeviceDescV10="TOLTech xeyez v1.0"
+XEYEZ.SvcDesc="TOLTech xeyez driver"
+
+;-----------------------------------------
+
+
+
+[CoIndongInstaller.CopyFiles]
+xeyezCoIns.dll
+;-----------------------------------------

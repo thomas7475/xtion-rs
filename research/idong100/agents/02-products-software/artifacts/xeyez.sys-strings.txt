@@ -1,0 +1,271 @@
+!This program cannot be run in DOS mode.
+RRich
+.text
+h.rdata
+H.data
+.rsrc
+B.reloc
+hnoDIPj
+:u[j:Xf
+$noDIPWf
+u}h|>
+ujhV>
+uWh4>
+H\SVW
+tFhnoDIj
+hnoDI3
+noDIWPj
+VWhnoDIj<j
+QQSVWh
+@(SVW
+noDISjPj
+noDISjPj
+tBHt4
+QVhP$
+$hnoDIj
+hnoDIj
+t1;GD~,V
+t.;B@~)S
+H;Bl~
+HHtSHt%S
+VWhnoDIj
+WhnoDIj
+hnoDIj
+hnoDIj
+PPPRQ
+hnoDIjHj
+BulkUsb_DriverUnload - ends
+BulkUsb_DriverUnload - begins
+BulkUsbEnable=0x%08X
+BulkUsb_WmiRegistration failed with %X
+BulkUsb_AddDevice - begins
+xeyes BulkUsb_AddDevice - begins
+DriverObject->DriverExtension->AddDevice=BulkUsb_AddDevice
+DriverObject->DriverUnload=BulkUsb_DriverUnload
+IRP_MJ_SYSTEM_CONTROL=BulkUsb_DispatchSysCtrl
+IRP_MJ_WRITE=BulkUsb_DispatchWrite
+IRP_MJ_READ=BulkUsb_DispatchRead
+IRP_MJ_CLEANUP=BulkUsb_DispatchClean
+IRP_MJ_CLOSE=BulkUsb_DispatchClose
+IRP_MJ_CREATE=BulkUsb_DispatchCreate
+Failed to allocate memory for registryPath
+BF527 Bulk USB DriverEntry 
+xeyes DriverEntry - begins
+CanRemoveDevice-begin
+HandleSurpriseRemoval - begins
+BulkUsb_DispatchPower
+BF527 Bulk USB BulkUsb_DispatchClose 
+BulkUsb_DispatchClose - begins
+BulkUsb_ResetPipe - failed
+BulkUsb_ResetPipe - success
+BulkUsb_ResetPipe->STATUS_INSUFFICIENT_RESOURCES
+BulkUsb_ResetPipe->CallUSBD
+BulkUsb_ResetPipe->ExAllocatePool
+UsbInterface not found
+BulkUsb_DispatchCreate - begins
+BulkUsb_ResetDevice - ends
+BulkUsb_ResetDevice - begins
+USBTime:%10u, WriteData, Time:%3u
+USBTime:%10u, ReadData, Time:%3u
+QqRSDSN
+d:\xeyez\objfre_wxp_x86\i386\xeyez.pdb
+ExFreePool
+ZwQueryValueKey
+ExAllocatePoolWithTag
+RtlInitUnicodeString
+memcpy
+ZwClose
+ZwOpenKey
+memset
+RtlGenerate8dot3Name
+RtlIsNameLegalDOS8Dot3
+wcsncpy
+DbgPrint
+RtlUnicodeStringToAnsiString
+KeInitializeTimerEx
+KeInitializeDpc
+IoIsWdmVersionAvailable
+IoDetachDevice
+IoRegisterDeviceInterface
+IoAttachDeviceToDeviceStack
+PoSetPowerState
+IoDeleteDevice
+IoDeleteSymbolicLink
+KeInitializeEvent
+KeInitializeSpinLock
+IoCreateSymbolicLink
+IoCreateDevice
+memmove
+RtlQueryRegistryValues
+KeSetEvent
+KeClearEvent
+InterlockedIncrement
+InterlockedDecrement
+KeWaitForSingleObject
+IofCallDriver
+IoBuildDeviceIoControlRequest
+IoFreeWorkItem
+IofCompleteRequest
+InterlockedExchange
+KeCancelTimer
+IoSetDeviceInterfaceState
+ObfDereferenceObject
+IoQueueWorkItem
+IoAllocateWorkItem
+KeSetTimerEx
+PoStartNextPowerIrp
+PoCallDriver
+PoRequestPowerIrp
+IoCancelIrp
+IoFreeIrp
+ObReferenceObjectByHandle
+ExEventObjectType
+IoAllocateIrp
+IoWMIRegistrationControl
+IoFreeMdl
+IoBuildPartialMdl
+IoAllocateMdl
+KeTickCount
+KeQueryTimeIncrement
+_alldiv
+_allmul
+KeBugCheckEx
+ntoskrnl.exe
+KfReleaseSpinLock
+KfAcquireSpinLock
+HAL.dll
+WmiSystemControl
+WmiCompleteRequest
+WMILIB.SYS
+USBD_CreateConfigurationRequestEx
+USBD_ParseConfigurationDescriptorEx
+USBD.SYS
+qb	,V
+@!BF	ep_Ep
+5:5G5
+9/9<9B9I9Q9p9|9
+9	:/:
+;=;F;a;l;
+<!<(<7<=<
+<,=f=m=x=
+>'>.>:>A>M>T>`>g>s>z>
+&0M0\0p0{0
+2)2@2Y2
+2-3Q3c3z3	4
+4H4o4
+5.5w5
+6;7f7
+888`8
+9`9r9
+:5:E:_:t:
+;-;H;f;w;
+<A<r<
+<#=4=@=G=T=w=
+?@?d?t?
+2-2p2w2
+313a3m3
+3	4 4c4
+5"535i5
+5-6C6p6
+7>7O7f7w7
+8C8S8
+9 9(9P9a9
+:-:J:U:
+;&;.;C;K;[;c;
+<6<L<a<
+=%=T=\=
+>G>O>r>
+?;?B?X?p?{?
+0!020?0N0{0
+0C1S1c1
+2=2W2f2z2
+3-383C3_3r3{3
+3:4H4y4
+6$6.686B6H6H7u7
+9*999I9R9
+9&:D:J:
+4$4-444
+Z0X03
+>0!0	
+VeriSign, Inc.1+0)
+"VeriSign Time Stamping Services CA0
+070615000000Z
+120614235959Z0\1
+VeriSign, Inc.1402
++VeriSign Time Stamping Services Signer - G20
+6^bMRQ4q
+JcEG.k
+(0&0$
+http://ocsp.verisign.com0
+,0*0(
+"http://crl.verisign.com/tss-ca.crl0
+TSA1-20
+!?DA	
+y>]r}
+Western Cape1
+Durbanville1
+Thawte1
+Thawte Certification1
+Thawte Timestamping CA0
+031204000000Z
+131203235959Z0S1
+VeriSign, Inc.1+0)
+"VeriSign Time Stamping Services CA0
+_zj1.
+(0&0$
+http://ocsp.verisign.com0
+:0806
+0http://crl.verisign.com/ThawteTimestampingCA.crl0
+TSA2048-1-530
+?7!Op1
+Salt Lake City1
+The USERTRUST Network1!0
+http://www.usertrust.com1
+UTN-USERFirst-Object0
+070425000000Z
+190709184036Z0L1
+WoSign, Inc.1&0$
+WoSign Code Signing Authority0
+'!7f@
+;0907
+1http://crl.usertrust.com/UTN-USERFirst-Object.crl0
+%[%&z
+Salt Lake City1
+The USERTRUST Network1!0
+http://www.usertrust.com1
+UTN-USERFirst-Object0
+990709183120Z
+190709184036Z0
+Salt Lake City1
+The USERTRUST Network1!0
+http://www.usertrust.com1
+UTN-USERFirst-Object0
+;0907
+1http://crl.usertrust.com/UTN-USERFirst-Object.crl0)
+k%%-Q
+CN>k'
+T bli
+If>PF
+cq81b
+T|#9u
+WoSign, Inc.1&0$
+WoSign Code Signing Authority0
+100402000000Z
+130401235959Z0
+,Class 3 - for Microsoft Authenticode Signing1-0+
+Oa7S1
+;0907
+http://www.wosign.com/cps/0<
+50301
++http://crl.wosign.com/WoSignCodeSigning.crl0G
+;0907
++http://crt.wosign.com/WoSignCodeSigning.crt0
+0`0L1
+WoSign, Inc.1&0$
+WoSign Code Signing Authority
+T|#9u
+www.i-dong.com0
+0g0S1
+VeriSign, Inc.1+0)
+"VeriSign Time Stamping Services CA
+111107053925Z0#

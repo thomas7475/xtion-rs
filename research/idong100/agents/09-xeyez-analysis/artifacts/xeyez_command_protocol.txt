@@ -1,0 +1,381 @@
+
+===== command sender (arg = command id) (VA 0x1000d2d0) =====
+  1000d2d0  push ebp
+  1000d2d1  mov ebp, esp
+  1000d2d3  mov eax, dword ptr [ebp + 8]
+  1000d2d6  mov dword ptr [0x1001c644], eax
+  1000d2db  pop ebp
+  1000d2dc  ret 
+  1000d2dd  int3 
+  1000d2de  int3 
+  1000d2df  int3 
+  1000d2e0  push ebp
+  1000d2e1  mov ebp, esp
+  1000d2e3  mov eax, dword ptr [0x1001c644]
+  1000d2e8  pop ebp
+  1000d2e9  ret 
+  1000d2ea  int3 
+  1000d2eb  int3 
+  1000d2ec  int3 
+  1000d2ed  int3 
+  1000d2ee  int3 
+  1000d2ef  int3 
+  1000d2f0  push ebp
+  1000d2f1  mov ebp, esp
+  1000d2f3  mov byte ptr [0x1001c6cd], 1
+  1000d2fa  pop ebp
+  1000d2fb  ret 
+  1000d2fc  int3 
+  1000d2fd  int3 
+  1000d2fe  int3 
+  1000d2ff  int3 
+  1000d300  push ebp
+  1000d301  mov ebp, esp
+  1000d303  mov al, byte ptr [0x1001c6cd]
+  1000d308  pop ebp
+  1000d309  ret 
+  1000d30a  int3 
+  1000d30b  int3 
+  1000d30c  int3 
+  1000d30d  int3 
+  1000d30e  int3 
+  1000d30f  int3 
+  1000d310  push ebp
+  1000d311  mov ebp, esp
+  1000d313  mov byte ptr [0x1001c6cd], 0
+  1000d31a  pop ebp
+  1000d31b  ret 
+  1000d31c  int3 
+  1000d31d  int3 
+  1000d31e  int3 
+  1000d31f  int3 
+  1000d320  push ebp
+  1000d321  mov ebp, esp
+  1000d323  mov eax, dword ptr [ebp + 8]
+  1000d326  mov dword ptr [0x1001c6d0], eax
+  1000d32b  pop ebp
+  1000d32c  ret 
+  1000d32d  int3 
+  1000d32e  int3 
+  1000d32f  int3 
+  1000d330  push ebp
+  1000d331  mov ebp, esp
+  1000d333  mov eax, dword ptr [0x1001c6d0]
+  1000d338  pop ebp
+  1000d339  ret 
+  1000d33a  int3 
+  1000d33b  int3 
+  1000d33c  int3 
+  1000d33d  int3 
+  1000d33e  int3 
+  1000d33f  int3 
+  1000d340  push ebp
+  1000d341  mov ebp, esp
+  1000d343  mov eax, dword ptr [ebp + 8]
+  1000d346  mov dword ptr [0x1001c6d0], eax
+  1000d34b  call 0x1000d310
+  1000d350  pop ebp
+  1000d351  ret 
+  1000d352  int3 
+  1000d353  int3 
+  1000d354  int3 
+  1000d355  int3 
+  1000d356  int3 
+  1000d357  int3 
+  1000d358  int3 
+  1000d359  int3 
+  1000d35a  int3 
+  1000d35b  int3 
+  1000d35c  int3 
+  1000d35d  int3 
+  1000d35e  int3 
+  1000d35f  int3 
+  1000d360  push ebp
+  1000d361  mov ebp, esp
+  1000d363  mov eax, dword ptr [ebp + 8]
+  1000d366  mov dword ptr [0x1001c6d0], eax
+  1000d36b  pop ebp
+  1000d36c  ret 
+  1000d36d  int3 
+  1000d36e  int3 
+  1000d36f  int3 
+  1000d370  push ebp
+  1000d371  mov ebp, esp
+  1000d373  sub esp, 0xc
+  1000d376  push 0x1001718c  ; "setEyeUsbSuspend"
+  1000d37b  mov eax, dword ptr [ebp + 8]
+  1000d37e  push eax
+  1000d37f  call 0x10012f76
+  1000d384  add esp, 8
+  1000d387  test eax, eax
+  1000d389  jne 0x1000d3aa
+  1000d38b  mov ecx, dword ptr [ebp + 0xc]
+  1000d38e  mov edx, dword ptr [ecx]
+  1000d390  mov dword ptr [ebp - 4], edx
+  1000d393  mov eax, dword ptr [ebp - 4]
+  1000d396  push eax
+  1000d397  call 0x100013d0
+  1000d39c  mov ecx, eax
+  1000d39e  call 0x100013e0
+  1000d3a3  mov eax, 1
+  1000d3a8  jmp 0x1000d3fb
+  1000d3aa  push 0x100171a0  ; "setEyeUsbShutDown"
+  1000d3af  mov ecx, dword ptr [ebp + 8]
+  1000d3b2  push ecx
+  1000d3b3  call 0x10012f76
+  1000d3b8  add esp, 8
+  1000d3bb  test eax, eax
+  1000d3bd  jne 0x1000d3de
+  1000d3bf  mov edx, dword ptr [ebp + 0xc]
+  1000d3c2  mov eax, dword ptr [edx]
+  1000d3c4  mov dword ptr [ebp - 8], eax
+  1000d3c7  mov ecx, dword ptr [ebp - 8]
+  1000d3ca  push ecx
+  1000d3cb  call 0x100013d0
+  1000d3d0  mov ecx, eax
+  1000d3d2  call 0x10001430
+  1000d3d7  mov eax, 1
+  1000d3dc  jmp 0x1000d3fb
+  1000d3de  call 0x1000caf0
+  1000d3e3  mov dword ptr [ebp - 0xc], eax
+  1000d3e6  mov edx, dword ptr [ebp + 0xc]
+  1000d3e9  push edx
+  1000d3ea  mov eax, dword ptr [ebp + 8]
+  1000d3ed  push eax
+  1000d3ee  mov ecx, dword ptr [ebp - 0xc]
+  1000d3f1  mov edx, dword ptr [ecx]
+  1000d3f3  mov ecx, dword ptr [ebp - 0xc]
+  1000d3f6  mov eax, dword ptr [edx + 4]
+  1000d3f9  call eax
+  1000d3fb  mov esp, ebp
+  1000d3fd  pop ebp
+  1000d3fe  ret 
+  1000d3ff  int3 
+  1000d400  push ebp
+  1000d401  mov ebp, esp
+  1000d403  push -1
+  1000d405  push 0x10013f39
+  1000d40a  mov eax, dword ptr fs:[0]
+  1000d410  push eax
+  1000d411  sub esp, 0x48
+  1000d414  mov eax, dword ptr [0x1001c2a8]
+  1000d419  xor eax, ebp
+  1000d41b  mov dword ptr [ebp - 0x10], eax
+  1000d41e  push eax
+  1000d41f  lea eax, [ebp - 0xc]
+  1000d422  mov dword ptr fs:[0], eax
+  1000d428  mov dword ptr [ebp - 0x4c], 0
+  1000d42f  mov dword ptr [ebp - 0x28], 0
+  1000d436  push 0x100171b4  ; "UsbPlugDetect"
+  1000d43b  lea ecx, [ebp - 0x48]
+  1000d43e  call dword ptr [0x10015148]
+  1000d444  mov dword ptr [ebp - 4], 0
+  1000d44b  push 0x100171c4  ; ".dll"
+  1000d450  lea ecx, [ebp - 0x48]
+  1000d453  call dword ptr [0x10015198]
+  1000d459  mov eax, dword ptr [0x100171cc]
+  1000d45e  mov dword ptr [ebp - 0x24], eax
+  1000d461  mov ecx, dword ptr [0x100171d0]
+  1000d467  mov dword ptr [ebp - 0x20], ecx
+  1000d46a  mov edx, dword ptr [0x100171d4]
+  1000d470  mov dword ptr [ebp - 0x1c], edx
+  1000d473  mov eax, dword ptr [0x100171d8]
+  1000d478  mov dword ptr [ebp - 0x18], eax
+  1000d47b  mov cx, word ptr [0x100171dc]
+  1000d482  mov word ptr [ebp - 0x14], cx
+  1000d486  lea ecx, [ebp - 0x48]
+  1000d489  call dword ptr [0x1001519c]
+  1000d48f  push eax
+  1000d490  call dword ptr [0x1001507c]
+  1000d496  mov dword ptr [ebp - 0x2c], eax
+  1000d499  cmp dword ptr [ebp - 0x2c], 0
+  1000d49d  jne 0x1000d4a8
+  1000d49f  mov dword ptr [ebp - 0x4c], 0
+  1000d4a6  jmp 0x1000d4f6
+  1000d4a8  push 0x100171e0  ; "USBAudioPlugInDetect"
+  1000d4ad  mov edx, dword ptr [ebp - 0x2c]
+  1000d4b0  push edx
+  1000d4b1  call dword ptr [0x10015078]
+  1000d4b7  mov dword ptr [ebp - 0x50], eax
+  1000d4ba  cmp dword ptr [ebp - 0x50], 0
+  1000d4be  jne 0x1000d4c9
+  1000d4c0  mov dword ptr [ebp - 0x4c], 0
+  1000d4c7  jmp 0x1000d4ec
+  1000d4c9  lea eax, [ebp - 0x24]
+  1000d4cc  push eax
+  1000d4cd  call dword ptr [ebp - 0x50]
+  1000d4d0  add esp, 4
+  1000d4d3  mov dword ptr [ebp - 0x28], eax
+  1000d4d6  cmp dword ptr [ebp - 0x28], 1
+  1000d4da  jne 0x1000d4e5
+  1000d4dc  mov dword ptr [ebp - 0x4c], 1
+  1000d4e3  jmp 0x1000d4ec
+  1000d4e5  mov dword ptr [ebp - 0x4c], 0
+  1000d4ec  mov ecx, dword ptr [ebp - 0x2c]
+  1000d4ef  push ecx
+  1000d4f0  call dword ptr [0x10015074]
+  1000d4f6  mov edx, dword ptr [ebp - 0x4c]
+  1000d4f9  mov dword ptr [ebp - 0x54], edx
+  1000d4fc  mov dword ptr [ebp - 4], 0xffffffff
+  1000d503  lea ecx, [ebp - 0x48]
+  1000d506  call dword ptr [0x100151a0]
+  1000d50c  mov eax, dword ptr [ebp - 0x54]
+  1000d50f  mov ecx, dword ptr [ebp - 0xc]
+  1000d512  mov dword ptr fs:[0], ecx
+  1000d519  pop ecx
+  1000d51a  mov ecx, dword ptr [ebp - 0x10]
+  1000d51d  xor ecx, ebp
+  1000d51f  call 0x10012d64
+  1000d524  mov esp, ebp
+  1000d526  pop ebp
+  1000d527  ret 
+  1000d528  int3 
+  1000d529  int3 
+  1000d52a  int3 
+  1000d52b  int3 
+  1000d52c  int3 
+  1000d52d  int3 
+  1000d52e  int3 
+  1000d52f  int3 
+  1000d530  push ebp
+  1000d531  mov ebp, esp
+  1000d533  mov eax, dword ptr [0x1001c31c]
+  1000d538  push eax
+  1000d539  mov ecx, dword ptr [ebp + 8]
+  1000d53c  push ecx
+  1000d53d  call 0x1000ba50
+  1000d542  add esp, 8
+  1000d545  pop ebp
+  1000d546  ret 
+  1000d547  int3 
+  1000d548  int3 
+  1000d549  int3 
+  1000d54a  int3 
+  1000d54b  int3 
+  1000d54c  int3 
+  1000d54d  int3 
+  1000d54e  int3 
+  1000d54f  int3 
+  1000d550  push ebp
+  1000d551  mov ebp, esp
+  1000d553  push ecx
+  1000d554  mov dword ptr [ebp - 4], ecx
+  1000d557  mov ecx, dword ptr [ebp - 4]
+  1000d55a  add ecx, 4
+  1000d55d  call 0x1000ca90
+  1000d562  mov eax, dword ptr [ebp - 4]
+  1000d565  mov dword ptr [eax], 0x10016e00
+  1000d56b  mov eax, dword ptr [ebp - 4]
+  1000d56e  mov esp, ebp
+  1000d570  pop ebp
+  1000d571  ret 
+  1000d572  int3 
+  1000d573  int3 
+  1000d574  int3 
+  1000d575  int3 
+  1000d576  int3 
+  1000d577  int3 
+  1000d578  int3 
+  1000d579  int3 
+  1000d57a  int3 
+  1000d57b  int3 
+  1000d57c  int3 
+  1000d57d  int3 
+  1000d57e  int3 
+  1000d57f  int3 
+  1000d580  push ebp
+  1000d581  mov ebp, esp
+  1000d583  sub esp, 8
+  1000d586  mov dword ptr [ebp - 4], ecx
+  1000d589  mov eax, dword ptr [ebp - 4]
+
+===== EasyUSB resolver context (WriteData xref) (VA 0x1001222c) =====
+  1001222c  les eax, ptr [edi + ecx]
+  1001222f  mov bh, 0x85
+  10012231  or cl, dh
+
+===== ReadData xref context (VA 0x1000a65e) =====
+  1000a65e  int3 
+  1000a65f  int3 
+  1000a660  push ebp
+  1000a661  mov ebp, esp
+  1000a663  sub esp, 8
+  1000a666  mov byte ptr [ebp - 5], 0
+  1000a66a  call 0x10013940
+  1000a66f  cmp dword ptr [ebp + 8], 1
+  1000a673  jne 0x1000a67e
+  1000a675  xor al, al
+  1000a677  jmp 0x1000a707
+  1000a67c  jmp 0x1000a6ac
+  1000a67e  cmp dword ptr [ebp + 8], 2
+  1000a682  je 0x1000a68a
+  1000a684  cmp dword ptr [ebp + 8], 3
+  1000a688  jne 0x1000a696
+  1000a68a  mov dword ptr [0x1001c334], 0x1001c370
+  1000a694  jmp 0x1000a6ac
+  1000a696  cmp dword ptr [ebp + 8], 4
+  1000a69a  je 0x1000a6a2
+  1000a69c  cmp dword ptr [ebp + 8], 5
+  1000a6a0  jne 0x1000a6ac
+  1000a6a2  mov dword ptr [0x1001c334], 0x1001c478
+  1000a6ac  mov dword ptr [0x1001c320], 0
+  1000a6b6  push 0x10016864  ; ".\xEyeUSB.ini"
+  1000a6bb  push 5
+  1000a6bd  push 0x10016874  ; "ReadDataFailedCnt"
+  1000a6c2  push 0x10016888  ; "Config"
+  1000a6c7  call dword ptr [0x10015080]
+  1000a6cd  mov dword ptr [ebp - 4], eax
+  1000a6d0  mov eax, dword ptr [ebp - 4]
+  1000a6d3  mov dword ptr [0x1001c198], eax
+  1000a6d8  mov ecx, dword ptr [0x1001c15c]
+  1000a6de  push ecx
+  1000a6df  call dword ptr [0x1001537c]
+  1000a6e5  mov ecx, eax
+  1000a6e7  call dword ptr [0x10015380]
+  1000a6ed  mov dword ptr [0x1001c338], eax
+  1000a6f2  cmp dword ptr [0x1001c338], 0
+  1000a6f9  jne 0x1000a700
+  1000a6fb  mov al, byte ptr [ebp - 5]
+  1000a6fe  jmp 0x1000a707
+  1000a700  mov byte ptr [ebp - 5], 1
+  1000a704  mov al, byte ptr [ebp - 5]
+  1000a707  mov esp, ebp
+  1000a709  pop ebp
+  1000a70a  ret 
+  1000a70b  int3 
+  1000a70c  int3 
+  1000a70d  int3 
+  1000a70e  int3 
+  1000a70f  int3 
+  1000a710  push ebp
+  1000a711  mov ebp, esp
+  1000a713  push -1
+  1000a715  push 0x10013e68
+  1000a71a  mov eax, dword ptr fs:[0]
+  1000a720  push eax
+  1000a721  sub esp, 0x4a0
+  1000a727  mov eax, dword ptr [0x1001c2a8]
+  1000a72c  xor eax, ebp
+  1000a72e  push eax
+  1000a72f  lea eax, [ebp - 0xc]
+  1000a732  mov dword ptr fs:[0], eax
+  1000a738  mov dword ptr [ebp - 0x58], 1
+  1000a73f  push 0x10016890
+  1000a744  call dword ptr [0x10015030]
+  1000a74a  mov dword ptr [0x1001c32c], 0
+  1000a754  push 1
+  1000a756  call 0x1000b5f0
+  1000a75b  add esp, 4
+  1000a75e  push 1
+  1000a760  push 7
+  1000a762  call 0x1000b710
+  1000a767  add esp, 8
+  1000a76a  mov dword ptr [0x1001c31c], eax
+  1000a76f  mov eax, dword ptr [0x1001c31c]
+  1000a774  push eax
+  1000a775  call 0x1000a660
+  1000a77a  add esp, 4
+  1000a77d  movzx ecx, al
+  1000a780  test ecx, ecx
+  1000a782  jne 0x1000a796
+  1000a784  push 0

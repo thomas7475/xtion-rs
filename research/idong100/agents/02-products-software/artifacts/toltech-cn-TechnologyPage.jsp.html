@@ -1,0 +1,489 @@
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7" />
+    <meta name="author" content="深圳沙漠风网络科技 www.szweb.cn" />
+    <meta name="Keywords" content="网页关键字" />
+    <meta name="Description" content="网页描述" />
+	<title>泰山体育科技</title>
+    <link href="css/global.css" rel="stylesheet" type="text/css" />
+    <link href="css/layout.css" rel="stylesheet" type="text/css" />
+    
+    <!--[if IE 6]>
+    <script src="js/iepng.js" type="text/javascript"></script>
+    <script type="text/javascript">
+       EvPNG.fix('div, ul, img, li, input,h1,a,a:hover,#subNavBj .subNav ul li'); 
+    </script>
+    <![endif]-->
+    <script src="Scripts/AC_RunActiveContent.js" type="text/javascript"></script>
+     <script src="js/jquery-1.4.2.min.js" type="text/javascript"></script>
+     <script src="js/jquery.apply.js" type="text/javascript"></script>
+</head>
+
+<body>
+<!--warp--> 
+<div id="warp">
+	
+    <!--headpage begin-->
+   
+<div class="header">
+    	<div class="head">
+        	<h1><a href="index.jsp">泰山体育科技</a></h1>
+            <div class="headright">
+            	<div class="headtop">
+         	<a class="on2" target="_blank" href="http://e.weibo.com/aidong001?ref=http%3A%2F%2Fs.weibo.com%2Fweibo%2F%2525E7%252588%2525B1%2525E5%25258A%2525A8%26Refer%3DSTopic_box">关注泰山体育科技微博 </a>
+                    <a class="on2" href="Devolopment.jsp">开发乐园</a>
+                    <a class="on2" href="TechnologyPage.jsp?type=Cooperation">知识产权合作</a>
+                    <a class="on2" href="Contact.jsp">联系我们</a>|
+                    <a class="on3" style="cursor: auto;" href="../en/index.jsp">English</a>
+                </div>
+                <div class="del_float"></div>
+                <div class="headbm">
+                	<script type="text/javascript">
+                    	$(function(){
+							var timer;
+							var menuhover;
+							$(".navleft>ul>li:first").each(function(){
+							});
+							$("#menu>li").hover(function(){
+								
+							   menuhover=$(this);
+								$("#menu>li").children("a").removeClass("cur");
+								$("#menu>li").children("a").removeClass("cur2");
+								$(".navbox").hide();
+								
+								
+								$(this).children("a").addClass("cur");
+							
+								$(this).children(".navbox").show();
+								clearTimeout(timer);
+								
+								
+							},function(){
+							timer=setTimeout(function(){
+									if($(menuhover).children(".navbox").css("display")=="block"){
+									$(".navbox").hide();
+										}
+								},200);
+							});
+							$(".navbox").hover(function(){
+								clearTimeout(timer);
+							},function(){
+								
+									$("#menu>li").children("a").removeClass("cur");
+									
+									
+								
+							
+								//$("#menu>li").children("a").removeClass("cur");
+								$("#menu>li").children(".navbox").hide();
+							});
+							//三级导航
+							
+							$(".navleft>ul>li").hover(function(){
+								$(".navleft>ul>li").removeClass("cur");
+								$(this).addClass("cur");
+								
+							},function(){
+								$(".navleft>ul>li").removeClass("cur");
+							});
+							
+							
+							
+							
+						});
+                    </script>
+                	<div class="nav">
+                    	<ul id="menu">
+                        	<li class="wart"><a rel="About"  href="AboutPage.jsp?type=CompanyIntro">关于泰山体育科技 </a>
+                            	<div class="navbox" style="display:none;">
+                                	<div class="navleft">
+                                    	<ul>
+                                        	<li><a href="AboutPage.jsp?type=CompanyIntro">关于泰山体育科技</a></li>
+                        <li><a href="AboutPage.jsp?type=Vision">愿景和理念</a></li>
+                        <li><a href="History.jsp">公司大事记</a></li>
+                        <li><a href="Honor.jsp">公司荣誉</a></li>
+                        <li><a href="HumanList.jsp">人才招聘</a></li>
+                                        </ul>
+                                    </div>
+                                    <div class="navright">
+                                    	<dl id="navright">
+                                        	<dt><img src="images/aboutBanner.jpg"/></dt>
+                                            <dd><p>泰山体育科技使命是为人们架起一座互联网和体育锻炼、快乐健身的桥梁！</p></dd>
+                                            <div class="del_float"></div>
+                                        </dl>
+                                    </div>
+                                    <div class="del_float"></div>
+                                </div>
+                            
+                            </li>
+                            <li><a href="TechnologyPage.jsp?type=TechnologyIntro" rel="TechnologyIntro">技术介绍</a>
+                            	 <div class="navbox box2" style="display:none;">
+                                	<div class="navleft">
+                                    	<ul>
+                                        	<li><a href="TechnologyPage.jsp?type=TechnologyIntro">技术介绍</a></li>
+                                        </ul>
+                                    </div>
+                                    <div class="navright">
+                                    	<dl>
+                                        	<dt><img src="images/technologyBanner.jpg"/></dt>
+                                            <dd><p>泰山体育科技使命是为人们架起一座互联网和体育锻炼、快乐健身的桥梁！</p></dd>
+                                            <div class="del_float"></div>
+                                        </dl>
+                                    </div>
+                                    <div class="del_float"></div>
+                                </div>
+                             
+                            </li>
+                            
+                            <li class="wart"><a href="ProductList.jsp" rel="ProductSolution">产品和应用方案</a>
+                            	<div class="navbox box3" style="display:none;">
+                                	<div class="navleft">
+                                    	<ul>
+                                        	<li><a href="ProductList.jsp">产品介绍</a></li>
+					                        <li><a href="Interactive.jsp">应用方案</a></li>
+					                        <li><a href="Success.jsp">成功案例</a></li>
+					                        <li><a href="Solution.jsp">方案演示</a></li>
+                                        </ul>
+                                    </div>
+                                    <div class="navright">
+                                    	<dl>
+                                        	<dt><img src="images/solutionBanner.jpg"/></dt>
+                                            <dd><p>泰山体育科技使命是为人们架起一座互联网和体育锻炼、快乐健身的桥梁！</p></dd>
+                                            <div class="del_float"></div>
+                                        </dl>
+                                    </div>
+                                    <div class="del_float"></div>
+                                </div>
+                            </li>
+			    <li><a href="ToolsPage.jsp" rel="Tools">开发工具</a>
+                            	<div class="navbox box4" style="display:none;">
+                                	<div class="navleft">
+                                    	<ul>
+                                        	<li><a href="ToolsPage.jsp">开发工具</a></li>
+                                        </ul>
+                                    </div>
+                                    <div class="navright">
+                                    	<dl>
+                                        	<dt><img src="images/toolsBanner.jpg"/></dt>
+                                            <dd><p>泰山体育科技使命是为人们架起一座互联网和体育锻炼、快乐健身的桥梁！</p></dd>
+                                            <div class="del_float"></div>
+                                        </dl>
+                                    </div>
+                                    <div class="del_float"></div>
+                                </div>
+                            </li>
+                            <li><a href="FeedBack.jsp" rel="Service">服务支持 </a>
+                            	<div class="navbox navbox2 box5 " style="display:none;">
+                                	<div class="navleft ">
+                                    	<ul>
+                                        	<li><a href="FeedBack.jsp">用户留言反馈</a></li>
+                        <li><a href="Download.jsp">下载</a></li>
+                                        </ul>
+                                    </div>
+                                    <div class="navright myright">
+                                    	<dl>
+                                        	<dt><img src="images/serviceBanner.jpg"/></dt>
+                                            <dd><p>泰山体育科技使命是为人们架起一座互联网和体育锻炼、快乐健身的桥梁！</p></dd>
+                                            <div class="del_float"></div>
+                                        </dl>
+                                    </div>
+                                    <div class="del_float"></div>
+                                </div>
+                            </li>
+                            <li><a href="NewsList.jsp" rel="News">新闻中心</a>
+                            	<div class="navbox navbox2 box6" style="display:none;">
+                                	<div class="navleft">
+                                    	<ul>
+                                        	<li ><a href="NewsList.jsp">公司动态</a></li>
+                                            <li><a href="NewsList.jsp?newstype=MediaNews">媒体动态</a></li>
+                                        </ul>
+                                    </div>
+                                    <div class="navright myright">
+                                    	<dl>
+                                        	<dt><img src="images/newsBanner.jpg"/></dt>
+                                            <dd><p>泰山体育科技使命是为人们架起一座互联网和体育锻炼、快乐健身的桥梁！</p></dd>
+                                            <div class="del_float"></div>
+                                        </dl>
+                                    </div>
+                                    <div class="del_float"></div>
+                                </div>
+                            </li>
+                            <li class="no-border"><a href="Partner.jsp" rel="Partner">合作伙伴</a>
+                            	<div class="navbox navbox2 box7" style="display:none;">
+                                	<div class="navleft">
+                                    	<ul>
+                                        	<li><a href="Partner.jsp">深度合作伙伴</a></li>
+                        <li><a href="Partner.jsp?newstype=CommonPartners">重要合作伙伴</a></li>
+                        <li><a href="Merchants.jsp">市场合作</a></li>
+
+                                        </ul>
+                                    </div>
+                                    <div class="navright myright">
+                                    	<dl>
+                                        	<dt><img src="images/partnerBanner.jpg"/></dt>
+                                            <dd><p>泰山体育科技使命是为人们架起一座互联网和体育锻炼、快乐健身的桥梁！</p></dd>
+                                            <div class="del_float"></div>
+                                        </dl>
+                                    </div>
+                                    <div class="del_float"></div>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+                	
+                </div>
+            </div>
+        </div>
+    </div>
+
+	<!--headpage end-->
+    
+    
+    
+    <!--banner begin-->
+    	<div class="banner ban5" id="Technology">
+        	<div class="banercon">
+        	<h2><img src="images/techon_03.png" /></h2>
+            </div>
+        </div>
+    <!--banner end-->
+	
+    
+    
+    
+    <!--content begin-->
+    	<div class="content" id="TechnologyIntro">
+        	<div class="conter">
+            	<div class="contitle">
+                	<span>您的位置：</span>
+                    <a href="index.jsp">首页</a>&gt;
+                    <a class="cur" href="#"> 技术介绍</a>
+                </div>
+                
+                <div class="con">
+                
+                <div class="left">
+                    	
+<div class="menu">
+                        	<ul>
+                            	<li><a  href="TechnologyPage.jsp?type=TechnologyIntro" rel="TechnologyIntro">技术介绍</a></li>
+                                <li style="display: none"><a href="TechnologyPage.jsp?type=Cooperation" rel="Cooperation">知识产权合作 </a></li>
+           
+                            </ul>
+                        </div>
+                        
+                        
+
+
+
+
+
+
+
+
+
+<!-- <div class="leftcon1">
+                        	<img src="images/leftbox_03.jpg" />
+                        </div>
+                        <div class="leftcon2">
+                        	<a href="Merchants.jsp"><img src="images/leftbox_06.jpg" /></a>
+                        </div> -->
+                    </div>
+                
+                    
+                    
+                    
+                    <div class="right">
+                    	<h3><img src="images/title_TechnologyIntro.jpg" /></h3>
+                         <div style="line-height:25px;">
+	<p style="font-size: 14px">
+		<span style="font-size: 14px"><strong>一、<span class="Apple-tab-span" style="white-space: pre"> </span>技术原理</strong></span></p>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">　　我司技术的主要原理分为两个方面，一是位置提取，二是姿态识别。具体如下：</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">A、位置提取</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 泰山体育科技感应器采用双目视觉原理对物体进行定位。如下图所示，当采用两个位于不同位置的摄像头拍摄目标物体P时，可以得到目标物体P在左右两幅图上的坐标，通过三角关系可以计算出目标物体P在三维空间坐标系中的坐标，从而提取出该物体在三维空间中的位置。</span></div>
+	<div style="text-align: center;">
+		<img alt="" src="/userfiles/images/1(1).png" style="width: 543px; height: 234px;" /></div>
+	<div>
+		<span style="font-size: 14px">B、姿态识别</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">&nbsp; &nbsp; &nbsp; &nbsp;通过识别出人体身体上的各个关节点，如头部、手、胳膊、肩膀、大腿、小腿、脚步等，将多个关节点相互关联，从而识别人体的各种动作姿态。</span></div>
+	<div>
+		&nbsp;</div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">具体步骤包括：</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">1. 确定运动轨迹</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 连续拍摄多帧运动中的目标物体的画面，通过前述方法运算得到每一时刻时物体在三维空间中的坐标，将该等坐标按照时间排序，形成运动轨迹。</span></div>
+	<div styl="font-size=14px;">
+		<span style="font-size: 14px">2. 确定动作</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">　　通过预先设置好的分类器，将各个运动轨迹归纳为相应的动作，从而确定该运动轨迹代表的动作。</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">3. 形成控制指令</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">　　每一个不同的动作背后都各自映射一个指令，当确定某一轨迹的动作后，执行该动作所对应的指令。</span></div>
+	<div style="font-size: 14px">
+		&nbsp;</div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px"><strong>二、技术介绍</strong></span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 我司人机交互技术主要包括爱动感应器、idong200模组、idong100模组等产品，Anysense全方位人机交互、空中鼠标、手势操控、机顶盒、3D智能游戏机、电子白板、智能玩具等解决方案。</span></div>
+	<div style="text-align: center">
+		<span style="font-size: 14px"><img alt="" src="/userfiles/images/3.png" style="width: 543px; height: 367px" /></span></div>
+	<div style="font-size: 14px">
+		&nbsp;</div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 我司技术具有光学识别、多点、无源、低功耗、低成本、免驱等特点。技术参数上可以实现高速图像采集和处理，三维数据重建和真实场景重现。采用标志点时能够在5米的空间范围内实现2毫米的定位精度。</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">以AnySense为例：</span></div>
+	<div style="font-size: 14px">
+		&nbsp;</div>
+	<div style="text-align: center">
+		<img alt="" src="/userfiles/images/anysense.jpg" style="width: 543px; height: 378px" /></div>
+	<div style="text-align: center">
+		&nbsp;</div>
+	<div style="font-size: 14px">
+		<strong><span style="font-size: 14px">AnySense的套件具有：</span></strong></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">精准易用的空鼠</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">　&ndash;<span class="Apple-tab-span" style="white-space: pre"> </span>精准（科学测试数据）</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">　&ndash;<span class="Apple-tab-span" style="white-space: pre"> </span>易用（自动置中、无需对码、耐用可靠）</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">标准的视音频功能</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">　&ndash;<span class="Apple-tab-span" style="white-space: pre"> </span>高清摄像头（带压缩）</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">　&ndash;<span class="Apple-tab-span" style="white-space: pre"> </span>阵列麦克风（带降噪、回声消除、远讲等）</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">系统简捷成本低</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">　&ndash;<span class="Apple-tab-span" style="white-space: pre"> </span>硬件系统简捷（主机：单片、单接口；手持：简单、成熟）</span></div>
+	<div style="font-size: 14px">
+		<span style="font-size: 14px">　&ndash;<span class="Apple-tab-span" style="white-space: pre"> </span>成本低（比传统的MEMS传感器方案至少低30%）</span></div>
+	<div style="font-size: 14px">
+		&nbsp;</div>
+</div>
+<p>
+	&nbsp;</p>
+
+                        
+                    </div>
+                	
+                    <div class="del_float"></div>
+               </div> 
+                
+                
+            </div>
+        </div>
+   	
+	<!--content end-->
+    
+    <!--footer-->
+  
+<div class="footent">
+    	<div class="footer">
+        	<div class="footer_left">
+            	<div class="link">
+                	<h5>关于泰山体育科技</h5>
+                    <ul>
+                    	<li><a href="AboutPage.jsp?type=CompanyIntro">关于泰山体育科技</a></li>
+                        <li><a href="AboutPage.jsp?type=Vision">愿景和理念</a></li>
+                        <li><a href="History.jsp">公司大事记</a></li>
+                        <li><a href="Honor.jsp">公司荣誉</a></li>
+                        <li><a href="HumanList.jsp">人才招聘</a></li>
+                    </ul>
+                    
+                </div>
+                <div class="link">
+                	<h5>技术介绍</h5>
+                    <ul>
+                    	<li><a href="TechnologyPage.jsp?type=TechnologyIntro">技术介绍</a></li>
+                        <!-- <li><a href="ToolsPage.jsp">开发工具</a></li>
+                        <li style="display: none;"><a href="TechnologyPage.jsp?type=Cooperation">知识产权合作</a></li> -->
+                    </ul>
+                </div>
+                
+                
+                <div class="link">
+                	<h5>产品和应用方案</h5>
+                    <ul>
+                    	<li><a href="ProductList.jsp">产品介绍</a></li>
+                        <li><a href="Interactive.jsp">应用方案</a></li>
+                        <li><a href="Success.jsp">成功案例</a></li>
+                        <li><a href="Solution.jsp">方案演示</a></li>
+                    </ul>
+                    
+                </div>
+		<div class="link">
+                	<h5>开发工具</h5>
+                    <ul>
+                    	<li><a href="ToolsPage.jsp">开发工具</a></li>
+                        <!-- <li><a href="ToolsPage.jsp">开发工具</a></li>
+                        <li style="display: none;"><a href="TechnologyPage.jsp?type=Cooperation">知识产权合作</a></li> -->
+                    </ul>
+                </div>
+                <div class="link">
+                	<h5>服务与支持</h5>
+                    <ul>
+                    	<li><a href="FeedBack.jsp">用户留言反馈</a></li>
+                        <li><a href="Download.jsp">下载</a></li>
+                    </ul>
+                    
+                </div>
+                <div class="link">
+                	<h5>合作伙伴</h5>
+                    <ul>
+                    	<li><a href="Partner.jsp">深度合作伙伴</a></li>
+                        <li><a href="Partner.jsp?newstype=CommonPartners">重要合作伙伴</a></li>
+                        <li><a href="Merchants.jsp">市场合作</a></li>
+
+                    </ul>
+                    
+                </div>
+                
+                <div class="del_float"></div>
+            </div>
+            <div class="footer_right">
+            	<div class="map">
+                	<img src="images/footencon_16.jpg"  />
+                </div>
+            </div>
+            <div class="del_float"></div>
+        </div>
+        
+        <div class="footerbm">
+        	<div class="footerlink">
+            	<a href="Contact.jsp">联系我们</a>|
+                <a href="SiteMap.jsp">网站地图</a>|
+                <a href="HumanList.jsp">职位招聘</a>
+            </div>
+            <p>© 2019 泰山体育科技版权所有  <a target="_blank" href="http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=44030502000211" style="display:inline-block;text-decoration:none;height:20px;line-height:20px;"><img src="/userfiles/images/beian.png" style="float:left;"/>粤公网安备 44030502000211号</a>  <a href="https://beian.miit.gov.cn">粤ICP备11013256号</a</p>
+        </div>
+        
+        
+    </div>
+
+    <!--footer-->
+
+</div>
+<!--warp-->
+</body>
+</html>

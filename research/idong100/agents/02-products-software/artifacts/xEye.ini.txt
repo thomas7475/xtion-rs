@@ -1,0 +1,56 @@
+[xEye]
+#语言,1CHS,2ENG
+xEyeLanguage = 1
+#运行模式,1PC,2主机
+xEyeMode = 1
+#气泡提示开关
+BalloonOn = 1
+#日志等级
+xEyeLog = 0
+#日志方式
+xEyeLogType = 0 
+#USB与应用线程队列
+ListApp2USB = 15
+ListUSB2App = 14
+#主线程与应用线程
+ListMain2App = 13
+#主线程与计算线程
+ListMain2Cal = 12
+#应用线程与计算线程
+ListApp2Cal = 11
+#帧数限制
+xEyeFrame = 50
+
+#气泡显示时间控制
+TimeToShow = 200
+TimeToLive = 8000
+TimeToHide = 4000
+#跳跃步长
+Increment = 2
+#项目版本号
+xProject = 1.7
+[xEyeClass]
+#日志等级
+xEyeClassLog = 1
+#管道buffer大小
+PipeBufferSize = 9000
+#管道超时
+PipeTimeOut = 10
+#应用线程帧数限制
+xEyeClassFrame = 50
+#每帧最大读取USB数目
+MaxRead = 1
+#检测丢帧的日志等级
+ClassMissFrameLog = 0
+#是否开启默认管道
+iDefaultPipe = 1
+
+[xEyeUSB]
+USBMissFrameLog = 0
+DSPMissFrameLog = 0
+
+[xEyeCal]
+CalMissFrameLog = 0
+
+[xEyeMsgCenter]
+DebugShow=0

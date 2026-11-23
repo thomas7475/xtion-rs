@@ -1,0 +1,153 @@
+  10010100  add byte ptr [eax], al
+  10010102  add esp, 4
+  10010105  jmp 0x100100a6
+  10010107  push 0x10018174
+  1001010c  call 0x10010b80
+  10010111  add esp, 4
+  10010114  mov eax, 5
+  10010119  mov ecx, dword ptr [ebp - 8]
+  1001011c  xor ecx, ebp
+  1001011e  call 0x10012d64
+  10010123  mov esp, ebp
+  10010125  pop ebp
+  10010126  ret 
+  10010127  int3 
+  10010128  int3 
+  10010129  int3 
+  1001012a  int3 
+  1001012b  int3 
+  1001012c  int3 
+  1001012d  int3 
+  1001012e  int3 
+  1001012f  int3 
+  10010130  push ebp
+  10010131  mov ebp, esp
+  10010133  sub esp, 0x214
+  10010139  mov eax, dword ptr [0x1001c2a8]
+  1001013e  xor eax, ebp
+  10010140  mov dword ptr [ebp - 0x10], eax
+  10010143  movzx eax, word ptr [0x1001c294]
+  1001014a  test eax, eax
+  1001014c  jne 0x10010158
+  1001014e  mov eax, 6
+  10010153  jmp 0x100104d1
+  10010158  mov ecx, 1
+  1001015d  test ecx, ecx
+  1001015f  je 0x100104bf
+  10010165  push 0xbb8
+  1001016a  push 0x40
+  1001016c  push 0x1001c788
+  10010171  push 2
+  10010173  call 0x100139be
+  10010178  add esp, 0x10
+  1001017b  mov dword ptr [ebp - 0x214], eax
+  10010181  cmp dword ptr [ebp - 0x214], 0
+  10010188  jge 0x100101a1
+  1001018a  push 0x10018178
+  1001018f  call 0x10010b80
+  10010194  add esp, 4
+  10010197  mov eax, 0xffffffee
+  1001019c  jmp 0x100104d1
+  100101a1  mov dword ptr [ebp - 0xc], 0x1001c788
+  100101a8  mov edx, dword ptr [ebp - 0xc]
+  100101ab  cmp dword ptr [edx], 0x7f7f444f
+  100101b1  jne 0x10010215
+  100101b3  mov eax, dword ptr [ebp - 0xc]
+  100101b6  movzx ecx, word ptr [eax + 4]
+  100101ba  cmp ecx, 0xfff
+  100101c0  jne 0x10010215
+  100101c2  lea edx, [ebp - 0x210]
+  100101c8  mov dword ptr [ebp - 8], edx
+  100101cb  mov eax, dword ptr [ebp - 8]
+  100101ce  mov dword ptr [eax], 0x7f7f5550
+  100101d4  mov ecx, dword ptr [ebp - 8]
+  100101d7  mov word ptr [ecx + 4], 0xffe
+  100101dd  push 0xbb8
+  100101e2  push 0x40
+  100101e4  lea edx, [ebp - 0x210]
+  100101ea  push edx
+  100101eb  push 3
+  100101ed  call 0x100139b8
+  100101f2  add esp, 0x10
+  100101f5  test eax, eax
+  100101f7  jge 0x10010210
+  100101f9  push 0x100181a8
+  100101fe  call 0x10010b80
+  10010203  add esp, 4
+  10010206  mov eax, 0xffffffed
+  1001020b  jmp 0x100104d1
+  10010210  jmp 0x100104ba
+  10010215  mov eax, dword ptr [ebp - 0xc]
+  10010218  cmp dword ptr [eax], 0x7f7f444f
+  1001021e  jne 0x1001022c
+  10010220  mov ecx, dword ptr [ebp - 0xc]
+  10010223  movzx edx, word ptr [ecx + 4]
+  10010227  cmp edx, 4
+  1001022a  je 0x10010248
+  1001022c  push 0x100181c8
+  10010231  call 0x10010b80
+  10010236  add esp, 4
+  10010239  mov eax, 0xffffffec
+  1001023e  jmp 0x100104d1
+  10010243  jmp 0x100104ba
+  10010248  lea eax, [ebp - 0x210]
+  1001024e  mov dword ptr [ebp - 4], eax
+  10010251  mov ecx, dword ptr [ebp - 4]
+  10010254  mov dword ptr [ecx], 0x7f7f5550
+  1001025a  mov edx, dword ptr [ebp - 0xc]
+  1001025d  movzx eax, word ptr [edx + 8]
+  10010261  cmp eax, 1
+  10010264  jne 0x1001030b
+  1001026a  mov ecx, dword ptr [ebp - 0xc]
+  1001026d  mov edx, dword ptr [ecx + 0x10]
+  10010270  push edx
+  10010271  mov eax, dword ptr [ebp - 0xc]
+  10010274  mov ecx, dword ptr [eax + 0xc]
+  10010277  push ecx
+  10010278  push 0x100181fc
+  1001027d  call 0x10010b80
+  10010282  add esp, 0xc
+  10010285  mov edx, dword ptr [ebp - 4]
+  10010288  mov word ptr [edx + 4], 4
+  1001028e  mov eax, dword ptr [ebp - 4]
+  10010291  mov word ptr [eax + 8], 0x11
+  10010297  push 0xbb8
+  1001029c  push 0x40
+  1001029e  lea ecx, [ebp - 0x210]
+  100102a4  push ecx
+  100102a5  push 3
+  100102a7  call 0x100139b8
+  100102ac  add esp, 0x10
+  100102af  test eax, eax
+  100102b1  jge 0x100102ca
+  100102b3  push 0x10018220
+  100102b8  call 0x10010b80
+  100102bd  add esp, 4
+  100102c0  mov eax, 0xffffffeb
+  100102c5  jmp 0x100104d1
+  100102ca  mov edx, dword ptr [ebp - 0xc]
+  100102cd  cmp dword ptr [edx + 0xc], -1
+  100102d1  je 0x100102dc
+  100102d3  mov eax, dword ptr [ebp - 0xc]
+  100102d6  cmp dword ptr [eax + 0x10], -1
+  100102da  jne 0x100102f2
+  100102dc  mov dword ptr [0x1001cbb0], 3
+  100102e6  push 2
+  100102e8  call 0x1000d2d0
+  100102ed  add esp, 4
+  100102f0  jmp 0x10010306
+  100102f2  mov dword ptr [0x1001cbb0], 4
+  100102fc  push 3
+  100102fe  call 0x1000d2d0
+  10010303  add esp, 4
+  10010306  jmp 0x100104ba
+  1001030b  mov ecx, dword ptr [ebp - 0xc]
+  1001030e  movzx edx, word ptr [ecx + 8]
+  10010312  cmp edx, 0xf
+  10010315  jne 0x1001036e
+  10010317  push 0x10018254
+  1001031c  call 0x10010b80
+  10010321  add esp, 4
+  10010324  mov eax, dword ptr [ebp - 4]
+  10010327  mov word ptr [eax + 4], 4
+  1001032d  mov ecx, dword ptr [ebp - 4]
