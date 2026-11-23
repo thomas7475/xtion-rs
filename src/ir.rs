@@ -49,6 +49,9 @@ pub struct IrFrame {
     /// `Unpack10to16` produces: value << 2 style shifts, max 0x3FF).
     pub data: Vec<u16>,
     pub timestamp: u32,
+    /// Host-referenced microseconds since the session's first frame
+    /// (see [`crate::DepthFrame::timestamp_us`]).
+    pub timestamp_us: Option<u64>,
 }
 
 impl IrFrame {
@@ -179,6 +182,7 @@ pub fn decode_ir_frame(
         height,
         data: values,
         timestamp,
+        timestamp_us: None,
     })
 }
 

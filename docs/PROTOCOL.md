@@ -153,6 +153,43 @@ their fw >= 5.8.9 reference defaults (both TRUE).
   stack uses the PS-COMPRESSED format (1) — see section 7 — while the
   uncompressed modes (5/7) belong to the Windows/ISO path.
 
+### Flash file system (opcodes 16/18/19/25) and fw 5.8.22 quirks
+
+- `XnFlashFile` on the wire (GET_FILE_LIST replies) is 24 bytes packed:
+  `{ u16 id, u16 type, u32 version, u32 offset, u32 size, u16 crc, u16
+  attributes, u16 reserve }` (PS1080.h:600-609). **`size` counts 16-bit
+  WORDS** — the vendor console's "SizeInWords" column
+  (PS1080Console.cpp:503). `attributes` bit 0x8000 = read-only
+  (`XnFileAttributeReadOnly`, rendered "[R]").
+- **fw 5.8.22 garbage tail:** GET_FILE_LIST returns a sane FIRST entry
+  (the FileTable itself: type 0, offset 0x1000, 4096 bytes) but the rest
+  of the reply misparses into flag-pattern values (0x8000000f-style).
+  The driver keeps the reference loop (next id = last id + 1,
+  XnHostProtocol.cpp:2458-2510) and the hardware test dumps the raw
+  table sector at flash 0x1000 (opcode 25, READ_FLASH takes BYTE
+  offsets — asymmetric with DOWNLOAD_FILE's WORD offsets) plus stride
+  scans, so the on-flash record layout can be recovered from one run.
+- **The per-file CRC algorithm is not documented** anywhere in the
+  vendor sources — the reference driver never verifies it. The driver
+  ships `crc16_candidates` (six standard CRC-16 variants pinned by their
+  catalog check values) and the hardware test downloads the smallest
+  file (GainControl, type 0x12 — 57 words) and prints every candidate
+  against the table's stored crc: the match names the algorithm.
+- **NACKed on this build:** GET_FLASH_MAP (18) and GET_CPU_STATS (27)
+  answer NACK(InvalidCommand) on fw 5.8.22 — despite the main image
+  carrying the 15 CPU-task names those stats would report
+  ('c,T,DC,TD,PK,IK,DK,O,SM,HM,TR,DC,PC,TC' at image offset 0xd1e) and
+  the full file-system machinery. The GET_CMOS_BLANKING (35) direct
+  read returns a reply too short for the u32 the C parses
+  (XnHostProtocol.cpp:3211-3245); the ALGORITHM_PARAMS(0x06) blanking
+  read every stream start performs is the working path.
+- **ENABLE_EMITTER (42) on this build:** NACKs BadParams (not
+  InvalidCommand — the opcode IS dispatched) although the request is
+  byte-identical to the reference's single-u16 `XnVSetEmitterStateRequest`
+  (XnHostProtocol.cpp:3420-3445) and the firmware meets the C's own
+  >= 5.8.15 version gate. A build-specific refusal (likely laser-safety
+  related); `set_emitter_enabled` reports it with that context.
+
 ## 3. Parameters (GET_PARAM / SET_PARAM)
 
 Payload: request `{ u16 param, u16 value }` (SET) or `{ u16 param }` (GET);
@@ -216,6 +253,57 @@ d2s[last_depth ..= device_max_depth] = last_index
 
 - Horizontal FOV: `2 * atan(ZPPS * 1280 / 2 / ZPD)` (SXGA width;
   XnSensorDepthStream.cpp).
+
+### Camera intrinsics from the calibration (0.3.0)
+
+`Xtion::depth_intrinsics(res)` derives the pinhole model from ZPD/ZPPS
+(no device I/O): `hfov = 2*atan(ZPPS*1280/2/ZPD)` spans the depth CMOS's
+native 1280-pixel line and `vfov = 2*atan(ZPPS*960/2/ZPD)` its 960-pixel
+height (XnSensorDepthStream.cpp:187-191 — `XN_VGA_Y_RES*2`), so **the FOV
+is resolution-independent**; `fx = (w/2)/tan(hfov/2)`, `fy =
+(h/2)/tan(vfov/2)`, `cx = w/2`, `cy = h/2` adapt to the streamed window
+(the OpenNI2 core's conversion cache, Source/Core/OniStream.cpp:439-446).
+For the VGA window this reduces to `fx = fy = ZPD / (2*ZPPS)` — square
+pixels. With the published Xtion values (ZPD 120, ZPPS 0.1052) it gives
+hfov 58.6 deg / vfov 45.7 deg, matching the 58/45 spec.
+
+Depth-to-world (`CameraIntrinsics::to_world`, port of
+`VideoStream::convertDepthToWorldCoordinates`, OniStream.cpp:399-404):
+`world_x = (x/w - 0.5) * z * 2*tan(hfov/2)`, `world_y = (0.5 - y/h) * z *
+2*tan(vfov/2)`, `world_z = z` — millimetres, X right, **Y up** (the
+pixel row axis flips), Z forward. Zero depth = invalid and converts to
+`None`.
+
+### Frame timestamps (0.3.0)
+
+The wire timestamps are raw 32-bit ticks of the ~60 MHz device clock —
+they wrap every `2^32 / 60e6` = **71.6 s**. Every decoded frame carries
+both: `timestamp` (raw ticks) and `timestamp_us` (host-referenced
+microseconds since the session's first frame). The conversion is a port
+of `XnDataProcessor::CreateTimestampFromDevice` (XnDataProcessor.cpp:
+84-226): a session anchor (first frame's ticks + host monotonic time),
+first-frame wrap estimation clipped to half a wrap around the host-time
+estimate, a wrap-aware delta on every update, and the 10 s sanity jump
+check (`XN_SENSOR_TIMESTAMP_SANITY_DIFF` * 1000) that re-runs the
+estimation when it trips. The clock rate is the ALGORITHM_PARAMS 0x80
+`fDeviceFrequency` in ticks per microsecond (~60.0 on the PS1080),
+read at open and retried lazily; without it the frames keep raw
+timestamps only.
+
+### Firmware log entry layout (GET_LOG, opcode 7; fixed in 0.3.0)
+
+The packed header (XnHostProtocol.cpp:1196-1211) is `{ u16 entry_size,
+u32 timestamp, u16 log_type }` — **the timestamp precedes the log type**.
+0.2.8 read `{u16, u16, u32}` instead, which spliced `[timestamp_hi16 |
+log_type]` into the printed "timestamp" — that is where values like
+0x5F00001F came from: they are boot-time structured entries (module
+0x5F/error 0, module 0x5A/error 2) with ~0x001Fxxxx boot ticks, not Unix
+epochs. Text entries (type 0x1200) carry UTF-16 words (low byte kept);
+overflow markers are type 0x1201; everything else is structured with
+payload `{ u16 line; u32 param }` and type = `module << 8 | error`.
+Runtime log texts also embed the same timestamp as their `%lu` prefix
+(the firmware's own format strings, e.g. `%lu Error! Timeout IR! (%d)`),
+which cross-checks the header decoding on hardware.
 
 ## 5. Bulk stream framing
 

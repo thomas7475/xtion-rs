@@ -37,24 +37,37 @@
 //! [`Xtion`](device::Xtion) and `docs/FEATURE_PLAN.md` for the full
 //! surface and what is deliberately left out (flash and calibration
 //! writes).
+//!
+//! Camera geometry: [`Xtion::depth_intrinsics`] returns the pinhole
+//! intrinsics derived from the on-device calibration
+//! ([`CameraIntrinsics`]), `DepthFrame::to_world` converts single pixels
+//! to metric world coordinates and `DepthFrame::point_cloud` yields the
+//! full cloud. Frame timestamps are raw 32-bit device ticks on the wire;
+//! every decoded frame also carries `timestamp_us` — host-referenced
+//! microseconds with wrap handling ([`TimestampConverter`]).
 
 pub mod color;
 pub mod depth;
 pub mod device;
 pub mod error;
+pub mod geometry;
 pub mod ir;
 pub mod protocol;
 pub mod ring;
 pub mod stream;
+pub mod timestamp;
 pub mod usb;
 
 pub use device::{ColorFrame, DepthConfig, DepthFrame, DeviceVersion, Xtion};
 pub use error::{Nack, ProtocolError, Result, XtionError};
+pub use geometry::CameraIntrinsics;
 pub use ir::{IrConfig, IrFrame};
 pub use protocol::system::{
-    bist, CpuTaskStats, EmitterData, FlashEntry, FlashFile, TecFastConvergenceData,
+    bist, CpuTaskStats, EmitterData, FirmwareLogEntry, FlashEntry, FlashFile,
+    TecFastConvergenceData,
 };
 pub use protocol::{CmosPreset, DepthFormat, HostMode, ImageFormat, Param, Resolution, UsbCore};
 pub use ring::{RingStats, BULK_MULTIPLIER, RING_BUFFERS};
 pub use stream::DeviceEvent;
+pub use timestamp::TimestampConverter;
 pub use usb::{list_devices, UsbDeviceInfo};

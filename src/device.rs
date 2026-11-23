@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use crate::color::yuv422_to_rgb888;
 use crate::depth::packed11::unpack_packed11;
 use crate::depth::shift_to_depth::{ShiftToDepthConfig, ShiftToDepthTables};
-use crate::error::{Result, XtionError};
+use crate::error::{Nack, Result, XtionError};
 use crate::ir::{decode_ir_frame, ir_wire_size, wire_extra_rows, IrConfig, IrFrame};
 use crate::protocol::algorithm::{
     read_cmos_blanking, read_depth_information, read_device_frequency,
@@ -195,8 +195,15 @@ pub struct DepthFrame {
     pub height: u32,
     /// Depth in millimeters per pixel (row-major); 0 = invalid.
     pub data: Vec<u16>,
-    /// Raw device timestamp of the frame's last packet.
+    /// Raw device timestamp of the frame's last packet (32-bit ticks of
+    /// the ~60 MHz device clock — wraps every 71.6 s; see
+    /// [`timestamp_us`](Self::timestamp_us)).
     pub timestamp: u32,
+    /// Host-referenced timestamp in microseconds since the first frame
+    /// of this session, with wrap handling applied
+    /// ([`crate::TimestampConverter`]); `None` when the device clock
+    /// rate could not be read.
+    pub timestamp_us: Option<u64>,
     /// Distribution of the raw shift values (diagnostics).
     pub shift_stats: ShiftStats,
 }
@@ -211,6 +218,37 @@ impl DepthFrame {
     pub fn valid_pixels(&self) -> usize {
         self.data.iter().filter(|&&d| d != 0).count()
     }
+
+    /// Convert one pixel to sensor-frame world coordinates — millimetres,
+    /// X right, Y up, Z forward ([`crate::geometry`] for the convention).
+    /// `None` for invalid pixels.
+    pub fn to_world(
+        &self,
+        intrinsics: &crate::geometry::CameraIntrinsics,
+        x: u32,
+        y: u32,
+    ) -> Option<(f64, f64, f64)> {
+        let idx = y as usize * self.width as usize + x as usize;
+        let z = *self.data.get(idx)?;
+        intrinsics.to_world(x, y, z)
+    }
+
+    /// The whole frame as a world-coordinate point cloud: one `(x, y, z)`
+    /// millimetre triple per valid pixel, row-major.
+    pub fn point_cloud(
+        &self,
+        intrinsics: &crate::geometry::CameraIntrinsics,
+    ) -> Vec<(f64, f64, f64)> {
+        let mut cloud = Vec::with_capacity(self.valid_pixels());
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if let Some(point) = self.to_world(intrinsics, x, y) {
+                    cloud.push(point);
+                }
+            }
+        }
+        cloud
+    }
 }
 
 /// A decoded color frame: interleaved RGB888.
@@ -220,6 +258,9 @@ pub struct ColorFrame {
     pub height: u32,
     pub data: Vec<u8>,
     pub timestamp: u32,
+    /// Host-referenced microseconds since the session's first frame
+    /// (see [`DepthFrame::timestamp_us`]).
+    pub timestamp_us: Option<u64>,
 }
 
 /// Active color-stream configuration (resolution + wire input format).
@@ -255,6 +296,12 @@ pub struct Xtion {
     color_assembler: StreamAssembler,
     ir_assembler: StreamAssembler,
     misc_assembler: StreamAssembler,
+    /// Device clock rate in ticks per microsecond (ALGORITHM_PARAMS
+    /// 0x80), and the wrap-aware converter built from it. `None` while
+    /// the frequency has not been read yet (or the read failed; the
+    /// frame timestamps then stay raw).
+    device_frequency: Option<f64>,
+    timestamps: Option<crate::timestamp::TimestampConverter>,
 }
 
 impl Xtion {
@@ -308,6 +355,20 @@ impl Xtion {
         };
         let shift_to_depth = ShiftToDepthTables::build(&s2d_config);
 
+        // The device clock rate for host-referenced frame timestamps.
+        // The reference driver reads this during init
+        // (XnSensor.cpp:631-633, XN_HOST_PROTOCOL_ALGORITHM_FREQUENCY) and
+        // fails hard when it cannot; a diagnostic exchange must not take
+        // the whole driver down, so keep it optional and retry lazily on
+        // the first frame conversion instead.
+        let device_frequency = read_device_frequency(&mut link, &mut usb, COMMAND_TIMEOUT)
+            .map(|f| f as f64)
+            .map_err(|err| {
+                log::warn!("device frequency unavailable: {err}; frame timestamps stay raw");
+                err
+            })
+            .ok();
+
         // Firmware < 5.0 emits one chunk of garbage per endpoint when
         // streaming starts (XnDeviceSensorInit.cpp: nIgnoreBytes).
         let ignore = if version.major >= 5 {
@@ -326,6 +387,8 @@ impl Xtion {
             color_assembler: StreamAssembler::new(fw_magic, ignore),
             ir_assembler: StreamAssembler::new(fw_magic, ignore),
             misc_assembler: StreamAssembler::new(fw_magic, ignore),
+            device_frequency,
+            timestamps: None,
             usb,
             link,
             version,
@@ -546,6 +609,16 @@ impl Xtion {
     /// assignment); below that the opcode stays invalid and the command
     /// is never sent. Mirror the gate so unsupported builds get a clean
     /// error instead of a raw NACK.
+    ///
+    /// **Firmware reality check (hw 5.8.22, serial 1408090603):** this
+    /// build NACKs the toggle with BadParams even though it meets the
+    /// version gate and the request is byte-identical to the reference's
+    /// (`XnVSetEmitterStateRequest` = one u16, XnHostProtocol.cpp:
+    /// 3420-3445) — BadParams, not InvalidCommand, so the opcode IS
+    /// dispatched and the handler refuses the payload. The C has no
+    /// further gate, so this is a build-specific refusal (likely
+    /// laser-safety related). The error is therefore rewritten with that
+    /// context instead of surfacing a bare NACK.
     pub fn set_emitter_enabled(&mut self, active: bool) -> Result<()> {
         if (self.version.major, self.version.minor, self.version.build) < (5, 8, 15) {
             return Err(XtionError::BadConfig(format!(
@@ -553,7 +626,17 @@ impl Xtion {
                 self.version.major, self.version.minor, self.version.build
             )));
         }
-        set_emitter_state(&mut self.link, &mut self.usb, active, COMMAND_TIMEOUT)
+        set_emitter_state(&mut self.link, &mut self.usb, active, COMMAND_TIMEOUT).map_err(|err| {
+            match err {
+                XtionError::Nack(Nack::BadParams) => XtionError::BadConfig(
+                    "this firmware build rejects the runtime emitter toggle (NACK BadParams) \
+                     even though the request matches the reference driver exactly — the \
+                     projector stays on; power-cycling also restores it"
+                        .into(),
+                ),
+                other => other,
+            }
+        })
     }
 
     /// Drain pending device events (OVERHEAT / PROJECTOR_FAULT) from all
@@ -623,6 +706,68 @@ impl Xtion {
     /// entries are rendered like the reference driver does.
     pub fn firmware_log(&mut self) -> Result<String> {
         sys::read_firmware_log(&mut self.link, &mut self.usb, COMMAND_TIMEOUT)
+    }
+
+    /// Read the firmware log as structured entries — the raw header
+    /// fields of each entry (timestamp, log type, payload) before
+    /// rendering, for diagnostics.
+    pub fn firmware_log_entries(&mut self) -> Result<Vec<sys::FirmwareLogEntry>> {
+        sys::read_firmware_log_entries(&mut self.link, &mut self.usb, COMMAND_TIMEOUT)
+    }
+
+    /// Read the device clock rate — ticks per microsecond, as reported
+    /// by ALGORITHM_PARAMS 0x80 (`fDeviceFrequency`; ~60.0 for the
+    /// PS1080's 60 MHz tick, the rate the frame timestamps advance
+    /// with). Read once at open; `Err` only if it has never been read
+    /// successfully.
+    pub fn device_frequency(&mut self) -> Result<f64> {
+        self.device_frequency.ok_or_else(|| {
+            XtionError::BadConfig(
+                "device frequency was not available at open (ALGORITHM_PARAMS 0x80 failed)".into(),
+            )
+        })
+    }
+
+    /// The pinhole intrinsics of the depth (and IR) sensor at one
+    /// resolution, derived from the on-device calibration (ZPD / ZPPS
+    /// from GET_FIXED_PARAMS — no device I/O happens here).
+    ///
+    /// The FOV is fixed by the optics (hfov spans the CMOS's native
+    /// 1280-pixel line, vfov its 960-pixel height) and does not change
+    /// with the streamed resolution; `fx`/`fy`/`cx`/`cy` adapt to
+    /// `resolution`. See [`crate::geometry`] for the coordinate
+    /// convention and the reference formulas.
+    pub fn depth_intrinsics(&self, resolution: Resolution) -> crate::geometry::CameraIntrinsics {
+        crate::geometry::CameraIntrinsics::from_calibration(
+            self.fixed_params.reference_distance as f64,
+            self.fixed_params.reference_pixel_size as f64,
+            resolution,
+        )
+    }
+
+    /// Feed one raw device timestamp through the wrap-aware converter
+    /// ([`crate::TimestampConverter`], the port of
+    /// `XnDataProcessor::CreateTimestampFromDevice`): microseconds since
+    /// the session's first frame. The device frequency is retried lazily
+    /// if it was unavailable at open; `None` if it cannot be read at
+    /// all (frame timestamps then stay raw).
+    fn convert_timestamp(&mut self, device_ts: u32) -> Option<u64> {
+        if self.device_frequency.is_none() {
+            match read_device_frequency(&mut self.link, &mut self.usb, COMMAND_TIMEOUT) {
+                Ok(f) => {
+                    self.device_frequency = Some(f as f64);
+                }
+                Err(err) => {
+                    log::warn!("device frequency retry failed: {err}");
+                    return None;
+                }
+            }
+        }
+        let freq = self.device_frequency?;
+        self.timestamps
+            .get_or_insert(crate::timestamp::TimestampConverter::new(freq))
+            .update(device_ts)
+            .into()
     }
 
     /// List the device's flash file system (OPCODE_GET_FILE_LIST).
@@ -1231,7 +1376,12 @@ impl Xtion {
                     );
                     continue;
                 }
-                return self.decode_depth_frame(&frame, width, height, expected_pixels, config);
+                return {
+                    let mut frame =
+                        self.decode_depth_frame(&frame, width, height, expected_pixels, config)?;
+                    frame.timestamp_us = self.convert_timestamp(frame.timestamp);
+                    Ok(frame)
+                };
             }
             self.pump_misc();
             // take one completed chunk from the ring (borrow ends here)
@@ -1327,12 +1477,16 @@ impl Xtion {
                     Some(yuv) => {
                         let mut rgb = Vec::with_capacity((width * height * 3) as usize);
                         yuv422_to_rgb888(&yuv, &mut rgb);
-                        return Ok(ColorFrame {
-                            width,
-                            height,
-                            data: rgb,
-                            timestamp: frame.timestamp,
-                        });
+                        return {
+                            let timestamp_us = self.convert_timestamp(frame.timestamp);
+                            Ok(ColorFrame {
+                                width,
+                                height,
+                                data: rgb,
+                                timestamp: frame.timestamp,
+                                timestamp_us,
+                            })
+                        };
                     }
                     None => {
                         unusable += 1;
@@ -1416,14 +1570,17 @@ impl Xtion {
                 };
                 match reason {
                     None => {
-                        return decode_ir_frame(
+                        let timestamp_us = self.convert_timestamp(frame.timestamp);
+                        let mut frame = decode_ir_frame(
                             &frame.data,
                             width,
                             height,
                             config.resolution,
                             cmos,
                             frame.timestamp,
-                        );
+                        )?;
+                        frame.timestamp_us = timestamp_us;
+                        return Ok(frame);
                     }
                     Some(reason) => {
                         unusable += 1;
@@ -1501,6 +1658,7 @@ impl Xtion {
             height,
             data,
             timestamp: frame.timestamp,
+            timestamp_us: None,
             shift_stats,
         })
     }

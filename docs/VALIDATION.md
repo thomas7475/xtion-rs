@@ -30,11 +30,12 @@ Reference hardware: ASUS Xtion Pro Live, firmware 5.8.22, USB 2.0
 |---|---|---|---|
 | 1 | `open_handshake_and_identity` | v2.6 handshake, serial via opcode 37, fixed params sane | non-empty serial; firmware >= 3; reference distance 50-500 mm; pixel size 0.01-1.0 mm |
 | 2 | `depth_stream_roundtrip` | full depth pipeline: stream setup, ring, packed-11 decode, shift-to-depth | >= 80% valid pixels (M5 reference: 87.4%); 29-30.1 fps (reference 29.97); ring `failures == 0`; shift histogram inside the table (reference 291-797); min depth 400-500 mm (reference 431 mm) |
-| 3 | `phase1_identity_and_options` | 0.2.0 identity + runtime options | platform string non-empty (ASUS Xtion: `RD108x-112`-family); USB core parses (Jango=0 expected on 5.8.22); registration GET/SET round-trips true/false; hole filter, depth mirror, close range accept writes; emitter off/on accepts writes |
+| 3 | `phase1_identity_and_options` | 0.2.0 identity + runtime options | platform string non-empty (ASUS Xtion: `RD108x-112`-family); USB core parses (Jango=0 expected on 5.8.22); registration GET/SET round-trips true/false; hole filter, depth mirror, close range accept writes; emitter toggle reported — NACK(BadParams) is the documented behaviour of this fw build (0.3.0) and prints as a skip, an ACK is a bonus |
 | 4 | `ir_stream_roundtrip` | IR stream end-to-end | 640x480, exactly 307,200 values; values not constant (`max > min`) and not black (`max > 0`); `drain_events()` empty on a healthy camera; `stop_ir` succeeds |
 | 5 | `color_stream_roundtrip` | color stream end-to-end in the **PS-compressed YUV422 mode** (format 1, the C's non-Windows/bulk default) | prints the 25-entry preset table + endianness guard + the two capability gates (image_cmos_type, firmware mode); **on units reporting image_cmos_type = 0 (no color sensor — our fw 5.8.22 unit) SKIPS with the reason**; otherwise `start_color` ACKed including `STREAM0_MODE=COLOR`, one frame decodes to exactly width x height x 3 RGB, non-constant; IR start refused while color runs; stop clean |
 | 6 | `color_start_probe` | diagnostic (always REPORTS, never gates): mode, image-pipe params before/after the init soft reset, C-parity write sequence with readbacks (compressed mode), one driver `start_color` | informational — paste the output when color misbehaves |
-| 7 | `system_commands_readonly` | the 0.2.8 read-only command surface end-to-end | firmware log, flash file list, flash map, ImageCmos download, CPU stats, TEC + emitter telemetry, direct CMOS blanking, CMOS register reads (I2C), AHB read, raw flash read — each section may report `unavailable: ...` without failing (firmware-dependent surface), but nothing may hang or corrupt the session |
+| 7 | `system_commands_readonly` | the 0.2.8 read-only command surface end-to-end, extended in 0.3.0 with the diagnostics ground-truth probes | firmware log (raw entries + rendering, then a triggered known-NACK re-read), device clock rate (~60 ticks/us expected), flash file list (size in words, RO attribute), **raw file-table sector at 0x1000 with 24/26/28/32-byte stride scans**, **GainControl download + six pinned CRC-16 candidates** (names the undocumented flash CRC), flash map, ImageCmos download, CPU stats, TEC + emitter telemetry, direct CMOS blanking, CMOS register reads (I2C), AHB read, raw flash read — each section may report `unavailable: ...` without failing (firmware-dependent surface), but nothing may hang or corrupt the session; the log ground-truth and CRC rows are meant to be pasted back into the analysis |
+| 8 | `depth_geometry_fov_and_timestamps` | the 0.3.0 photogrammetry surface: intrinsics from the on-device calibration, FOV vs the Xtion spec, wrap-aware host-referenced timestamps, plane fit | hfov 52-64 deg and vfov 38-52 deg (Xtion spec 58/45); center pixel maps to (x,y) ~ 0 on the optical axis; 90 frames with mean inter-frame delta 28-38 ms (30 fps) and < 5 ms jitter, strictly monotonic; least-squares plane fit of the scene RMS < 20 mm (point at a flat wall 1-3 m away; a good fit is a few mm) |
 
 Also run the numerical core regression on-camera data:
 `cargo test --test golden` (no camera needed; proves packed-11 and
@@ -94,6 +95,19 @@ documented API. Every check lists the expected observation.
 | release tag | section 2 + section 3 items 1/5/7/9 |
 
 ## 5. Triage
+
+- **Firmware-log "Unix epoch" timestamps SOLVED (0.3.0, parse bug):**
+  0.2.8 printed values like 1593835551 (0x5F00001F) and 1510080543
+  (0x5A02001F) as log timestamps. The packed `XnLogEntryHeader`
+  (XnHostProtocol.cpp:1196-1211) is `{u16 entry_size, u32 timestamp,
+  u16 log_type}` — the timestamp PRECEDES the log type — but the parser
+  read `{u16, u16, u32}`, so what got printed was `[timestamp_hi16 |
+  log_type]` of boot-time STRUCTURED entries: module 0x5F/error 0 and
+  module 0x5A/error 2 with ~0x001Fxxxx boot ticks. The structured
+  payload's param is also a u32 (`XnLogDefaultData`), not a u16. Fixed
+  in 0.3.0 with unit tests against the C layout;
+  `firmware_log_entries()` exposes the raw fields and the hardware
+  test aligns a triggered known-NACK re-read as ground truth.
 
 - `DeviceBusy` on open: another process holds the interface (close
   NiViewer, unload any vendor kernel module).

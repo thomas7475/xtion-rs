@@ -21,21 +21,40 @@ use crate::protocol::Opcode;
 const LOG_TEXT_TYPE: u16 = 0x1200;
 const LOG_OVERFLOW_TYPE: u16 = 0x1201;
 
-/// Read the firmware log (OPCODE_GET_LOG) until the device reports no
-/// more entries, and render it as text. Port of `XnHostProtocolGetLog`
-/// (XnHostProtocol.cpp:1213-1332).
+/// One raw firmware-log entry, decoded from its 8-byte header.
 ///
-/// Each exchange returns `XnLogEntryHeader { entry_size: u16 (words),
-/// log_type: u16, timestamp: u32 }` followed by `entry_size` words of
-/// payload. Text entries are UTF-16 — the C keeps the low byte of each
-/// word. Overflow entries mark a wrapped log buffer; anything else is a
-/// structured entry `{ line: u16, param: u16 }` rendered as
-/// module/error/param/line.
-pub fn read_firmware_log<T: ControlTransport>(
+/// The header layout is the C's packed `XnLogEntryHeader`
+/// (XnHostProtocol.cpp:1196-1211) — **note the field order**:
+/// `{ u16 entry_size, u32 timestamp, u16 log_type }`. (The timestamp sits
+/// at offset 2, BEFORE the log type; swapping the two is exactly the
+/// misparse that made hardware timestamps look like Unix epoch values
+/// in 0.2.8: values such as 0x5F00001F were actually
+/// `[timestamp_hi16][log_type]`.)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FirmwareLogEntry {
+    /// Entry payload size, in 16-bit words.
+    pub entry_size: u16,
+    /// Firmware-side timestamp of the entry (a small boot/uptime tick
+    /// count; the firmware also embeds it in runtime log texts as the
+    /// `%lu` prefix, see `docs/FIRMWARE.md`).
+    pub timestamp: u32,
+    /// 0x1200 text, 0x1201 overflow, anything else = a structured entry
+    /// whose high byte is the module id and low byte the error code.
+    pub log_type: u16,
+    /// Raw payload: `entry_size * 2` bytes (clamped to what the device
+    /// actually sent).
+    pub payload: Vec<u8>,
+}
+
+/// Read the firmware log (OPCODE_GET_LOG) until the device reports no
+/// more entries, decoding every entry's raw fields. Port of the read
+/// loop in `XnHostProtocolGetLog` (XnHostProtocol.cpp:1213-1256);
+/// [`render_firmware_log`] then turns the entries into text.
+pub fn read_firmware_log_entries<T: ControlTransport>(
     link: &mut CommandLink,
     transport: &mut T,
     timeout: Duration,
-) -> Result<String> {
+) -> Result<Vec<FirmwareLogEntry>> {
     let mut raw: Vec<u8> = Vec::new();
     for _ in 0..64 {
         let data = link.exchange(transport, Opcode::GetLog, &[], timeout)?;
@@ -44,60 +63,89 @@ pub fn read_firmware_log<T: ControlTransport>(
         }
         raw.extend_from_slice(&data);
     }
-    if raw.is_empty() {
-        return Ok(String::new());
-    }
 
-    let mut out = String::new();
+    let mut entries = Vec::new();
     let mut pos = 0usize;
     while pos + 8 <= raw.len() {
-        // XnLogEntryHeader { entry_size: u16 (PAYLOAD words), log_type:
-        // u16, timestamp: u32 } — the C advances past the 8-byte header
-        // and then by entry_size * 2 payload bytes.
+        // XnLogEntryHeader, packed (XnHostProtocol.cpp:1196-1211):
+        // { u16 nEntrySize; u32 nTimeStamp; u16 nLogType }
         let entry_size = u16::from_le_bytes([raw[pos], raw[pos + 1]]) as usize; // words
-        let log_type = u16::from_le_bytes([raw[pos + 2], raw[pos + 3]]);
         let timestamp =
-            u32::from_le_bytes([raw[pos + 4], raw[pos + 5], raw[pos + 6], raw[pos + 7]]);
+            u32::from_le_bytes([raw[pos + 2], raw[pos + 3], raw[pos + 4], raw[pos + 5]]);
+        let log_type = u16::from_le_bytes([raw[pos + 6], raw[pos + 7]]);
         pos += 8;
         let payload_len = (entry_size * 2).min(raw.len().saturating_sub(pos));
-        let payload = &raw[pos..pos + payload_len];
+        let payload = raw[pos..pos + payload_len].to_vec();
         pos += payload_len;
+        entries.push(FirmwareLogEntry {
+            entry_size: entry_size as u16,
+            timestamp,
+            log_type,
+            payload,
+        });
+    }
+    Ok(entries)
+}
 
-        match log_type {
+/// Render decoded log entries as text, mirroring the C's three formats
+/// (XnHostProtocol.cpp:1258-1332):
+/// - text entries (0x1200): UTF-16 payload, low byte of each word kept;
+/// - overflow markers (0x1201);
+/// - anything else: a structured entry whose payload is the packed
+///   `XnLogDefaultData { u16 line; u32 param }` and whose log type is
+///   `[module << 8 | error]`.
+pub fn render_firmware_log(entries: &[FirmwareLogEntry]) -> String {
+    let mut out = String::new();
+    for entry in entries {
+        let payload = &entry.payload;
+        match entry.log_type {
             LOG_TEXT_TYPE => {
                 let text: Vec<u8> = payload.chunks_exact(2).map(|w| w[0]).collect();
                 out.push_str(&format!(
                     "{}:\t{}\n",
-                    timestamp,
+                    entry.timestamp,
                     String::from_utf8_lossy(&text).trim_end()
                 ));
             }
             LOG_OVERFLOW_TYPE => {
-                out.push_str(&format!("{timestamp}:\tLog Overflow\n"));
+                out.push_str(&format!("{}:\tLog Overflow\n", entry.timestamp));
             }
-            other => {
+            _ => {
+                // XnLogDefaultData: { u16 nLine; u32 nParam } — the param
+                // is 32-bit (0.2.8 wrongly read its low half only).
                 let line = payload
                     .chunks_exact(2)
                     .next()
                     .map(|w| u16::from_le_bytes([w[0], w[1]]))
                     .unwrap_or(0);
                 let param = payload
-                    .chunks_exact(2)
-                    .nth(1)
-                    .map(|w| u16::from_le_bytes([w[0], w[1]]))
+                    .get(2..6)
+                    .map(|p| u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
                     .unwrap_or(0);
                 out.push_str(&format!(
                     "{}:\tModule: [0x{:X}], Error: [0x{:X}], Param: 0x{:X}, (Line: {})\n",
-                    timestamp,
-                    other >> 8,
-                    other & 0xff,
+                    entry.timestamp,
+                    entry.log_type >> 8,
+                    entry.log_type & 0xff,
                     param,
                     line
                 ));
             }
         }
     }
-    Ok(out)
+    out
+}
+
+/// Read the firmware log and render it as text (the convenience form of
+/// [`read_firmware_log_entries`] + [`render_firmware_log`]).
+pub fn read_firmware_log<T: ControlTransport>(
+    link: &mut CommandLink,
+    transport: &mut T,
+    timeout: Duration,
+) -> Result<String> {
+    Ok(render_firmware_log(&read_firmware_log_entries(
+        link, transport, timeout,
+    )?))
 }
 
 /// Read bytes from a device flash file by type (OPCODE_DOWNLOAD_FILE),
@@ -173,19 +221,52 @@ pub fn get_flash_map<T: ControlTransport>(
     Ok(entries)
 }
 
-/// One flash file-system entry (`XnFlashFile`, 24 bytes packed). Source:
-/// Include/PS1080.h:600-609.
+/// One flash file-system entry (`XnFlashFile`, 24 bytes packed).
+/// Source: Include/PS1080.h:600-609.
+///
+/// Field notes (all hardware-verified on fw 5.8.22 except where noted):
+/// - [`size`](Self::size) is in **16-bit words**, like the vendor
+///   console's "SizeInWords" column (PS1080Console.cpp:503). Use
+///   [`size_bytes`](Self::size_bytes) for bytes.
+/// - [`attributes`](Self::attributes) is a bit mask;
+///   [`FILE_ATTRIBUTE_READ_ONLY`] (0x8000) is the only bit the
+///   vendor tools render.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FlashFile {
     pub id: u16,
     pub file_type: u16,
     pub version: u32,
     pub offset: u32,
+    /// File size in **16-bit words** (not bytes).
     pub size: u32,
     pub crc: u16,
     pub attributes: u16,
     pub reserved: u16,
 }
+
+impl FlashFile {
+    /// File size in bytes (`size * 2`).
+    pub fn size_bytes(&self) -> u64 {
+        self.size as u64 * 2
+    }
+
+    /// True when the read-only attribute bit is set.
+    pub fn is_read_only(&self) -> bool {
+        self.attributes & FILE_ATTRIBUTE_READ_ONLY != 0
+    }
+}
+
+/// `XnFileAttributeReadOnly` — the read-only attribute bit of
+/// [`FlashFile::attributes`] (rendered as "[R]" by the vendor console,
+/// PS1080Console.cpp:511-515).
+pub const FILE_ATTRIBUTE_READ_ONLY: u16 = 0x8000;
+
+/// File type of the on-flash file table itself (type 0, the
+/// `FileTable`): it lives at flash offset **0x1000** and is 4096 bytes
+/// — as reported by the first entry of GET_FILE_LIST on this firmware.
+pub const FILE_TABLE_OFFSET: u32 = 0x1000;
+/// Size of the on-flash file table sector in bytes.
+pub const FILE_TABLE_SIZE: u32 = 4096;
 
 /// List the files in the device flash file system (OPCODE_GET_FILE_LIST),
 /// starting at file id 0 and following the id chain until the device
@@ -589,6 +670,98 @@ pub fn flash_file_type_name(file_type: u16) -> &'static str {
     }
 }
 
+/// Generic CRC-16 over one byte at a time. All flash-CRC candidates are
+/// built from this: `poly` is the reflected-out bit pattern of the
+/// generator, `refl` selects a reflected (LSB-first) engine.
+fn crc16(data: &[u8], init: u16, poly: u16, refl: bool, xorout: u16) -> u16 {
+    let mut crc = init;
+    for &b in data {
+        if refl {
+            crc ^= b as u16;
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 {
+                    (crc >> 1) ^ poly
+                } else {
+                    crc >> 1
+                };
+            }
+        } else {
+            crc ^= (b as u16) << 8;
+            for _ in 0..8 {
+                crc = if crc & 0x8000 != 0 {
+                    (crc << 1) ^ poly
+                } else {
+                    crc << 1
+                };
+            }
+        }
+    }
+    crc ^ xorout
+}
+
+/// Compute a set of well-known CRC-16 variants over `data`.
+///
+/// The flash file table stores a 16-bit CRC per file
+/// ([`FlashFile::crc`]) but neither the vendor headers nor the C driver
+/// document the algorithm — the reference host driver never verifies
+/// it. To identify it, download a small file (e.g. GainControl, type
+/// 0x12: 57 words on this firmware), compute the candidates and
+/// compare against the stored value; the matching name is the
+/// algorithm. Every candidate's implementation is pinned by its
+/// published check value (CRC-16 catalog, "123456789") in the unit
+/// tests below.
+pub fn crc16_candidates(data: &[u8]) -> Vec<(&'static str, u16)> {
+    vec![
+        // CRC-16/CCITT-FALSE: poly 0x1021, init 0xFFFF, no reflection.
+        ("ccitt-false", crc16(data, 0xFFFF, 0x1021, false, 0)),
+        // CRC-16/XMODEM (CCITT with init 0).
+        ("xmodem", crc16(data, 0x0000, 0x1021, false, 0)),
+        // CRC-16/KERMIT (reflected 0x1021, init 0).
+        ("kermit", crc16(data, 0x0000, 0x8408, true, 0)),
+        // CRC-16/ARC (reflected 0x8005, init 0).
+        ("arc", crc16(data, 0x0000, 0xA001, true, 0)),
+        // CRC-16/MODBUS (reflected 0x8005, init 0xFFFF).
+        ("modbus", crc16(data, 0xFFFF, 0xA001, true, 0)),
+        // CRC-16/USB (reflected 0x8005, init 0xFFFF, xorout 0xFFFF).
+        ("usb", crc16(data, 0xFFFF, 0xA001, true, 0xFFFF)),
+    ]
+}
+
+#[cfg(test)]
+mod crc_tests {
+    use super::crc16_candidates;
+
+    #[test]
+    fn candidates_match_published_check_values() {
+        // The CRC-16 catalog check values over "123456789".
+        let expected = [
+            ("ccitt-false", 0x29B1u16),
+            ("xmodem", 0x31C3),
+            ("kermit", 0x2189),
+            ("arc", 0xBB3D),
+            ("modbus", 0x4B37),
+            ("usb", 0xB4C8),
+        ];
+        let got = crc16_candidates(b"123456789");
+        for (name, value) in got {
+            let want = expected
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, v)| *v)
+                .unwrap_or_else(|| panic!("unknown candidate {name}"));
+            assert_eq!(value, want, "{name} check value mismatch");
+        }
+    }
+
+    #[test]
+    fn empty_input_yields_init_xorout() {
+        // init/xorout survive an empty input for non-reflected forms
+        let got = crc16_candidates(b"");
+        assert!(got.iter().any(|(n, v)| *n == "ccitt-false" && *v == 0xFFFF));
+        assert!(got.iter().any(|(n, v)| *n == "xmodem" && *v == 0));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -639,39 +812,71 @@ mod tests {
 
     #[test]
     fn firmware_log_renders_text_and_overflow_entries() {
-        // two entries: a text entry ("AB", 2 words payload incl. header
-        // words? entry_size counts the entry's words AFTER the 4-byte
-        // header the C reads) and an overflow marker
+        // Two entries in the CORRECT packed XnLogEntryHeader layout
+        // {u16 entry_size, u32 timestamp, u16 log_type} (the 0.2.8 parser
+        // wrongly read {entry_size, log_type, timestamp} — that is what
+        // turned hardware timestamps into 0x5F00001F-style values).
         let mut data = Vec::new();
-        // entry 1: entry_size = 2 words (payload 0 bytes -> hmm), use a
-        // text entry with 1 word payload: entry_size words includes the
-        // 4-byte header -> payload words = entry_size - 2... the C reads
-        // the 8-byte header then advances entry_size*2 total.
-        let mut entry = Vec::new();
-        entry.extend_from_slice(&4u16.to_le_bytes()); // entry_size words
-        entry.extend_from_slice(&LOG_TEXT_TYPE.to_le_bytes());
-        entry.extend_from_slice(&1234u32.to_le_bytes());
-        // payload: 4 words of UTF-16 "TEST"
+        // entry 1: text "TEST", 4 payload words, timestamp 1234
+        data.extend_from_slice(&4u16.to_le_bytes()); // entry_size words
+        data.extend_from_slice(&1234u32.to_le_bytes()); // timestamp
+        data.extend_from_slice(&LOG_TEXT_TYPE.to_le_bytes()); // log type
         for b in b"TEST" {
-            entry.extend_from_slice(&[*b, 0]);
+            data.extend_from_slice(&[*b, 0]); // UTF-16 payload
         }
-        data.extend_from_slice(&entry);
-        // entry 2: overflow, entry_size = 2 words (4 payload bytes that
-        // the overflow renderer ignores)
-        let mut entry = Vec::new();
-        entry.extend_from_slice(&2u16.to_le_bytes());
-        entry.extend_from_slice(&LOG_OVERFLOW_TYPE.to_le_bytes());
-        entry.extend_from_slice(&99u32.to_le_bytes());
-        entry.extend_from_slice(&[0, 0, 0, 0]);
-        data.extend_from_slice(&entry);
+        // entry 2: overflow marker, 2 payload words (ignored by renderer)
+        data.extend_from_slice(&2u16.to_le_bytes());
+        data.extend_from_slice(&99u32.to_le_bytes());
+        data.extend_from_slice(&LOG_OVERFLOW_TYPE.to_le_bytes());
+        data.extend_from_slice(&[0, 0, 0, 0]);
         // empty reply ends the loop
         let (mut link, mut fake) = link_and(vec![
             ack_reply(0, Opcode::GetLog, &data),
             ack_reply(1, Opcode::GetLog, &[]),
         ]);
-        let log = read_firmware_log(&mut link, &mut fake, Duration::from_millis(50)).unwrap();
+        let entries =
+            read_firmware_log_entries(&mut link, &mut fake, Duration::from_millis(50)).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].timestamp, 1234);
+        assert_eq!(entries[0].log_type, LOG_TEXT_TYPE);
+        assert_eq!(entries[0].payload, b"T\0E\0S\0T\0".to_vec());
+        assert_eq!(entries[1].log_type, LOG_OVERFLOW_TYPE);
+        let log = render_firmware_log(&entries);
         assert!(log.contains("1234:\tTEST"), "{log}");
         assert!(log.contains("99:\tLog Overflow"), "{log}");
+    }
+
+    #[test]
+    fn firmware_log_structured_entry_decodes_module_error_and_u32_param() {
+        // A structured (non-text) entry: log type = module<<8 | error,
+        // payload = packed XnLogDefaultData { u16 line; u32 param }.
+        // This is the entry shape behind the 0.2.8 "timestamp" red
+        // herrings 0x5F00001F / 0x5A02001F: reading the header in the
+        // wrong order makes [timestamp_hi16 | log_type] look like the
+        // timestamp.
+        let mut data = Vec::new();
+        data.extend_from_slice(&3u16.to_le_bytes()); // 3 payload words
+        data.extend_from_slice(&0x001F1200u32.to_le_bytes()); // a boot tick
+        data.extend_from_slice(&0x5F00u16.to_le_bytes()); // module 0x5F, error 0
+                                                          // payload: line = 0x002A, param = 0x0000BEEF (u32!)
+        data.extend_from_slice(&0x002Au16.to_le_bytes());
+        data.extend_from_slice(&0xBEEFu32.to_le_bytes());
+        data.extend_from_slice(&0x0000u16.to_le_bytes()); // padding word
+        let (mut link, mut fake) = link_and(vec![
+            ack_reply(0, Opcode::GetLog, &data),
+            ack_reply(1, Opcode::GetLog, &[]),
+        ]);
+        let entries =
+            read_firmware_log_entries(&mut link, &mut fake, Duration::from_millis(50)).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].timestamp, 0x001F1200);
+        assert_eq!(entries[0].log_type, 0x5F00);
+        let log = render_firmware_log(&entries);
+        // the C's structured format: the u32 param prints in full
+        assert!(
+            log.contains("Module: [0x5F], Error: [0x0], Param: 0xBEEF, (Line: 42)"),
+            "{log}"
+        );
     }
 
     #[test]

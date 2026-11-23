@@ -11,20 +11,26 @@ project owner's constraint:
 > buses is permanently excluded (see "Excluded features" below). READS
 > of the same surfaces are safe and implemented as of 0.2.8.
 
-**Status after 0.2.10 (2026-11-23):** Phases 1-2 complete and hardware-
-validated (depth, IR); Phase 3 items 9-11 still open; the read-only
-diagnostics tier (old item 12) shipped early in 0.2.8 together with the
-flash file-system READS, the init soft reset (GET_MODE/SET_MODE) and the
-PS-compressed color path. 0.2.9 added stream hygiene + the full
-image-open C parity (section 0b). **0.2.10 closes the color story with
-a hardware answer (section 0c): this unit reports image_cmos_type = 0
-— XN_IMAGE_CMOS_NONE — it has NO color sensor, and every stream-on
-NACK since 0.2.4 was the firmware refusing COLOR from an absent
-sensor. The gate is now enforced host-side exactly like the C
-(bImageSupported); on this hardware the color test skips with the
-reason, and the complete compressed-color path awaits a unit with an
-RGB sensor.** 0.2.10 is green on CI (106 lib + 2 golden tests, clippy
-clean).
+**Status after 0.3.0 (2026-11-23):** Phases 1-2 complete and hardware-
+validated (depth, IR); the read-only diagnostics tier (old item 12)
+shipped early in 0.2.8 together with the flash file-system READS, the
+init soft reset (GET_MODE/SET_MODE) and the PS-compressed color path.
+0.2.9 added stream hygiene + the full image-open C parity (section 0b).
+0.2.10 closed the color story with a hardware answer (section 0c): this
+unit reports image_cmos_type = 0 — XN_IMAGE_CMOS_NONE — it has NO color
+sensor, and every stream-on NACK since 0.2.4 was the firmware refusing
+COLOR from an absent sensor. **0.3.0 is the photogrammetry milestone:
+camera geometry (section 0d) — pinhole intrinsics from the on-device
+calibration, depth-to-world conversion, point clouds, a PLY example —
+and host-referenced frame timestamps with 71.6 s wrap handling (section
+0e) — plus the diagnostics-parse fixes: the firmware-log header was
+read in the wrong field order (0.2.8's "Unix epoch" timestamps were
+boot-tick/module splice artifacts), the flash file list is documented
+(size in words, 0x8000 read-only, the garbage tail on this build) with
+raw-table and CRC-identification probes in the hardware test, and the
+emitter toggle's BadParams NACK is verified as a build-specific refusal
+(the request is byte-identical to the reference's).** 0.3.0 is green
+on CI (123 lib + 2 golden tests, clippy clean).
 
 ## 0b. Stream hygiene + image-open parity (0.2.9)
 
@@ -106,6 +112,86 @@ depth_cmos_type as the parse cross-check). Color on this hardware is
 impossible, not broken; the complete compressed-color implementation
 (format 1, `uncompress_yuv_image_ps`, full C-parity open sequence)
 is finished and waits for a unit with an RGB sensor.
+
+## 0d. Camera geometry: intrinsics + world coordinates (0.3.0)
+
+The photogrammetry core, all derived from the calibration the driver
+already reads (ZPD / ZPPS from GET_FIXED_PARAMS) — no new device
+surface at all (`src/geometry.rs`):
+
+- `Xtion::depth_intrinsics(res)` — pinhole `fx/fy/cx/cy` + hfov/vfov.
+  The FOVs come from the PS1080 depth-stream init
+  (XnSensorDepthStream.cpp:184-191): hfov spans the depth CMOS's native
+  1280-pixel line, vfov its 960-pixel height, so they are
+  resolution-independent; the focal lengths adapt to the streamed window
+  and reduce to `fx = fy = ZPD / (2*ZPPS)` at VGA (square pixels).
+  With the published Xtion calibration this yields the spec-sheet
+  58/45 deg — the `depth_geometry_fov_and_timestamps` hardware test
+  asserts against the spec.
+- `DepthFrame::to_world(intrinsics, x, y)` and `point_cloud()` — the
+  OpenNI2 core's `convertDepthToWorldCoordinates` port
+  (Source/Core/OniStream.cpp:399-404): millimetres, X right, Y up, Z
+  forward; invalid pixels are skipped.
+- `examples/point_cloud.rs` — capture N frames, convert, write an ASCII
+  PLY (metres, documented) for MeshLab/CloudCompare pipelines.
+- Hardware acceptance (in the same test): a least-squares plane fit of
+  a known-distance flat wall — RMS residual of a few millimetres is
+  the photogrammetric quality gate.
+
+## 0e. Host-referenced frame timestamps (0.3.0)
+
+The wire timestamps are raw 32-bit ticks of the ~60 MHz device clock —
+a u32 that wraps every 71.6 s and was previously surfaced untouched.
+0.3.0 ports the reference driver's conversion
+(`XnDataProcessor::CreateTimestampFromDevice`, XnDataProcessor.cpp:
+84-226) into `src/timestamp.rs`:
+
+- every decoded frame now carries `timestamp_us`: microseconds since
+  the session's first frame, monotonic across wraps (wrap-aware delta
+  + first-frame wrap estimation clipped against host time + the 10 s
+  sanity re-sync), plus the raw `timestamp` for reference;
+- the clock rate comes from ALGORITHM_PARAMS 0x80
+  (`fDeviceFrequency`, ticks per microsecond), read at open like the C
+  does at init (XnSensor.cpp:631-633) but tolerated as optional —
+  frames keep raw timestamps if a build refuses the exchange;
+- unit tests cover the steady 30 fps cadence, single and ~150 wraps
+  (a 3-hour soak compressed), duplicate timestamps and the
+  backwards-timestamp clamp; the hardware test gates the live cadence
+  (33.33 ms +/- jitter) over 90 frames.
+
+## 0f. Diagnostics-parse fixes (0.3.0, hardware-verified shapes)
+
+Three findings from the 0.2.8 hardware dump turned out to be PARSE
+bugs or undocumented firmware behaviour, all resolved without new
+device traffic:
+
+- **Firmware log**: the packed `XnLogEntryHeader` is
+  `{u16 entry_size, u32 timestamp, u16 log_type}` — the timestamp
+  PRECEDES the log type (XnHostProtocol.cpp:1196-1211). 0.2.8 read
+  `{u16, u16, u32}`, so printed "timestamps" like 0x5F00001F were
+  actually `[timestamp_hi16 | log_type]` splices of boot-time
+  structured entries (module 0x5F/err 0, module 0x5A/err 2, ~0x1Fxxxx
+  boot ticks) — not Unix epochs. The structured-entry param is also a
+  u32, not a u16. Fixed + unit-tested against the C layout;
+  `firmware_log_entries()` exposes raw entries and the hardware test
+  triggers a known NACK and re-reads to align new entries as ground
+  truth.
+- **Flash file list**: `XnFlashFile::size` is in WORDS (the vendor
+  console's "SizeInWords"), attributes bit 0x8000 = read-only. The
+  garbage tail of GET_FILE_LIST on fw 5.8.22 is firmware behaviour,
+  not a driver bug — the hardware test now dumps the raw table sector
+  at flash 0x1000 with 24/26/28/32-byte stride scans, and downloads
+  GainControl (57 words) with six pinned CRC-16 candidates to identify
+  the undocumented per-file CRC algorithm from one camera run.
+- **Emitter toggle**: the request is byte-identical to the reference
+  (`XnVSetEmitterStateRequest`, one u16; XnHostProtocol.cpp:3420-3445)
+  and the C has no gate beyond fw >= 5.8.15 — the BadParams NACK on
+  this 5.8.22 build is a build-specific refusal (the opcode IS
+  dispatched; InvalidCommand would say otherwise). Documented, the
+  error message says exactly that, and the hardware test also probes
+  the toggle while the depth stream runs to test the idle-state
+  hypothesis.
+
 
 ## 0. Hardware-validation fixes (0.2.1)
 

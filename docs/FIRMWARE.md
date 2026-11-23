@@ -151,6 +151,34 @@ Full tables with per-item notes: `firmware/analysis` artifacts; summary:
   SET_LED_STATE (41 — reference designs only; the Xtion has no LED),
   FRAME_SYNC/TRIGGER_ACTION/STREAM_PRIORITY params (1/3/4).
 
+### 4.1.1 Hardware-verified opcode behaviour on THIS build (fw 5.8.22)
+
+The 2026-11-23 hardware runs settled four opcodes of the diagnostics
+surface (details in docs/PROTOCOL.md, "Flash file system ... quirks"):
+
+- **ENABLE_EMITTER (42)**: NACKs **BadParams** — not InvalidCommand —
+  although the request is byte-identical to the reference's single-u16
+  `XnVSetEmitterStateRequest` (XnHostProtocol.cpp:3420-3445) and the
+  firmware (5.8.22) meets the C's own >= 5.8.15 gate. The opcode IS
+  dispatched; its handler refuses the payload. Likely a build-specific
+  (laser-safety) refusal.
+- **GET_CPU_STATS (27) / GET_FLASH_MAP (18)**: NACK InvalidCommand on
+  this build — yet the image carries the 15-task name list the stats
+  WOULD report (`c,T,DC,TD,PK,IK,DK,O,SM,HM,TR,DC,PC,TC` at offset
+  0xd1e, units at 0xd6c: `s,ms,c,c,c,c,c,c,...`): features compiled
+  in, opcodes locked.
+- **GET_CMOS_BLANKING (35)**: the direct reply is shorter than the u32
+  the C parses; the ALGORITHM_PARAMS(0x06) route is the working path
+  (and the one every stream start uses).
+- **GET_FILE_LIST (19)**: first entry sane (the FileTable itself:
+  offset 0x1000, 4096 bytes), the reply tail misparses into flag-pattern
+  values — the on-flash table at 0x1000 is the ground truth (the
+  hardware test dumps it).
+- The log system's runtime messages embed their own timestamps as the
+  `%lu` prefix (`%lu Error! Timeout IR! (%d)`, `%lu ZO %d TIME %lu`,
+  ... at 0x4d6-0x808): the same tick count the log-entry header
+  carries, which makes on-hardware log decoding self-checking.
+
 ### 4.2 Highest-value additions for xtion-rs (recommended order)
 
 1. **OVERHEAT + PROJECTOR_FAULT handling** — safety-relevant, tiny effort.

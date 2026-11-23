@@ -26,10 +26,12 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Hardware registration, emitter on/off, OVERHEAT/PROJECTOR_FAULT events | implemented in 0.2.0 |
 | Runtime options: mirror, hole filter, AGC, close range, GMC mode, exposure, white balance, gain, quality, flicker | implemented in 0.2.0 |
 | Cropping, depth AGC bins, GMC data, audio | not yet (Phase 3-4 of docs/FEATURE_PLAN.md) |
-| System commands (0.2.8): firmware log, CPU stats, BIST, TEC + emitter telemetry, CMOS blanking/register reads (I2C), AHB read, flash map / file list / file download / raw flash read | implemented — strictly READ-ONLY; the write-side commands stay excluded |
+| **Camera geometry (0.3.0)**: pinhole intrinsics from the on-device calibration (`depth_intrinsics`), depth-to-world (`to_world`/`point_cloud`, OpenNI convention: mm, X right, Y up, Z forward), PLY example | implemented — FOV formula ports the PS1080 depth-stream init (hfov spans the CMOS's native 1280 px line, vfov its 960 px height; ~58/45 deg on the Xtion spec), conversion ports the OpenNI2 core (`OniStream.cpp:399-404`); hardware gates: FOV vs spec, plane-fit RMS, in `depth_geometry_fov_and_timestamps` |
+| **Host-referenced frame timestamps (0.3.0)**: `timestamp_us` on every frame, wrap-aware (raw ticks wrap every 71.6 s at 60 MHz) | implemented — port of `XnDataProcessor::CreateTimestampFromDevice` (anchor + wrap estimation + 10 s sanity re-sync); clock rate from ALGORITHM_PARAMS 0x80 |
+| System commands (0.2.8): firmware log, CPU stats, BIST, TEC + emitter telemetry, CMOS blanking/register reads (I2C), AHB read, flash map / file list / file download / raw flash read | implemented — strictly READ-ONLY; the write-side commands stay excluded; **0.3.0 fixed the firmware-log header field order** (the 0.2.8 "Unix epoch" timestamps were boot-tick/module splice artifacts), documented the flash file list (sizes in words, 0x8000 read-only, garbage tail on fw 5.8.22) and added raw-table + CRC-identification probes to the hardware test |
 | Pre-3.0 firmware (bulk control endpoints) | not supported (explicit error) |
 
-Everything that can be verified without the camera **is** verified: 85
+Everything that can be verified without the camera **is** verified: 123
 tests pass on a bare CI machine (`cargo test`), and the numerical cores
 (packed-11 depth, 10-bit IR, shift-to-depth) are proven equal to the
 original C++ implementation by golden vectors generated from a verbatim C
@@ -107,6 +109,48 @@ driver (Apache-2.0, PrimeSense Ltd.); see `NOTICE.md`. The decode cores
 are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
+
+- **0.3.0 — photogrammetry milestone: geometry + timestamps, plus
+  diagnostics-parse fixes** -
+  - **Camera geometry** (`src/geometry.rs`): `Xtion::depth_intrinsics(res)`
+    derives the pinhole model from the calibration the driver already
+    reads (ZPD/ZPPS); `DepthFrame::to_world` / `point_cloud` convert to
+    metric world coordinates (OpenNI2 core port: mm, X right, Y up, Z
+    forward); `examples/point_cloud.rs` writes an ASCII PLY. Unit-tested
+    against the published Xtion values (58.6/45.7 deg from ZPD 120 /
+    ZPPS 0.1052 — the spec sheet's 58/45).
+  - **Host-referenced timestamps** (`src/timestamp.rs`): every frame now
+    carries `timestamp_us` (µs since the session's first frame) next to
+    the raw 32-bit tick `timestamp`. Port of
+    `XnDataProcessor::CreateTimestampFromDevice`: session anchor,
+    first-frame wrap estimation against host time, wrap-aware deltas
+    (the raw ticks wrap every 71.6 s), and the 10 s sanity re-sync.
+  - **Firmware log fixed**: the packed header is `{u16 size, u32 ts,
+    u16 type}` — the 0.2.8 parser read `{u16, u16, u32}` and printed
+    boot-tick/module splices (0x5F00001F-style) as "timestamps". The
+    structured-entry param is a u32. `firmware_log_entries()` exposes
+    raw entries; the hardware test triggers a known NACK and re-reads
+    to align ground truth.
+  - **Flash file system documented + probes**: `XnFlashFile.size` is in
+    WORDS, attributes bit 0x8000 = read-only; the garbage tail of
+    GET_FILE_LIST on fw 5.8.22 is firmware behaviour — the hardware
+    test dumps the raw table sector at 0x1000 (stride scans) and
+    downloads GainControl with six pinned CRC-16 candidates to name
+    the undocumented per-file CRC algorithm.
+  - **Emitter toggle settled**: the request is byte-identical to the
+    reference (one u16, XnHostProtocol.cpp:3420-3445) and meets the
+    C's fw >= 5.8.15 gate, but this 5.8.22 build NACKs BadParams —
+    the opcode is dispatched (InvalidCommand would say otherwise) and
+    the handler refuses. `set_emitter_enabled` reports that context;
+    the hardware test also probes the toggle while the depth stream
+    runs.
+  - **fw 5.8.22 opcode notes**: GET_FLASH_MAP (18) / GET_CPU_STATS (27)
+    NACK InvalidCommand (although the image carries the 15-task name
+    list those stats would report); GET_CMOS_BLANKING (35) direct
+    replies too short — the ALGORITHM_PARAMS 0x06 route is the working
+    path.
+  - 123 lib + 2 golden tests, clippy clean, fmt clean; hardware suite
+    now 8 tests (new: `depth_geometry_fov_and_timestamps`).
 
 - **0.2.10 — color NACK final root cause: no color sensor on this unit** -
   the 0.2.9 on-camera run printed the answer the new diagnostics were

@@ -9,7 +9,7 @@
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
-use xtion::{DepthConfig, Xtion};
+use xtion::{protocol::system, DepthConfig, Xtion};
 
 /// Serializes device access across the test threads.
 static DEVICE_LOCK: Mutex<()> = Mutex::new(());
@@ -470,20 +470,65 @@ fn system_commands_readonly() {
     let _lock = lock_device();
     let mut cam = Xtion::open().expect("open");
 
-    println!("== firmware log (opcode 7):");
-    match cam.firmware_log() {
-        Ok(log) => {
-            let lines: Vec<&str> = log.lines().collect();
-            println!("   {} entries", lines.len());
-            for line in lines.iter().take(10) {
+    println!("== firmware log (opcode 7), raw entries + rendering:");
+    match cam.firmware_log_entries() {
+        Ok(entries) => {
+            println!("   {} entries before the trigger", entries.len());
+            for entry in entries.iter().take(12) {
+                println!(
+                    "   raw: size {} words, ts {} (0x{:08X}), type 0x{:04X}, payload {} bytes: {:02x?}",
+                    entry.entry_size,
+                    entry.timestamp,
+                    entry.timestamp,
+                    entry.log_type,
+                    entry.payload.len(),
+                    &entry.payload[..entry.payload.len().min(16)]
+                );
+            }
+            let rendered = system::render_firmware_log(&entries);
+            for line in rendered.lines().take(12) {
                 println!("   {line}");
             }
-            if lines.len() > 10 {
-                println!("   ... {} more", lines.len() - 10);
+
+            // Ground-truth alignment: trigger a KNOWN firmware event (the
+            // emitter toggle this build NACKs BadParams — the only command
+            // this camera predictably rejects), then re-read. Every entry
+            // that appears now was logged moments ago, so its header fields
+            // pin the real log-entry layout (fixed in 0.3.0: {u16 size,
+            // u32 ts, u16 type}) and the timestamp's unit/range.
+            println!("== triggering a known NACK (emitter toggle, opcode 42):");
+            match cam.set_emitter_enabled(false) {
+                Ok(()) => println!("   toggle ACKed (this build accepts it — re-enable below)"),
+                Err(err) => println!("   toggle rejected: {err}"),
+            }
+            let _ = cam.set_emitter_enabled(true);
+            match cam.firmware_log_entries() {
+                Ok(new_entries) => {
+                    println!("   {} NEW entries after the trigger:", new_entries.len());
+                    for entry in new_entries.iter().take(10) {
+                        println!(
+                            "   raw: size {} words, ts {} (0x{:08X}), type 0x{:04X}, payload {:02x?}",
+                            entry.entry_size,
+                            entry.timestamp,
+                            entry.timestamp,
+                            entry.log_type,
+                            &entry.payload[..entry.payload.len().min(24)]
+                        );
+                    }
+                    for line in system::render_firmware_log(&new_entries).lines().take(10) {
+                        println!("   {line}");
+                    }
+                }
+                Err(e) => println!("   re-read failed: {e}"),
             }
         }
         Err(e) => println!("   unavailable: {e}"),
     }
+
+    println!(
+        "== device clock rate (ALGORITHM_PARAMS 0x80): {:?} ticks/us (expect ~60.0)",
+        cam.device_frequency()
+    );
 
     println!("== flash file list (opcode 19):");
     match cam.flash_file_list() {
@@ -491,23 +536,110 @@ fn system_commands_readonly() {
             println!("   {} files:", files.len());
             for f in &files {
                 println!(
-                    "   id {:<3} type {:#06x} {:<16} ver {}.{}.{} offset {:#x} size {} crc {:#06x}",
+                    "   id {:<3} type {:#06x} {:<16} ver {}.{}.{} offset {:#x} size {} words ({} B) crc {:#06x} attrs {:#06x}{}",
                     f.id,
                     f.file_type,
-                    xtion::protocol::system::flash_file_type_name(f.file_type),
+                    system::flash_file_type_name(f.file_type),
                     f.version >> 16 & 0xff,
                     f.version >> 8 & 0xff,
                     f.version & 0xffff,
                     f.offset,
                     f.size,
-                    f.crc
+                    f.size_bytes(),
+                    f.crc,
+                    f.attributes,
+                    if f.is_read_only() { " [R]" } else { "" }
                 );
+            }
+            println!(
+                "   note: entries beyond the first may be garbage on fw 5.8.22 — the raw table below is the ground truth"
+            );
+        }
+        Err(e) => println!("   unavailable: {e}"),
+    }
+
+    // The on-flash file table itself: the first GET_FILE_LIST entry says
+    // the FileTable file (type 0) lives at 0x1000 and is 4096 bytes.
+    // GET_FILE_LIST's later entries are garbage on this build, so read
+    // the raw sector and parse it ourselves. Strides 24/26/28/32 cover
+    // the vendor XnFlashFile layout plus a possible chain/flag field.
+    println!("== raw file-table sector (opcode 25, flash 0x1000, 4096 B):");
+    match cam.read_flash(system::FILE_TABLE_OFFSET, system::FILE_TABLE_SIZE) {
+        Ok(table) => {
+            println!("   read {} bytes; head:", table.len());
+            for row in 0..8 {
+                let base = row * 32;
+                println!(
+                    "   {:04x}: {:02x?}",
+                    base,
+                    &table[base..(base + 32).min(table.len())]
+                );
+            }
+            for stride in [24usize, 26, 28, 32] {
+                let mut plausible = 0;
+                let mut shown = 0;
+                let mut pos = 0;
+                while pos + stride <= table.len() {
+                    let rec = &table[pos..pos + stride];
+                    let u16_at = |i: usize| u16::from_le_bytes([rec[i], rec[i + 1]]);
+                    let u32_at =
+                        |i: usize| u32::from_le_bytes([rec[i], rec[i + 1], rec[i + 2], rec[i + 3]]);
+                    let (id, ftype, offset, size) = (u16_at(0), u16_at(2), u32_at(8), u32_at(12));
+                    // real entries: small id, known type, offset in the
+                    // update/factory zones, sane word size
+                    let sane = id < 32
+                        && ftype < 0x20
+                        && (0x1000..0x80_0000).contains(&offset)
+                        && size > 0
+                        && size < 0x10_0000;
+                    if sane {
+                        plausible += 1;
+                        if shown < 6 {
+                            println!(
+                                "   stride {stride} @ +{pos:#06x}: id {id}, type {ftype:#04x} {}, \
+                                     offset {offset:#x}, size {size} words, crc {:#06x}, attrs {:#06x}",
+                                system::flash_file_type_name(ftype),
+                                u16_at(16),
+                                u16_at(18)
+                            );
+                            shown += 1;
+                        }
+                    }
+                    pos += stride;
+                }
+                println!("   stride {stride}: {plausible} plausible records");
             }
         }
         Err(e) => println!("   unavailable: {e}"),
     }
 
+    // CRC identification: download the smallest file (GainControl,
+    // type 0x12 — 57 words on this firmware), compute the standard
+    // CRC-16 candidates over the content and compare against the crc
+    // the table stores for that file. The matching candidate name IS
+    // the flash CRC algorithm.
+    println!("== flash CRC identification via GainControl (type 0x12):");
+    match cam.download_flash_file(0x12) {
+        Ok(blob) => {
+            println!(
+                "   downloaded {} bytes, head {:02x?}",
+                blob.len(),
+                &blob[..blob.len().min(24)]
+            );
+            for (name, value) in system::crc16_candidates(&blob) {
+                println!("   crc16[{name:>12}] = {value:#06x}");
+            }
+            println!(
+                "   compare against the GainControl row in the file list above — the match names the algorithm"
+            );
+        }
+        Err(e) => println!("   unavailable: {e}"),
+    }
+
     println!("== flash map (opcode 18):");
+    // NOTE: fw 5.8.22 NACKs this InvalidCommand — the flash file list
+    // above is the supported surface on this build (the flash-layout
+    // ground truth lives in firmware/5.8.22/UsbUpdate_RD108.ini).
     match cam.flash_map() {
         Ok(map) => {
             println!("   {} entries:", map.len());
@@ -515,7 +647,7 @@ fn system_commands_readonly() {
                 println!(
                     "   type {:#06x} {:<16} offset {:#x} words {} ver {}.{}.{}",
                     entry.file_type,
-                    xtion::protocol::system::flash_file_type_name(entry.file_type),
+                    system::flash_file_type_name(entry.file_type),
                     entry.offset_in_flash,
                     entry.size_in_words,
                     entry.version_major,
@@ -538,6 +670,10 @@ fn system_commands_readonly() {
     }
 
     println!("== CPU stats (opcode 27):");
+    // NOTE: fw 5.8.22 NACKs this InvalidCommand too, although the main
+    // image carries the 15 task names it would report
+    // ('c,T,DC,TD,PK,IK,DK,O,SM,HM,TR,DC,PC,TC' at image offset 0xd1e —
+    // docs/FIRMWARE.md). Read-only; expected to print unavailable here.
     match cam.cpu_stats() {
         Ok(tasks) => {
             println!("   {} tasks:", tasks.len());
@@ -572,6 +708,10 @@ fn system_commands_readonly() {
     }
 
     println!("== CMOS blanking, direct (opcode 35):");
+    // NOTE: on fw 5.8.22 the direct reply is too short to hold the u32
+    // the C expects (XnHostProtocol.cpp:3211-3245) — the working path is
+    // the ALGORITHM_PARAMS(0x06) blanking read every stream start
+    // performs (already part of start_depth/start_ir/start_color).
     println!("   image: {:?}", cam.cmos_blanking_lines(0));
     println!("   depth: {:?}", cam.cmos_blanking_lines(1));
 
@@ -584,9 +724,170 @@ fn system_commands_readonly() {
 
     println!("== raw flash read (opcode 25), boot-manager header:");
     match cam.read_flash(0x2000, 32) {
-        Ok(data) => println!("   {:02x?}", &data),
+        Ok(data) => println!("   {data:02x?}"),
         Err(e) => println!("   unavailable: {e}"),
     }
 
     println!("== done; mode now: {:?}", cam.get_mode());
+}
+
+/// Depth geometry end-to-end: intrinsics from the on-device calibration,
+/// FOV sanity against the Xtion spec, host-referenced frame timestamps
+/// at ~30 fps, and a plane fit of a known-distance flat target
+/// (photogrammetry acceptance: RMS of a few millimetres).
+///
+/// Point the camera at a flat wall ~1-3 m away for the plane-fit part;
+/// without a flat target the fit prints its numbers and the RMS gate
+/// fails with a message saying exactly that.
+#[test]
+fn depth_geometry_fov_and_timestamps() {
+    if !hardware_present() {
+        eprintln!("skipped: no Xtion attached");
+        return;
+    }
+    let _lock = lock_device();
+    let mut cam = Xtion::open().expect("open");
+
+    // ---- intrinsics from the device calibration (no I/O) ----
+    let intrinsics = cam.depth_intrinsics(xtion::Resolution::Vga);
+    let zpd = cam.fixed_params.reference_distance;
+    let zpps = cam.fixed_params.reference_pixel_size;
+    println!("calibration: ZPD {zpd:.3} mm, ZPPS {zpps:.5} mm/px",);
+    println!(
+        "intrinsics VGA: fx {:.2}, fy {:.2}, cx {:.2}, cy {:.2}, hfov {:.2} deg, vfov {:.2} deg",
+        intrinsics.fx,
+        intrinsics.fy,
+        intrinsics.cx,
+        intrinsics.cy,
+        intrinsics.hfov.to_degrees(),
+        intrinsics.vfov.to_degrees()
+    );
+    // Xtion spec: 58 deg horizontal / 45 deg vertical, +/- calibration
+    let hfov = intrinsics.hfov.to_degrees();
+    let vfov = intrinsics.vfov.to_degrees();
+    assert!(
+        (52.0..64.0).contains(&hfov),
+        "hfov {hfov} deg far from the 58 deg spec"
+    );
+    assert!(
+        (38.0..52.0).contains(&vfov),
+        "vfov {vfov} deg far from the 45 deg spec"
+    );
+
+    // ---- stream and collect frames ----
+    cam.start_depth(DepthConfig::default())
+        .expect("start depth");
+
+    // emitter probe WITH the depth stream running: if the idle-state
+    // hypothesis for the BadParams NACK is right, the toggle may be
+    // accepted while the sensor streams (read-only probe; the toggle is
+    // volatile state either way, power-cycle restores it).
+    match cam.set_emitter_enabled(false) {
+        Ok(()) => {
+            println!("emitter toggle: ACKed while depth streams (idle-state hypothesis confirmed)");
+            let _ = cam.set_emitter_enabled(true);
+        }
+        Err(err) => println!("emitter toggle while streaming: rejected ({err})"),
+    }
+
+    let mut frames = Vec::new();
+    for _ in 0..90 {
+        match cam.read_depth_frame(Duration::from_secs(5)) {
+            Ok(frame) => frames.push(frame),
+            Err(err) => panic!("depth read: {err}"),
+        }
+    }
+    cam.stop_depth().expect("stop");
+
+    // ---- timestamps: wrap-aware host-referenced microseconds ----
+    let timestamps: Vec<u64> = frames
+        .iter()
+        .map(|f| f.timestamp_us.expect("timestamps converted"))
+        .collect();
+    let mut deltas_ms = Vec::with_capacity(timestamps.len() - 1);
+    for pair in timestamps.windows(2) {
+        deltas_ms.push((pair[1] - pair[0]) as f64 / 1000.0);
+    }
+    let mean_delta = deltas_ms.iter().sum::<f64>() / deltas_ms.len() as f64;
+    let max_deviation = deltas_ms
+        .iter()
+        .map(|d| (d - mean_delta).abs())
+        .fold(0.0f64, f64::max);
+    println!(
+        "{} frames, timestamp deltas: mean {mean_delta:.2} ms (expect ~33.33), max deviation {max_deviation:.2} ms, monotonic: {}",
+        frames.len(),
+        deltas_ms.iter().all(|d| *d > 0.0)
+    );
+    assert!(
+        (28.0..38.0).contains(&mean_delta),
+        "mean inter-frame delta {mean_delta:.2} ms, expected ~33.3 ms at 30 fps"
+    );
+    assert!(
+        max_deviation < 5.0,
+        "timestamp jitter {max_deviation:.2} ms is too large for a wired bus"
+    );
+
+    // ---- geometry: to_world on the optical axis ----
+    let last = frames.last().unwrap();
+    let center = last
+        .to_world(&intrinsics, last.width / 2, last.height / 2)
+        .expect("center pixel valid");
+    println!(
+        "center pixel -> world ({:.1}, {:.1}, {:.1}) mm (x,y must be ~0)",
+        center.0, center.1, center.2
+    );
+    assert!(
+        center.0.abs() < 30.0,
+        "center world X {:.1} mm off axis",
+        center.0
+    );
+    assert!(
+        center.1.abs() < 30.0,
+        "center world Y {:.1} mm off axis",
+        center.1
+    );
+
+    // ---- plane fit of the scene (least squares on z = ax + by + c) ----
+    let cloud = last.point_cloud(&intrinsics);
+    println!("point cloud: {} valid points", cloud.len());
+    // centroid
+    let n = cloud.len() as f64;
+    let (mx, my, mz) = (
+        cloud.iter().map(|p| p.0).sum::<f64>() / n,
+        cloud.iter().map(|p| p.1).sum::<f64>() / n,
+        cloud.iter().map(|p| p.2).sum::<f64>() / n,
+    );
+    // normal equations for z - mz = a(x - mx) + b(y - my)
+    let (mut sxx, mut sxy, mut sxz, mut syy, mut syz) = (0.0, 0.0, 0.0, 0.0, 0.0);
+    for (x, y, z) in &cloud {
+        let (dx, dy, dz) = (x - mx, y - my, z - mz);
+        sxx += dx * dx;
+        sxy += dx * dy;
+        sxz += dx * dz;
+        syy += dy * dy;
+        syz += dy * dz;
+    }
+    // solve [sxx sxy; sxy syy] [a;b] = [sxz; syz]
+    let det = sxx * syy - sxy * sxy;
+    let (a, b) = if det.abs() > 1e-9 {
+        ((syy * sxz - sxy * syz) / det, (sxx * syz - sxy * sxz) / det)
+    } else {
+        (0.0, 0.0)
+    };
+    let mut residuals = Vec::with_capacity(cloud.len());
+    for (x, y, z) in &cloud {
+        let predicted = mz + a * (x - mx) + b * (y - my);
+        residuals.push(z - predicted);
+    }
+    let rms = residuals.iter().map(|r| r * r).sum::<f64>().sqrt() / n.sqrt();
+    println!(
+        "plane fit: mean distance {mz:.1} mm, slope ({a:.4}, {b:.4}), residual RMS {rms:.2} mm over {n:.0} points",
+    );
+    if rms > 20.0 {
+        panic!(
+            "plane-fit RMS {rms:.2} mm is too large — point the camera at a flat, \
+             textureless wall 1-3 m away and clear the sides of the frame; a good \
+             fit on this sensor is a few mm"
+        );
+    }
 }
