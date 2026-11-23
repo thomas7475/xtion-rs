@@ -773,8 +773,30 @@ impl Xtion {
     /// List the device's flash file system (OPCODE_GET_FILE_LIST).
     /// Read-only view of the calibration/parameter files the firmware
     /// boots with.
+    ///
+    /// **fw 5.8.22:** the firmware's reply rows drift +2 bytes per record
+    /// (it walks the packed 22-byte on-flash records with its unpacked
+    /// 24-byte struct) — prefer [`flash_file_table`](Self::flash_file_table)
+    /// for a correct enumeration.
     pub fn flash_file_list(&mut self) -> Result<Vec<sys::FlashFile>> {
         sys::get_file_list(&mut self.link, &mut self.usb, COMMAND_TIMEOUT)
+    }
+
+    /// Read and parse the on-flash file table — the ground-truth file
+    /// list (OPCODE_READ_FLASH over the table region + packed-record
+    /// parse; see `parse_flash_file_table`).
+    pub fn flash_file_table(&mut self) -> Result<Vec<sys::FlashFile>> {
+        sys::read_file_table(&mut self.link, &mut self.usb, COMMAND_TIMEOUT)
+    }
+
+    /// Read one file's payload straight from flash (OPCODE_READ_FLASH at
+    /// the record's word offset) and check it against the table's
+    /// `crc` ([`flash_file_crc`](sys::flash_file_crc)). `Ok(true)` =
+    /// intact, `Ok(false)` = CRC mismatch (stale table entry or a
+    /// corrupted region), `Err` = the read itself failed.
+    pub fn verify_flash_file(&mut self, file: &sys::FlashFile) -> Result<bool> {
+        let payload = self.read_flash(file.offset, file.size_bytes() as u32)?;
+        Ok(sys::flash_file_crc(&payload) == file.crc)
     }
 
     /// Read the device flash map (OPCODE_GET_FLASH_MAP): where each file
@@ -791,8 +813,17 @@ impl Xtion {
     }
 
     /// Read raw bytes from device flash (OPCODE_READ_FLASH).
-    pub fn read_flash(&mut self, offset: u32, size: u32) -> Result<Vec<u8>> {
-        sys::read_flash(&mut self.link, &mut self.usb, offset, size, COMMAND_TIMEOUT)
+    /// `offset_words` is a **16-bit-word address** (byte address =
+    /// value * 2 — every flash address on this sensor is word-based);
+    /// `size_bytes` is a byte length (rounded down to whole words).
+    pub fn read_flash(&mut self, offset_words: u32, size_bytes: u32) -> Result<Vec<u8>> {
+        sys::read_flash(
+            &mut self.link,
+            &mut self.usb,
+            offset_words,
+            size_bytes,
+            COMMAND_TIMEOUT,
+        )
     }
 
     /// Read one 32-bit value from the SoC's AHB bus (OPCODE_READ_AHB).

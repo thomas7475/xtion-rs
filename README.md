@@ -28,11 +28,11 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Cropping, depth AGC bins, GMC data, audio | not yet (Phase 3-4 of docs/FEATURE_PLAN.md) |
 | **Camera geometry (0.3.0)**: pinhole intrinsics from the on-device calibration (`depth_intrinsics`), depth-to-world (`to_world`/`point_cloud`, OpenNI convention: mm, X right, Y up, Z forward), PLY example | implemented — FOV formula ports the PS1080 depth-stream init (hfov spans the CMOS's native 1280 px line, vfov its 960 px height; ~58/45 deg on the Xtion spec), conversion ports the OpenNI2 core (`OniStream.cpp:399-404`); hardware gates: FOV vs spec and a RANSAC dominant-plane RMS (applied only when a plane covers >= 40% of the frame — non-planar scenes skip), in `depth_geometry_fov_and_timestamps` |
 | **Host-referenced frame timestamps (0.3.0)**: `timestamp_us` on every frame, wrap-aware (raw ticks wrap every 71.6 s at 60 MHz) | implemented — port of `XnDataProcessor::CreateTimestampFromDevice` (anchor + wrap estimation + 10 s sanity re-sync); clock rate from ALGORITHM_PARAMS 0x80 |
-| System commands (0.2.8): firmware log, CPU stats, BIST, TEC + emitter telemetry, CMOS blanking/register reads (I2C), AHB read, flash map / file list / file download / raw flash read | implemented — strictly READ-ONLY; the write-side commands stay excluded; **0.3.0 fixed the firmware-log header field order** (the 0.2.8 "Unix epoch" timestamps were boot-tick/module splice artifacts), documented the flash file list (sizes in words, 0x8000 read-only, garbage tail on fw 5.8.22) and added raw-table + CRC-identification probes to the hardware test |
+| System commands (0.2.8): firmware log, CPU stats, BIST, TEC + emitter telemetry, CMOS blanking/register reads (I2C), AHB read, flash map / file list / file download / raw flash read | implemented — strictly READ-ONLY; the write-side commands stay excluded; **0.3.2 closed the flash story**: on-flash file table parsed from packed 22-byte `XnFlashFile` records (word-addressed — the firmware's GET_FILE_LIST rows drift +2 B per record on 5.8.22 because it walks them with its unpacked 24-byte struct), per-file CRC identified as CRC-16/CCITT-FALSE over big-endian words and verified against the factory image 8/8 (`Xtion::flash_file_table` + `Xtion::verify_flash_file`) |
 | Pre-3.0 firmware (bulk control endpoints) | not supported (explicit error) |
 
-Everything that can be verified without the camera **is** verified: 123
-tests pass on a bare CI machine (`cargo test`), and the numerical cores
+Everything that can be verified without the camera **is** verified: 126
+lib tests pass on a bare CI machine (`cargo test`), and the numerical cores
 (packed-11 depth, 10-bit IR, shift-to-depth) are proven equal to the
 original C++ implementation by golden vectors generated from a verbatim C
 transcription (`reference/c_golden.c` -> `reference/golden.txt` ->
@@ -110,6 +110,37 @@ are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
 
+- **0.3.2 — flash file table decoded + CRC identified (+ READ_FLASH
+  chunking fix)** — the 0.3.1 dump closed the whole flash story offline.
+  Pinned: every flash address on this sensor is a 16-bit WORD
+  (READ_FLASH/DOWNLOAD_FILE wire offsets, the file-table records and
+  the updater's `UsbUpdate_RD108.ini` all agree; the vendor console
+  multiplies the word size by 2 for its buffer); the on-flash table at
+  word 0x1000 (byte 0x2000, 8 KiB — ending exactly where the
+  BootManager at word 0x2000 begins) is a flat array of packed
+  **22-byte** `XnFlashFile` records, record 0 describing the table
+  itself with the magic 0x12345678; the fw 5.8.22 GET_FILE_LIST
+  "garbage tail" is a packed/unpacked struct mismatch — the firmware
+  walks the 22-byte records with its 24-byte layout, so every reply
+  row past the first drifts +2 B per record (every 11th row, lcm(22,
+  24) = 264, is real) and DOWNLOAD_FILE's type lookup can serve the
+  wrong file (type 0x12 returned the 548-B RegistrationParams image
+  instead of GainControl); and the per-file CRC is **CRC-16/
+  CCITT-FALSE over the payload words, each 16-bit word fed
+  most-significant byte first** — identified 8/8 against the factory
+  image bundled in `firmware/5.8.22` (payload = `.fla` minus its
+  6-byte header; GainControl 0xC44B, FixedParams 0x233D,
+  AlgorithmParams 0xA7F1, DefaultParams 0xE4EC, PrimeProcessor 0x9A35,
+  ImageCmos 0x1CFA, BootManager 0x9F64, Application 0xDF96). Shipped:
+  `parse_flash_file_table`, `Xtion::flash_file_table`, `flash_file_crc`,
+  `Xtion::verify_flash_file`; golden tests pin the parser against a
+  real device capture and the CRC against the factory payloads. Bug
+  fix: `read_flash` advanced its wire offset by BYTES instead of words,
+  silently skipping every second 1 KiB block on reads > 1024 B (the
+  0.3.1 "4096-byte" table dump was four gapped blocks). Hardware test
+  7 now asserts the table's record 0 identity (>= 12 records) and
+  verifies every stored crc on-device (GainControl and ImageCmos are
+  hard gates), plus a DOWNLOAD_FILE type-lookup mapping.
 - **0.3.1 — scene-robust plane-fit gate** — the first 0.3.0 camera run
   failed `depth_geometry_fov_and_timestamps` on an ordinary room: the
   test fitted one plane to the WHOLE cloud by least squares, so a

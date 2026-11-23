@@ -148,11 +148,26 @@ pub fn read_firmware_log<T: ControlTransport>(
     )?))
 }
 
-/// Read bytes from a device flash file by type (OPCODE_DOWNLOAD_FILE),
-/// chunk by chunk, until the device returns nothing. Port of
+/// Read a flash file by type (OPCODE_DOWNLOAD_FILE), chunk by chunk,
+/// until the device returns nothing. Port of
 /// `XnHostProtocolFileDownloadChunk` + the download loop
 /// (XnHostProtocol.cpp:2511-2602). The request offset is in WORDS (the
 /// C divides the byte offset by `sizeof(XnUInt16)`).
+///
+/// The reply is the file's `.fla` image: a 6-byte
+/// `[type u16][build u16][version u16]` header followed by `size` words
+/// of payload, so the payload is `&blob[6..]` and its integrity check is
+/// [`flash_file_crc`] (verified on-camera for type 0x0A, ImageCmos:
+/// 2278 B = 6 + 2 * 1136 words).
+///
+/// **fw 5.8.22 caveat (hardware-verified):** the firmware's type lookup
+/// walks the packed 22-byte on-flash file table with its unpacked
+/// 24-byte struct — the same packed/unpacked mismatch that corrupts
+/// [`get_file_list`] — so it can serve the WRONG file: a type-0x12
+/// request (GainControl, 57 words) returned the 548-byte
+/// RegistrationParams image, while type 0x0A returned the correct
+/// ImageCmos image. Prefer [`read_file_table`] + [`read_flash`] at the
+/// record's offset when the exact bytes matter.
 pub fn download_file<T: ControlTransport>(
     link: &mut CommandLink,
     transport: &mut T,
@@ -176,7 +191,9 @@ pub fn download_file<T: ControlTransport>(
 }
 
 /// One entry of the device flash map (`XnFlashEntry`, 14 bytes packed).
-/// Source: XnHostProtocol.cpp:2313-2326.
+/// Source: XnHostProtocol.cpp:2313-2326. `offset_in_flash` is a
+/// 16-bit-word address like every flash offset on this sensor (byte
+/// address = value * 2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FlashEntry {
     pub file_type: u16,
@@ -221,16 +238,29 @@ pub fn get_flash_map<T: ControlTransport>(
     Ok(entries)
 }
 
-/// One flash file-system entry (`XnFlashFile`, 24 bytes packed).
-/// Source: Include/PS1080.h:600-609.
+/// One flash file-system entry (`XnFlashFile`, **22 bytes packed**,
+/// `#pragma pack(1)`). Source: Include/PS1080.h:600-609.
 ///
-/// Field notes (all hardware-verified on fw 5.8.22 except where noted):
+/// Field notes (hardware-verified on fw 5.8.22):
+/// - [`offset`](Self::offset) is a **16-bit-word address** — like every
+///   flash address on this sensor: READ_FLASH and DOWNLOAD_FILE wire
+///   offsets, the file-table records and the updater's
+///   `UsbUpdate_RD108.ini` all use words (byte address =
+///   [`offset_bytes`](Self::offset_bytes)).
 /// - [`size`](Self::size) is in **16-bit words**, like the vendor
 ///   console's "SizeInWords" column (PS1080Console.cpp:503). Use
 ///   [`size_bytes`](Self::size_bytes) for bytes.
+/// - [`crc`](Self::crc) is [`flash_file_crc`](fn@flash_file_crc) of the
+///   payload words (identified against the 5.8.22 factory image).
 /// - [`attributes`](Self::attributes) is a bit mask;
 ///   [`FILE_ATTRIBUTE_READ_ONLY`] (0x8000) is the only bit the
 ///   vendor tools render.
+///
+/// The **packed** struct is 22 bytes; the natural-alignment (unpacked)
+/// host layout is 24. Firmware 5.8.22 walks the on-flash table with the
+/// unpacked 24-byte stride, which is why its GET_FILE_LIST replies and
+/// DOWNLOAD_FILE lookups are shifted — parse the raw table with
+/// [`parse_flash_file_table`] instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FlashFile {
     pub id: u16,
@@ -250,6 +280,12 @@ impl FlashFile {
         self.size as u64 * 2
     }
 
+    /// Byte offset in flash (`offset * 2` — the record stores a
+    /// 16-bit-word address).
+    pub fn offset_bytes(&self) -> u64 {
+        self.offset as u64 * 2
+    }
+
     /// True when the read-only attribute bit is set.
     pub fn is_read_only(&self) -> bool {
         self.attributes & FILE_ATTRIBUTE_READ_ONLY != 0
@@ -261,17 +297,33 @@ impl FlashFile {
 /// PS1080Console.cpp:511-515).
 pub const FILE_ATTRIBUTE_READ_ONLY: u16 = 0x8000;
 
-/// File type of the on-flash file table itself (type 0, the
-/// `FileTable`): it lives at flash offset **0x1000** and is 4096 bytes
-/// — as reported by the first entry of GET_FILE_LIST on this firmware.
-pub const FILE_TABLE_OFFSET: u32 = 0x1000;
-/// Size of the on-flash file table sector in bytes.
-pub const FILE_TABLE_SIZE: u32 = 4096;
+/// File type of the on-flash file table itself (the `FileTable`).
+pub const FILE_TYPE_FILE_TABLE: u16 = 0x00;
+
+/// **Word** offset of the on-flash file table: record 0 of the table
+/// describes itself (offset 0x1000 words = byte 0x2000, ending exactly
+/// where the BootManager at word 0x2000 begins).
+pub const FILE_TABLE_OFFSET_WORDS: u32 = 0x1000;
+/// Size of the on-flash file table in **words** (record 0's own size
+/// field): 0x1000 words = 8192 bytes.
+pub const FILE_TABLE_SIZE_WORDS: u32 = 0x1000;
+/// Stride of the packed on-flash `XnFlashFile` records
+/// ([`parse_flash_file_table`]).
+pub const FLASH_FILE_RECORD_SIZE: usize = 22;
 
 /// List the files in the device flash file system (OPCODE_GET_FILE_LIST),
 /// starting at file id 0 and following the id chain until the device
 /// returns nothing. Port of `XnHostProtocolGetFileList`
 /// (XnHostProtocol.cpp:2458-2510).
+///
+/// **fw 5.8.22 caveat (hardware-verified):** the firmware reads the
+/// packed 22-byte on-flash records ([`parse_flash_file_table`]) with
+/// its unpacked 24-byte struct layout, so every reply row past the
+/// first drifts +2 bytes per record — only the rows where both grids
+/// resynchronise (every 11th, lcm(22, 24) = 264) are true records.
+/// This function reproduces the vendor C driver's behaviour byte for
+/// byte, corruption included. For a correct enumeration use
+/// [`read_file_table`].
 pub fn get_file_list<T: ControlTransport>(
     link: &mut CommandLink,
     transport: &mut T,
@@ -329,36 +381,116 @@ pub fn get_file_list<T: ControlTransport>(
 
 /// Read raw bytes from device flash (OPCODE_READ_FLASH), chunk by chunk.
 /// Port of `XnHostProtocolReadFlashChunk` + `XnHostProtocolReadFlash`
-/// (XnHostProtocol.cpp:2603-2678). NOTE the asymmetry with
-/// [`download_file`]: this request's offset is a raw BYTE offset.
+/// (XnHostProtocol.cpp:2603-2678).
+///
+/// **All flash addresses on this sensor are 16-bit words**: the wire
+/// offset here, the chunk size (the vendor console multiplies the word
+/// count by `sizeof(XnUInt16)` for its buffer, PS1080Console.cpp:1164),
+/// the file-table records ([`FlashFile::offset`]) and the updater ini
+/// all agree on words. Hence `offset_words` (byte address = value * 2)
+/// and a `size_bytes` convenience length — an odd trailing byte cannot
+/// be requested and is dropped.
+///
+/// 0.3.2 bug fix: the chunk loop advanced the wire offset by BYTES
+/// instead of words, silently skipping every second 1 KiB block on
+/// reads larger than 1024 B (the 0.3.1 "4096-byte" table dump was four
+/// gapped blocks; all records happened to live in the first one).
 pub fn read_flash<T: ControlTransport>(
     link: &mut CommandLink,
     transport: &mut T,
-    offset: u32,
-    size: u32,
+    offset_words: u32,
+    size_bytes: u32,
     timeout: Duration,
 ) -> Result<Vec<u8>> {
-    let mut blob = Vec::with_capacity(size as usize);
-    let mut loop_offset = offset;
-    while (blob.len() as u32) < size {
-        let chunk_words: u16 = ((size - blob.len() as u32) / 2).min(0x200) as u16;
-        if chunk_words == 0 {
-            break;
-        }
+    let total_bytes = size_bytes & !1; // whole words only
+    let mut blob = Vec::with_capacity(total_bytes as usize);
+    let mut offset = offset_words;
+    while (blob.len() as u32) < total_bytes {
+        let remaining_words = (total_bytes - blob.len() as u32) / 2;
+        let chunk_words: u16 = remaining_words.min(0x200) as u16;
         let mut payload = Vec::with_capacity(6);
-        payload.extend_from_slice(&loop_offset.to_le_bytes());
+        payload.extend_from_slice(&offset.to_le_bytes());
         payload.extend_from_slice(&chunk_words.to_le_bytes());
         let data = link.exchange(transport, Opcode::ReadFlash, &payload, timeout)?;
         if data.is_empty() {
             return Err(XtionError::BadConfig(format!(
-                "flash read at {loop_offset:#x} returned no data"
+                "flash read at word {offset:#x} returned no data"
             )));
         }
         blob.extend_from_slice(&data);
-        loop_offset += data.len() as u32;
+        // advance by the words actually received (0.3.2 fix: was bytes)
+        offset += (data.len() / 2) as u32;
     }
-    blob.truncate(size as usize);
+    blob.truncate(total_bytes as usize);
     Ok(blob)
+}
+
+/// Parse the raw on-flash file table into [`FlashFile`] records.
+///
+/// The table (read with [`read_flash`] at
+/// [`FILE_TABLE_OFFSET_WORDS`]) is a flat array of packed 22-byte
+/// `XnFlashFile` records ([`FLASH_FILE_RECORD_SIZE`]) starting at byte
+/// 0 of the region. Record 0 describes the table itself and carries the
+/// magic `0x12345678` in [`FlashFile::version`]; the remaining ids
+/// follow. Parsing stops at the first slot that is erased (all `0xFF`),
+/// zeroed, or fails the plausibility bounds (id <= 0x0FFF, type <= 0xFF,
+/// offset <= 4 MiB in words, size <= 1 Mi words) — the records end well
+/// before the 8 KiB region does.
+///
+/// This is the ground truth on fw 5.8.22; the firmware's own
+/// GET_FILE_LIST walk is shifted (see [`get_file_list`]).
+pub fn parse_flash_file_table(table: &[u8]) -> Vec<FlashFile> {
+    let mut files = Vec::new();
+    let mut pos = 0usize;
+    while pos + FLASH_FILE_RECORD_SIZE <= table.len() {
+        let r = &table[pos..pos + FLASH_FILE_RECORD_SIZE];
+        if r.iter().all(|&b| b == 0x00) || r.iter().all(|&b| b == 0xFF) {
+            break;
+        }
+        let u16_at = |i: usize| u16::from_le_bytes([r[i], r[i + 1]]);
+        let u32_at = |i: usize| u32::from_le_bytes([r[i], r[i + 1], r[i + 2], r[i + 3]]);
+        let rec = FlashFile {
+            id: u16_at(0),
+            file_type: u16_at(2),
+            version: u32_at(4),
+            offset: u32_at(8),
+            size: u32_at(12),
+            crc: u16_at(16),
+            attributes: u16_at(18),
+            reserved: u16_at(20),
+        };
+        let plausible = rec.id <= 0x0FFF
+            && rec.file_type <= 0x00FF
+            && rec.offset <= 0x20_0000
+            && rec.size <= 0x10_0000;
+        if !plausible {
+            break;
+        }
+        files.push(rec);
+        pos += FLASH_FILE_RECORD_SIZE;
+    }
+    files
+}
+
+/// Read and parse the on-flash file table — the ground-truth file list.
+///
+/// Reads [`FILE_TABLE_SIZE_WORDS`] words at [`FILE_TABLE_OFFSET_WORDS`]
+/// with [`read_flash`] and parses them with [`parse_flash_file_table`].
+/// On fw 5.8.22 this is the reliable enumeration; the firmware's own
+/// GET_FILE_LIST serialization drifts (see [`get_file_list`]).
+pub fn read_file_table<T: ControlTransport>(
+    link: &mut CommandLink,
+    transport: &mut T,
+    timeout: Duration,
+) -> Result<Vec<FlashFile>> {
+    let bytes = read_flash(
+        link,
+        transport,
+        FILE_TABLE_OFFSET_WORDS,
+        FILE_TABLE_SIZE_WORDS * 2,
+        timeout,
+    )?;
+    Ok(parse_flash_file_table(&bytes))
 }
 
 /// Read one 32-bit value from the SoC's AHB bus (OPCODE_READ_AHB). Port
@@ -670,95 +802,142 @@ pub fn flash_file_type_name(file_type: u16) -> &'static str {
     }
 }
 
-/// Generic CRC-16 over one byte at a time. All flash-CRC candidates are
-/// built from this: `poly` is the reflected-out bit pattern of the
-/// generator, `refl` selects a reflected (LSB-first) engine.
-fn crc16(data: &[u8], init: u16, poly: u16, refl: bool, xorout: u16) -> u16 {
-    let mut crc = init;
+/// CRC-16/CCITT-FALSE over `data` (poly 0x1021, init 0xFFFF, MSB-first,
+/// no reflection, no xorout). Catalog check value over `"123456789"`:
+/// 0x29B1.
+fn crc16_ccitt_false(data: &[u8]) -> u16 {
+    let mut crc: u16 = 0xFFFF;
     for &b in data {
-        if refl {
-            crc ^= b as u16;
-            for _ in 0..8 {
-                crc = if crc & 1 != 0 {
-                    (crc >> 1) ^ poly
-                } else {
-                    crc >> 1
-                };
-            }
-        } else {
-            crc ^= (b as u16) << 8;
-            for _ in 0..8 {
-                crc = if crc & 0x8000 != 0 {
-                    (crc << 1) ^ poly
-                } else {
-                    crc << 1
-                };
-            }
+        crc ^= (b as u16) << 8;
+        for _ in 0..8 {
+            crc = if crc & 0x8000 != 0 {
+                (crc << 1) ^ 0x1021
+            } else {
+                crc << 1
+            };
         }
     }
-    crc ^ xorout
+    crc
 }
 
-/// Compute a set of well-known CRC-16 variants over `data`.
+/// The on-flash file CRC — the [`FlashFile::crc`] column.
 ///
-/// The flash file table stores a 16-bit CRC per file
-/// ([`FlashFile::crc`]) but neither the vendor headers nor the C driver
-/// document the algorithm — the reference host driver never verifies
-/// it. To identify it, download a small file (e.g. GainControl, type
-/// 0x12: 57 words on this firmware), compute the candidates and
-/// compare against the stored value; the matching name is the
-/// algorithm. Every candidate's implementation is pinned by its
-/// published check value (CRC-16 catalog, "123456789") in the unit
-/// tests below.
-pub fn crc16_candidates(data: &[u8]) -> Vec<(&'static str, u16)> {
-    vec![
-        // CRC-16/CCITT-FALSE: poly 0x1021, init 0xFFFF, no reflection.
-        ("ccitt-false", crc16(data, 0xFFFF, 0x1021, false, 0)),
-        // CRC-16/XMODEM (CCITT with init 0).
-        ("xmodem", crc16(data, 0x0000, 0x1021, false, 0)),
-        // CRC-16/KERMIT (reflected 0x1021, init 0).
-        ("kermit", crc16(data, 0x0000, 0x8408, true, 0)),
-        // CRC-16/ARC (reflected 0x8005, init 0).
-        ("arc", crc16(data, 0x0000, 0xA001, true, 0)),
-        // CRC-16/MODBUS (reflected 0x8005, init 0xFFFF).
-        ("modbus", crc16(data, 0xFFFF, 0xA001, true, 0)),
-        // CRC-16/USB (reflected 0x8005, init 0xFFFF, xorout 0xFFFF).
-        ("usb", crc16(data, 0xFFFF, 0xA001, true, 0xFFFF)),
-    ]
+/// Identified in the 0.3.2 session against the factory image bundled in
+/// `firmware/5.8.22` (every file's on-flash payload equals its `.fla`
+/// minus the 6-byte `[type][build][version]` header, so the payloads
+/// are known offline): the stored value is **CRC-16/CCITT-FALSE over
+/// the payload words, each 16-bit word fed most-significant byte
+/// first** — i.e. CCITT-FALSE of the payload serialized as a
+/// big-endian u16 array (the flash stores little-endian words).
+/// Verified 8/8 against the table records decoded from the raw sector:
+/// GainControl 0xC44B, FixedParams 0x233D, AlgorithmParams 0xA7F1,
+/// DefaultParams 0xE4EC, PrimeProcessor 0x9A35, ImageCmos 0x1CFA,
+/// BootManager 0x9F64, Application 0xDF96
+/// (`scripts/flash_crc_sweep.py` in the workspace).
+pub fn flash_file_crc(payload: &[u8]) -> u16 {
+    // per-word big-endian feed == CCITT-FALSE over the pair-swapped bytes
+    let mut swapped = Vec::with_capacity(payload.len());
+    for word in payload.chunks(2) {
+        match word {
+            [lo, hi] => {
+                swapped.push(*hi);
+                swapped.push(*lo);
+            }
+            [b] => swapped.push(*b),
+            _ => unreachable!("chunks(2) yields 1-2 bytes"),
+        }
+    }
+    crc16_ccitt_false(&swapped)
 }
 
 #[cfg(test)]
 mod crc_tests {
-    use super::crc16_candidates;
+    use super::{crc16_ccitt_false, flash_file_crc, parse_flash_file_table, FlashFile};
 
     #[test]
-    fn candidates_match_published_check_values() {
-        // The CRC-16 catalog check values over "123456789".
-        let expected = [
-            ("ccitt-false", 0x29B1u16),
-            ("xmodem", 0x31C3),
-            ("kermit", 0x2189),
-            ("arc", 0xBB3D),
-            ("modbus", 0x4B37),
-            ("usb", 0xB4C8),
-        ];
-        let got = crc16_candidates(b"123456789");
-        for (name, value) in got {
-            let want = expected
-                .iter()
-                .find(|(n, _)| *n == name)
-                .map(|(_, v)| *v)
-                .unwrap_or_else(|| panic!("unknown candidate {name}"));
-            assert_eq!(value, want, "{name} check value mismatch");
-        }
+    fn ccitt_false_engine_matches_catalog_check() {
+        assert_eq!(crc16_ccitt_false(b"123456789"), 0x29B1);
+        assert_eq!(crc16_ccitt_false(b""), 0xFFFF);
     }
 
     #[test]
-    fn empty_input_yields_init_xorout() {
-        // init/xorout survive an empty input for non-reflected forms
-        let got = crc16_candidates(b"");
-        assert!(got.iter().any(|(n, v)| *n == "ccitt-false" && *v == 0xFFFF));
-        assert!(got.iter().any(|(n, v)| *n == "xmodem" && *v == 0));
+    fn flash_file_crc_feeds_words_big_endian() {
+        // one stored word 0x3412 (bytes 12 34) is fed as 34 12
+        assert_eq!(
+            flash_file_crc(&[0x12, 0x34]),
+            crc16_ccitt_false(&[0x34, 0x12])
+        );
+        // empty payload keeps the init value
+        assert_eq!(flash_file_crc(&[]), 0xFFFF);
+    }
+
+    #[test]
+    fn file_table_parser_stops_at_erased_flash() {
+        // record 0 (the FileTable self-entry, magic version) followed by
+        // erased flash
+        let mut table = Vec::new();
+        table.extend_from_slice(&0u16.to_le_bytes()); // id
+        table.extend_from_slice(&0u16.to_le_bytes()); // type FileTable
+        table.extend_from_slice(&0x1234_5678u32.to_le_bytes()); // magic
+        table.extend_from_slice(&0x1000u32.to_le_bytes()); // offset (words)
+        table.extend_from_slice(&0x1000u32.to_le_bytes()); // size (words)
+        table.extend_from_slice(&0xFFFCu16.to_le_bytes()); // crc
+        table.extend_from_slice(&0u16.to_le_bytes()); // attributes
+        table.extend_from_slice(&0u16.to_le_bytes()); // reserved
+        table.extend_from_slice(&[0xFF; 64]);
+        let files = parse_flash_file_table(&table);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].version, 0x1234_5678);
+        assert_eq!(files[0].crc, 0xFFFC);
+    }
+
+    #[test]
+    fn file_table_parser_rejects_implausible_records() {
+        // a record with a huge offset is a terminator, not a file
+        let mut table = vec![0u8; 22];
+        table[10] = 0xFF; // offset high byte
+        assert!(parse_flash_file_table(&table).is_empty());
+        // all-zero slots terminate as well
+        assert!(parse_flash_file_table(&[0u8; 64]).is_empty());
+    }
+
+    #[test]
+    fn file_table_parser_decodes_a_regular_record() {
+        let mut table = Vec::new();
+        // record 0: the FileTable self-entry
+        table.extend_from_slice(&0u16.to_le_bytes()); // id
+        table.extend_from_slice(&0u16.to_le_bytes()); // type FileTable
+        table.extend_from_slice(&0x1234_5678u32.to_le_bytes()); // magic
+        table.extend_from_slice(&0x1000u32.to_le_bytes()); // offset
+        table.extend_from_slice(&0x1000u32.to_le_bytes()); // size
+        table.extend_from_slice(&0xFFFCu16.to_le_bytes()); // crc
+        table.extend_from_slice(&0u16.to_le_bytes());
+        table.extend_from_slice(&0u16.to_le_bytes());
+        // record 1: GainControl-like entry
+        table.extend_from_slice(&12u16.to_le_bytes()); // id
+        table.extend_from_slice(&0x12u16.to_le_bytes()); // GainControl
+        table.extend_from_slice(&0x0508_0022u32.to_le_bytes()); // 5.8, build 34
+        table.extend_from_slice(&0x550u32.to_le_bytes()); // offset words
+        table.extend_from_slice(&57u32.to_le_bytes()); // 57 words
+        table.extend_from_slice(&0xC44Bu16.to_le_bytes()); // crc
+        table.extend_from_slice(&0u16.to_le_bytes());
+        table.extend_from_slice(&0u16.to_le_bytes());
+        table.extend_from_slice(&[0xFF; 22]);
+        let files = parse_flash_file_table(&table);
+        assert_eq!(files.len(), 2);
+        assert_eq!(
+            files[1],
+            FlashFile {
+                id: 12,
+                file_type: 0x12,
+                version: 0x0508_0022,
+                offset: 0x550,
+                size: 57,
+                crc: 0xC44B,
+                attributes: 0,
+                reserved: 0,
+            }
+        );
     }
 }
 
@@ -943,19 +1122,23 @@ mod tests {
     }
 
     #[test]
-    fn read_flash_chunks_by_byte_offset() {
+    fn read_flash_advances_the_wire_offset_in_words() {
         let (mut link, mut fake) = link_and(vec![
             ack_reply(0, Opcode::ReadFlash, &[0x11, 0x22, 0x33, 0x44]),
             ack_reply(1, Opcode::ReadFlash, &[0x55, 0x66]),
         ]);
         let blob = read_flash(&mut link, &mut fake, 0x28000, 6, Duration::from_millis(50)).unwrap();
         assert_eq!(blob, vec![0x11, 0x22, 0x33, 0x44, 0x55, 0x66]);
-        // second request carries the byte offset advanced by the reply
+        // second request advances the WORD offset by the 2 words received
+        // (0.3.2 fix: this used to advance by bytes — 0x28004 — skipping
+        // every second 1 KiB block on large reads)
         let req = &fake.sent[1];
         assert_eq!(
             u32::from_le_bytes([req[8], req[9], req[10], req[11]]),
-            0x28004
+            0x28002
         );
+        // and it asks for the remaining word count
+        assert_eq!(u16::from_le_bytes([req[12], req[13]]), 1);
     }
 
     #[test]

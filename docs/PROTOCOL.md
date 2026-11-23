@@ -155,26 +155,63 @@ their fw >= 5.8.9 reference defaults (both TRUE).
 
 ### Flash file system (opcodes 16/18/19/25) and fw 5.8.22 quirks
 
-- `XnFlashFile` on the wire (GET_FILE_LIST replies) is 24 bytes packed:
-  `{ u16 id, u16 type, u32 version, u32 offset, u32 size, u16 crc, u16
-  attributes, u16 reserve }` (PS1080.h:600-609). **`size` counts 16-bit
-  WORDS** — the vendor console's "SizeInWords" column
-  (PS1080Console.cpp:503). `attributes` bit 0x8000 = read-only
+**All flash addresses on this sensor are 16-bit WORDS** — the READ_FLASH
+and DOWNLOAD_FILE wire offsets, the file-table records and the updater
+(`firmware/5.8.22/UsbUpdate_RD108.ini` `OffsetFactory` values) all agree
+on words; byte address = value * 2. The vendor console confirms the size
+side (`nSizeInBytes = nSize * sizeof(XnUInt16)`,
+PS1080Console.cpp:1164). Consequences: the file table lives at word
+0x1000 = **byte 0x2000** (8192 B, ending exactly where the BootManager
+at word 0x2000 = byte 0x4000 begins), and the ScratchFile (word 0xF8000,
+0x8000 words) is the last 64 KiB of the 2 MiB part.
+
+**The on-flash file table** (the ground truth, read with opcode 25 at
+word 0x1000) is a flat array of packed **22-byte** `XnFlashFile` records
+(`#pragma pack(1)`, PS1080.h:600-609): `{ u16 id, u16 type, u32 version,
+u32 offset (words), u32 size (words), u16 crc, u16 attributes, u16
+reserve }`. Record 0 describes the table itself and carries the magic
+`0x12345678` in `version`; regular files carry `0x05080022` (fw 5.8,
+build 34). The driver exposes this as `parse_flash_file_table` /
+`Xtion::flash_file_table`.
+
+**fw 5.8.22 packed/unpacked bug:** the firmware walks the packed 22-byte
+records with its UNPACKED 24-byte struct layout. Every GET_FILE_LIST
+reply row past the first therefore drifts +2 bytes per record (only every
+11th row, lcm(22, 24) = 264, is a true record — rows 1 and 12 on this
+unit), and the DOWNLOAD_FILE type lookup can serve the WRONG file: a
+type-0x12 request (GainControl, 57 words) returned the 548-byte
+RegistrationParams image, while type 0x0A returned the correct ImageCmos
+image (2278 B). Use `Xtion::flash_file_table` + `read_flash` at the
+record's offset instead; `Xtion::flash_file_list` /
+`download_flash_file` reproduce the vendor C behaviour, corruption
+included.
+
+**The per-file CRC is CRC-16/CCITT-FALSE over the payload words, each
+16-bit word fed most-significant byte first** (i.e. CCITT-FALSE of the
+payload serialized as a big-endian u16 array; flash stores little-endian
+words). Identified against the factory image bundled in
+`firmware/5.8.22` (payload = `.fla` minus its 6-byte
+`[type u16][build u16][version u16]` header): all 8 build-generic files
+match exactly — GainControl 0xC44B, FixedParams 0x233D, AlgorithmParams
+0xA7F1, DefaultParams 0xE4EC, PrimeProcessor 0x9A35, ImageCmos 0x1CFA,
+BootManager 0x9F64, Application 0xDF96. The driver ships it as
+`flash_file_crc` plus `Xtion::verify_flash_file`, and the golden tests
+re-verify it against the `.fla` payloads on every run. (RegistrationParams
+differs from the factory `.fla` only in its per-device calibration bytes
+— 35 bytes around 0x1A8-0x1F1 of the on-flash copy.)
+
+- `XnFlashFile` (GET_FILE_LIST reply rows) is parsed with the firmware's
+  24-byte stride to stay byte-compatible with the vendor driver.
+  **`size` counts 16-bit WORDS** — the vendor console's "SizeInWords"
+  column (PS1080Console.cpp:503). `attributes` bit 0x8000 = read-only
   (`XnFileAttributeReadOnly`, rendered "[R]").
-- **fw 5.8.22 garbage tail:** GET_FILE_LIST returns a sane FIRST entry
-  (the FileTable itself: type 0, offset 0x1000, 4096 bytes) but the rest
-  of the reply misparses into flag-pattern values (0x8000000f-style).
-  The driver keeps the reference loop (next id = last id + 1,
-  XnHostProtocol.cpp:2458-2510) and the hardware test dumps the raw
-  table sector at flash 0x1000 (opcode 25, READ_FLASH takes BYTE
-  offsets — asymmetric with DOWNLOAD_FILE's WORD offsets) plus stride
-  scans, so the on-flash record layout can be recovered from one run.
-- **The per-file CRC algorithm is not documented** anywhere in the
-  vendor sources — the reference driver never verifies it. The driver
-  ships `crc16_candidates` (six standard CRC-16 variants pinned by their
-  catalog check values) and the hardware test downloads the smallest
-  file (GainControl, type 0x12 — 57 words) and prints every candidate
-  against the table's stored crc: the match names the algorithm.
+- DOWNLOAD_FILE replies are the file's `.fla` image: the 6-byte
+  `[type][build][version]` header followed by `size` words of payload.
+- **READ_FLASH chunking (0.3.2 fix):** the wire offset must advance by
+  the WORDS received, not bytes — the 0.3.1 code advanced by bytes and
+  silently skipped every second 1 KiB block on reads > 1024 B (the
+  "4096-byte" table dump of that run was four gapped blocks; all
+  records happened to live in the first one).
 - **NACKed on this build:** GET_FLASH_MAP (18) and GET_CPU_STATS (27)
   answer NACK(InvalidCommand) on fw 5.8.22 — despite the main image
   carrying the 15 CPU-task names those stats would report

@@ -89,3 +89,147 @@ fn packed11_matches_c_reference() {
         "expected 512 packed11 groups, checked {checked}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// On-flash file table + flash CRC (0.3.2)
+// ---------------------------------------------------------------------------
+//
+// The vectors below are REAL data from the RD108x-112 unit (fw 5.8.22):
+// - TABLE_CAPTURE: the first 256 bytes of the on-flash file table, read
+//   with opcode 25 (READ_FLASH) in the 0.3.1 camera run. It holds 11
+//   complete packed XnFlashFile records (ids 0-10); record 11 straddles
+//   the capture end.
+// - The CRC targets: the table's stored crc per file vs the payload of
+//   the matching file in the factory image (firmware/5.8.22/*.fla —
+//   payload = .fla minus its 6-byte [type][build][version] header).
+
+use xtion::protocol::system::{flash_file_crc, parse_flash_file_table, FlashFile};
+
+const TABLE_CAPTURE: [u8; 256] = [
+    0x00, 0x00, 0x00, 0x00, 0x78, 0x56, 0x34, 0x12, // id 0, type 0, magic
+    0x00, 0x10, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, // offset 0x1000, size 0x1000
+    0xfc, 0xff, 0x00, 0x00, 0x00, 0x00, // crc 0xfffc, attrs 0, reserved 0
+    0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, // id 1 ScratchFile
+    0x00, 0x80, 0x0f, 0x00, 0x00, 0x80, 0x00, 0x00, // offset 0xf800, size 0x8000
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x02, 0x00, 0x22, 0x00, 0x08,
+    0x05, // id 2 BootSector
+    0x00, 0xf8, 0x00, 0x00, 0x27, 0x00, 0x00, 0x00, // offset 0xf800, size 39 w
+    0x39, 0x46, 0x00, 0x00, 0x00, 0x00, // crc 0x4639
+    0x03, 0x00, 0x05, 0x00, 0x22, 0x00, 0x08, 0x05, // id 3 Monitor
+    0x00, 0x02, 0x00, 0x00, 0x55, 0x02, 0x00, 0x00, // offset 0x200, size 597 w
+    0x71, 0x85, 0x00, 0x00, 0x00, 0x00, // crc 0x8571
+    0x04, 0x00, 0x04, 0x00, 0x22, 0x00, 0x08, 0x05, // id 4 CodeDownloader
+    0x00, 0xf0, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, // offset 0xf000, size 48 w
+    0x2c, 0x48, 0x00, 0x00, 0x00, 0x00, // crc 0x482c
+    0x05, 0x00, 0x03, 0x00, 0x22, 0x00, 0x08, 0x05, // id 5 BootManager
+    0x00, 0x20, 0x00, 0x00, 0x54, 0x2d, 0x00, 0x00, // offset 0x2000, size 11604 w
+    0x64, 0x9f, 0x00, 0x00, 0x00, 0x00, // crc 0x9f64
+    0x06, 0x00, 0x07, 0x00, 0x22, 0x00, 0x08, 0x05, // id 6 FixedParams
+    0x00, 0x67, 0x00, 0x00, 0x46, 0x01, 0x00, 0x00, // offset 0x6700, size 326 w
+    0x3d, 0x23, 0x00, 0x00, 0x00, 0x00, // crc 0x233d
+    0x07, 0x00, 0x0c, 0x00, 0x22, 0x00, 0x08, 0x05, // id 7 AlgorithmParams
+    0x50, 0x09, 0x00, 0x00, 0x83, 0x01, 0x00, 0x00, // offset 0x950, size 387 w
+    0xf1, 0xa7, 0x00, 0x00, 0x00, 0x00, // crc 0xa7f1
+    0x08, 0x00, 0x09, 0x00, 0x22, 0x00, 0x08, 0x05, // id 8 DefaultParams
+    0x00, 0x66, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // offset 0x6600, size 8 w
+    0xec, 0xe4, 0x00, 0x00, 0x00, 0x00, // crc 0xe4ec
+    0x09, 0x00, 0x11, 0x00, 0x22, 0x00, 0x08, 0x05, // id 9 PrimeProcessor
+    0x00, 0x60, 0x00, 0x00, 0x2b, 0x02, 0x00, 0x00, // offset 0x6000, size 555 w
+    0x35, 0x9a, 0x00, 0x00, 0x00, 0x00, // crc 0x9a35
+    0x0a, 0x00, 0x0a, 0x00, 0x22, 0x00, 0x08, 0x05, // id 10 ImageCmos
+    0x00, 0x6b, 0x00, 0x00, 0x70, 0x04, 0x00, 0x00, // offset 0x6b00, size 1136 w
+    0xfa, 0x1c, 0x00, 0x00, 0x00, 0x00, // crc 0x1cfa
+    0x0b, 0x00, 0x0b, 0x00, 0x22, 0x00, 0x08, 0x05, // id 11 DepthCmos (partial)
+    0x00, 0x7d, 0x00, 0x00, 0x88, 0x00, // offset 0x7d00, size (low half) 0x88
+];
+
+/// The packed 22-byte records decoded from [`TABLE_CAPTURE`] — ids 0-10,
+/// exact fields. (Ids 11-13 sit beyond this capture: DepthCmos 136 w,
+/// GainControl 57 w / crc 0xc44b @0x550, Application 0x12c31 w / crc
+/// 0xdf96 @0x10000 — verified from the realigned opcode-19 row 12 and
+/// the stride-26 hit at 0x11e in the same run.)
+#[test]
+fn flash_file_table_parses_device_capture() {
+    let files = parse_flash_file_table(&TABLE_CAPTURE);
+    assert_eq!(files.len(), 11, "ids 0-10 must parse from the capture");
+
+    let expected: [(u16, u16, u32, u32, u32, u16, u16); 11] = [
+        (0, 0x00, 0x1234_5678, 0x1000, 0x1000, 0xFFFC, 0), // FileTable (magic)
+        (1, 0x01, 0x0000_0000, 0xF8000, 0x8000, 0x0000, 0), // ScratchFile (last 64 KiB)
+        (2, 0x02, 0x0508_0022, 0xF800, 0x0027, 0x4639, 0), // BootSector
+        (3, 0x05, 0x0508_0022, 0x0200, 0x0255, 0x8571, 0), // Monitor
+        (4, 0x04, 0x0508_0022, 0xF000, 0x0030, 0x482C, 0), // CodeDownloader
+        (5, 0x03, 0x0508_0022, 0x2000, 0x2D54, 0x9F64, 0), // BootManager
+        (6, 0x07, 0x0508_0022, 0x6700, 0x0146, 0x233D, 0), // FixedParams
+        (7, 0x0C, 0x0508_0022, 0x0950, 0x0183, 0xA7F1, 0), // AlgorithmParams
+        (8, 0x09, 0x0508_0022, 0x6600, 0x0008, 0xE4EC, 0), // DefaultParams
+        (9, 0x11, 0x0508_0022, 0x6000, 0x022B, 0x9A35, 0), // PrimeProcessor
+        (10, 0x0A, 0x0508_0022, 0x6B00, 0x0470, 0x1CFA, 0), // ImageCmos
+    ];
+    for (file, (id, ty, ver, off, size, crc, attrs)) in files.iter().zip(expected) {
+        assert_eq!(
+            (
+                file.id,
+                file.file_type,
+                file.version,
+                file.offset,
+                file.size,
+                file.crc,
+                file.attributes
+            ),
+            (id, ty, ver, off, size, crc, attrs),
+            "record id {id}"
+        );
+    }
+    // helpers: word offsets / word sizes
+    assert_eq!(files[10].offset_bytes(), 0xD600);
+    assert_eq!(files[10].size_bytes(), 2272);
+}
+
+/// The flash CRC (CCITT-FALSE over the payload words fed big-endian)
+/// against the factory image: for every file whose on-flash payload is
+/// build-generic, the `.fla` payload must reproduce the stored crc
+/// exactly (8/8 offline identification; the offsets/sizes also match
+/// `firmware/5.8.22/UsbUpdate_RD108.ini` OffsetFactory values).
+#[test]
+fn flash_file_crc_matches_factory_image() {
+    // (.fla name, table record id, size in words, stored crc)
+    let samples: &[(&str, u16, u32, u16)] = &[
+        ("BootManager.out.bin.fla", 5, 0x2D54, 0x9F64),
+        ("FixedParamsRD108.xml.bin.fla", 6, 0x0146, 0x233D),
+        ("AlgorithmParams.xml.bin.fla", 7, 0x0183, 0xA7F1),
+        ("DefaultParams.xml.bin.fla", 8, 0x0008, 0xE4EC),
+        ("PrimeProcessor.xml.bin.fla", 9, 0x022B, 0x9A35),
+        ("ImageCmos.xml.bin.fla", 10, 0x0470, 0x1CFA),
+        // ids 12/13 sit beyond TABLE_CAPTURE (realigned row 12 + the
+        // stride-26 hit at 0x11e in the same camera run):
+        ("GainControl.xml.bin.fla", 12, 57, 0xC44B),
+        ("source.out.bin.fla", 13, 0x12C31, 0xDF96),
+    ];
+    let fw_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("firmware/5.8.22");
+    if !fw_dir.is_dir() {
+        eprintln!("skipped: factory image {} not present", fw_dir.display());
+        return;
+    }
+    // the capture pins ids 0-10; cross-check sizes for those too
+    let table = parse_flash_file_table(&TABLE_CAPTURE);
+    for (name, id, size_words, crc) in samples {
+        let path = fw_dir.join(name);
+        let fla = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        assert_eq!(
+            fla.len(),
+            *size_words as usize * 2 + 6,
+            "{name}: .fla size must equal table size (words) + 6-byte header"
+        );
+        let payload = &fla[6..];
+        assert_eq!(
+            flash_file_crc(payload),
+            *crc,
+            "{name} (table id {id}): flash CRC mismatch"
+        );
+        if let Some(rec) = table.iter().find(|f| f.id == *id) {
+            assert_eq!(rec.size, *size_words, "{name}: table size mismatch");
+            assert_eq!(rec.crc, *crc, "{name}: table crc mismatch");
+        }
+    }
+}

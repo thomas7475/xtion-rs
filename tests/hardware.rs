@@ -530,7 +530,12 @@ fn system_commands_readonly() {
         cam.device_frequency()
     );
 
-    println!("== flash file list (opcode 19):");
+    println!("== flash file list (opcode 19, the firmware's own view):");
+    // fw 5.8.22 walks the packed 22-byte on-flash records with its
+    // unpacked 24-byte struct: every row past the first drifts +2 bytes
+    // per record, and only every 11th row (lcm(22,24) = 264) is a true
+    // record. Kept for comparison with the vendor driver's output —
+    // the parsed raw table below is the ground truth.
     match cam.flash_file_list() {
         Ok(files) => {
             println!("   {} files:", files.len());
@@ -552,92 +557,129 @@ fn system_commands_readonly() {
                 );
             }
             println!(
-                "   note: entries beyond the first may be garbage on fw 5.8.22 — the raw table below is the ground truth"
+                "   note: rows past the first drift +2 B per record on this fw — every 11th row is real"
             );
         }
         Err(e) => println!("   unavailable: {e}"),
     }
 
-    // The on-flash file table itself: the first GET_FILE_LIST entry says
-    // the FileTable file (type 0) lives at 0x1000 and is 4096 bytes.
-    // GET_FILE_LIST's later entries are garbage on this build, so read
-    // the raw sector and parse it ourselves. Strides 24/26/28/32 cover
-    // the vendor XnFlashFile layout plus a possible chain/flag field.
-    println!("== raw file-table sector (opcode 25, flash 0x1000, 4096 B):");
-    match cam.read_flash(system::FILE_TABLE_OFFSET, system::FILE_TABLE_SIZE) {
-        Ok(table) => {
-            println!("   read {} bytes; head:", table.len());
-            for row in 0..8 {
-                let base = row * 32;
+    // The ground truth: READ_FLASH the table region (word 0x1000,
+    // 8192 B) and parse the packed 22-byte XnFlashFile records. The
+    // 0.3.1 camera run decoded ids 0-13 from the first 256 B of this
+    // region; the offline CRC identification (0.3.2) matched 8 files
+    // against the factory image.
+    println!("== on-flash file table (opcode 25 + packed-record parse — ground truth):");
+    match cam.flash_file_table() {
+        Ok(files) => {
+            println!("   {} records:", files.len());
+            for f in &files {
                 println!(
-                    "   {:04x}: {:02x?}",
-                    base,
-                    &table[base..(base + 32).min(table.len())]
+                    "   id {:<3} type {:#06x} {:<16} ver {:#010x} offset {:#06x} w ({:#06x} B) size {:>6} w ({:>6} B) crc {:#06x} attrs {:#06x}{}",
+                    f.id,
+                    f.file_type,
+                    system::flash_file_type_name(f.file_type),
+                    f.version,
+                    f.offset,
+                    f.offset_bytes(),
+                    f.size,
+                    f.size_bytes(),
+                    f.crc,
+                    f.attributes,
+                    if f.is_read_only() { " [R]" } else { "" }
                 );
             }
-            for stride in [24usize, 26, 28, 32] {
-                let mut plausible = 0;
-                let mut shown = 0;
-                let mut pos = 0;
-                while pos + stride <= table.len() {
-                    let rec = &table[pos..pos + stride];
-                    let u16_at = |i: usize| u16::from_le_bytes([rec[i], rec[i + 1]]);
-                    let u32_at =
-                        |i: usize| u32::from_le_bytes([rec[i], rec[i + 1], rec[i + 2], rec[i + 3]]);
-                    let (id, ftype, offset, size) = (u16_at(0), u16_at(2), u32_at(8), u32_at(12));
-                    // real entries: small id, known type, offset in the
-                    // update/factory zones, sane word size
-                    let sane = id < 32
-                        && ftype < 0x20
-                        && (0x1000..0x80_0000).contains(&offset)
-                        && size > 0
-                        && size < 0x10_0000;
-                    if sane {
-                        plausible += 1;
-                        if shown < 6 {
-                            println!(
-                                "   stride {stride} @ +{pos:#06x}: id {id}, type {ftype:#04x} {}, \
-                                     offset {offset:#x}, size {size} words, crc {:#06x}, attrs {:#06x}",
-                                system::flash_file_type_name(ftype),
-                                u16_at(16),
-                                u16_at(18)
-                            );
-                            shown += 1;
-                        }
-                    }
-                    pos += stride;
+            assert!(!files.is_empty(), "file table parsed empty");
+            let head = &files[0];
+            assert_eq!(
+                (head.id, head.file_type, head.offset, head.size, head.crc),
+                (0, system::FILE_TYPE_FILE_TABLE, 0x1000, 0x1000, 0xFFFC),
+                "record 0 must be the FileTable self-entry (magic version, \
+                 offset 0x1000 words, size 0x1000 words, crc 0xfffc)"
+            );
+            assert!(
+                files.len() >= 12,
+                "expected at least the 12 records decoded on the 0.3.1 camera run"
+            );
+
+            // On-device CRC verification: read every file's payload at
+            // its word offset and check CCITT-FALSE (big-endian words)
+            // against the table's stored crc. The eight build-generic
+            // files already verified offline against the factory image.
+            println!("== flash CRC verification (read payload, CRC-16/CCITT-FALSE over BE words):");
+            let mut verified = 0usize;
+            let mut results: Vec<(u16, u16, bool)> = Vec::new();
+            for f in &files {
+                if f.crc == 0 || f.size == 0 {
+                    println!(
+                        "   id {:<3} {:<16} no stored crc — skipped",
+                        f.id,
+                        system::flash_file_type_name(f.file_type)
+                    );
+                    continue;
                 }
-                println!("   stride {stride}: {plausible} plausible records");
+                match cam.verify_flash_file(f) {
+                    Ok(true) => {
+                        verified += 1;
+                        results.push((f.id, f.file_type, true));
+                        println!(
+                            "   id {:<3} {:<16} {:>6} w  crc {:#06x}  OK",
+                            f.id,
+                            system::flash_file_type_name(f.file_type),
+                            f.size,
+                            f.crc
+                        );
+                    }
+                    Ok(false) => {
+                        results.push((f.id, f.file_type, false));
+                        println!(
+                            "   id {:<3} {:<16} crc {:#06x}  MISMATCH",
+                            f.id,
+                            system::flash_file_type_name(f.file_type),
+                            f.crc
+                        );
+                    }
+                    Err(e) => println!("   id {:<3} read failed: {e}", f.id),
+                }
             }
+            // GainControl (0x12, crc 0xc44b — pinned offline against the
+            // factory image) and ImageCmos (0x0a, 0x1cfa) must verify.
+            for (ty, name) in [(0x12u16, "GainControl"), (0x0A, "ImageCmos")] {
+                let result = results.iter().find(|(_, t, _)| *t == ty);
+                assert!(
+                    result.is_some(),
+                    "no {name} record with a stored crc in the table"
+                );
+                assert!(
+                    result.unwrap().2,
+                    "{name} flash CRC mismatch — parser/read_flash/CRC regression"
+                );
+            }
+            println!("   {verified} files CRC-verified on device");
         }
         Err(e) => println!("   unavailable: {e}"),
     }
 
-    // CRC identification: download the smallest file (GainControl,
-    // type 0x12 — 57 words on this firmware), compute the standard
-    // CRC-16 candidates over the content and compare against the crc
-    // the table stores for that file. The matching candidate name IS
-    // the flash CRC algorithm.
-    println!("== flash CRC identification via GainControl (type 0x12):");
-    match cam.download_flash_file(0x12) {
-        Ok(blob) => {
-            println!("   downloaded {} bytes", blob.len());
-            // full hex dump: on the 0.3.0 camera run NO candidate matched
-            // the stored crc over the whole blob (GainControl crc 0xc44b),
-            // so the CRC region inside the download has to be identified
-            // offline — this dump makes that possible without another
-            // device session
-            for (i, chunk) in blob.chunks(32).enumerate() {
-                println!("   {:04x}: {:02x?}", i * 32, chunk);
+    // DOWNLOAD_FILE reply mapping: the reply is the file's .fla image
+    // ([type u16][build u16][version u16] + payload). On fw 5.8.22 the
+    // type lookup suffers the corrupted-table walk: 0x12 (GainControl,
+    // 57 w) returned the 548-B RegistrationParams image on camera,
+    // while 0x0A returned the correct ImageCmos image.
+    println!("== DOWNLOAD_FILE (opcode 16) type-lookup mapping:");
+    for ty in [0x0Au16, 0x0B, 0x12, 0x13] {
+        match cam.download_flash_file(ty) {
+            Ok(blob) if blob.len() >= 6 => {
+                let head_ty = u16::from_le_bytes([blob[0], blob[1]]);
+                let build = u16::from_le_bytes([blob[2], blob[3]]);
+                let ver = u16::from_le_bytes([blob[4], blob[5]]);
+                println!(
+                    "   request type {ty:#04x} -> {} B, .fla type {head_ty:#04x} {} build {build} ver {ver:#06x}",
+                    blob.len(),
+                    system::flash_file_type_name(head_ty)
+                );
             }
-            for (name, value) in system::crc16_candidates(&blob) {
-                println!("   crc16[{name:>12}] = {value:#06x}");
-            }
-            println!(
-                "   compare against the GainControl row in the file list above — the match names the algorithm"
-            );
+            Ok(blob) => println!("   request type {ty:#04x} -> {} B (short)", blob.len()),
+            Err(e) => println!("   request type {ty:#04x} -> {e}"),
         }
-        Err(e) => println!("   unavailable: {e}"),
     }
 
     println!("== flash map (opcode 18):");
@@ -660,16 +702,6 @@ fn system_commands_readonly() {
                 );
             }
         }
-        Err(e) => println!("   unavailable: {e}"),
-    }
-
-    println!("== download ImageCmos calibration (opcode 16, type 0x0A):");
-    match cam.download_flash_file(0x0A) {
-        Ok(blob) => println!(
-            "   {} bytes (head {:02x?})",
-            blob.len(),
-            &blob[..blob.len().min(16)]
-        ),
         Err(e) => println!("   unavailable: {e}"),
     }
 
@@ -727,6 +759,8 @@ fn system_commands_readonly() {
     println!("   0x00000000: {:?}", cam.read_ahb(0x0));
 
     println!("== raw flash read (opcode 25), boot-manager header:");
+    // word 0x2000 = byte 0x4000 — the BootManager's record offset (also
+    // OffsetFactory=0x2000 in UsbUpdate_RD108.ini)
     match cam.read_flash(0x2000, 32) {
         Ok(data) => println!("   {data:02x?}"),
         Err(e) => println!("   unavailable: {e}"),

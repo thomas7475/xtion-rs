@@ -178,21 +178,30 @@ device traffic:
   `firmware_log_entries()` exposes raw entries and the hardware test
   triggers a known NACK and re-reads to align new entries as ground
   truth.
-- **Flash file list**: `XnFlashFile::size` is in WORDS (the vendor
-  console's "SizeInWords"), attributes bit 0x8000 = read-only. The
-  garbage tail of GET_FILE_LIST on fw 5.8.22 is firmware behaviour,
-  not a driver bug — the hardware test now dumps the raw table sector
-  at flash 0x1000 with 24/26/28/32-byte stride scans, and downloads
-  GainControl (57 words) with six pinned CRC-16 candidates to identify
-  the undocumented per-file CRC algorithm from one camera run.
+- **Flash file list (CLOSED in 0.3.2)**: `XnFlashFile::size` is in
+  WORDS (the vendor console's "SizeInWords"), attributes bit 0x8000 =
+  read-only — and the whole on-flash story is now pinned: all flash
+  addresses are 16-bit WORDS (READ_FLASH/DOWNLOAD_FILE wire offsets,
+  table records, updater ini agree), the on-flash table at word 0x1000
+  (byte 0x2000) is a flat array of packed 22-byte records, the fw
+  5.8.22 GET_FILE_LIST garbage tail is a packed/unpacked struct
+  mismatch (the firmware walks 22-byte records with its 24-byte
+  layout, drifting +2 B per row; every 11th row is real), and the
+  per-file CRC is CRC-16/CCITT-FALSE over the payload words fed
+  big-endian — identified offline 8/8 against the factory image
+  (GainControl 0xC44B ... Application 0xDF96), shipped as
+  `parse_flash_file_table` / `Xtion::flash_file_table` /
+  `flash_file_crc` / `Xtion::verify_flash_file` with golden-test
+  coverage, plus a 0.3.2 fix to READ_FLASH chunking (the wire offset
+  must advance in words; larger reads used to skip every second 1 KiB
+  block).
 - **Emitter toggle**: the request is byte-identical to the reference
   (`XnVSetEmitterStateRequest`, one u16; XnHostProtocol.cpp:3420-3445)
   and the C has no gate beyond fw >= 5.8.15 — the BadParams NACK on
-  this 5.8.22 build is a build-specific refusal (the opcode IS
-  dispatched; InvalidCommand would say otherwise). Documented, the
-  error message says exactly that, and the hardware test also probes
-  the toggle while the depth stream runs to test the idle-state
-  hypothesis.
+  this 5.8.22 build is an IDLE-STATE refusal (the opcode IS
+  dispatched, and the toggle ACKs while the depth stream runs —
+  camera-verified 0.3.1). Documented, the error message says exactly
+  that, and the hardware test probes the toggle while streaming.
 
 
 ## 0. Hardware-validation fixes (0.2.1)
