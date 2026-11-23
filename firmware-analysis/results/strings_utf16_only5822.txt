@@ -1,0 +1,72 @@
+%lu Error! No Data arrived!
+%lu Error! Safety!
+%lu Error! Timeout IR! (%d)
+%lu Error! Timeout depth! (%d)
+%lu FE %d
+%lu NESA DISABLED
+%lu NESA ERR
+%lu NESA INV
+%lu NESA N/A
+%lu NESA OK
+%lu NESA TIME %lu
+%lu ZO %d TIME %lu
+%lu ZO %d: [%d, %d] -> [%d, %d] (exp %d) : %d %d %d %d %d %d %d
+%lu ZO %d: under %d over %d badZoArea %d
+%lu ZO %d: under %d over %d badZoArea %d goodZo %d
+%lu depth homogeneity failed
+%lu illegal fixed params
+&3@Sj
+,%lu,MTA
+23:43:05
+ACC LR %D %D %d %D %d %d
+ACCI
+ACCM
+ACCOP
+ACCOR %s
+ACCTEC
+CLR C %d
+CLR ND
+CLR OK
+CLR V %X %X
+CLR W %X %X
+CRST
+DEFLL
+FE %d
+FL B %d
+FL BR %d
+FL BW %x %x %d
+FL OK
+FL P %d
+FL R %d
+FL R %d %d %d
+FL S
+FL W %d %d %d
+FLF OK
+IR ND
+IR OK
+IR TO
+IR V %d %d
+IR W %x %x
+Jun  5 2013
+LV %d
+MTCE
+NESA ERR
+NESA INV
+NESA N/A
+NESA OK
+NESA disabled
+OORC
+OT %d
+PRJ F
+PRJ FSH
+PRJ FSL
+PRJ OK
+RD108x-112
+TEC CRS
+TEC OK
+TEC OR
+TEC OR2
+TEC PRB
+TEC TO
+c,T,DC,TD,PK,IK,DK,O,SM,HM,TR,DC,PC,TC
+s,ms,c,c,c,c,c,c,i|c|p,i|h|c,cl|rm|wm,c,p,s

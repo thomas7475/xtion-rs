@@ -1,0 +1,50 @@
+,%lu,Max Temperature arrived
+16:27:22
+ACC: Light reading = %D, Set point = %D, Precision = %d, Current Emitter Set = %D, Current Subclocking = %d, State = %d
+ACC: TEC not stable - not running
+Acc: Idle
+Acc: Max set reached
+Acc: Out of precision
+Acc: out of range %s
+BIST Failed: Written %x, Read %x offset %d
+BIST dbg: timeout
+BIST:  Failed to prepare block  %d
+BIST:  Failed to read block %d src %d offset %d
+BIST: CMOS reset line test failed - wrote 0x%04X, read 0x%04X, expected(default) 0x%04X (reg=0x%02X)
+BIST: Clr CMOS data bus - expected: 0x%X, read: 0x%X
+BIST: Clr CMOS test passed
+BIST: Clr Cmos No Data arrived
+BIST: Couldn't restore block %d
+BIST: FailSafe high path fail
+BIST: FailSafe low path fail
+BIST: Failed to read flash offset %d
+BIST: Failed to write block %d dest %d offset %d
+BIST: Flash test passed
+BIST: IR CMOS - No Data arrived
+BIST: IR CMOS test passed.
+BIST: IR CMOS wrote %x, read %x
+BIST: LD fail
+BIST: Projector test passed
+BIST: Scratch block test fail. abort
+BIST: TEC Problem
+BIST: TEC crossed
+BIST: TEC out of range
+BIST: TEC test passed
+BIST: bad Clr CMOS version - 0x%X instead 0x%X
+BIST: bad IR CMOS version - %d instead %d
+BIST: write failed offset %d
+BR112
+Bist: Clr CMOS - I2C bus %d
+DCX Rd Fail
+Diff error filter length limited
+Level %d
+Max temp. cntr expired
+Out of range in Crude
+Over Temperature - shutting down emitter and TEC, mode is %d
+RD1081-112
+Safety Event
+Sep  2 2012
+ThermoRegulator Idle
+cnt,Time,DCX,TDCX,P*Kp,I*Ki,D*Kd,O,Scan Mode,Heat Mode,Temp Range,DC,PeakCount,TransitionCount
+high
+samples,ms,clks,clks,clks,clks,clks,clks,init|crude|precise,idle|heat|cool,cool|room|warm,clks,peaks,samples
