@@ -571,6 +571,22 @@ struct ColorConfig {
     format: ImageFormat,
 }
 
+/// One-shot camera health snapshot returned by [`Xtion::health_check`]:
+/// control-plane liveness plus the ring counters that tell stream
+/// silence from data flow.
+#[derive(Debug, Clone)]
+pub struct HealthReport {
+    /// The control plane answered a KEEP_ALIVE.
+    pub control_alive: bool,
+    /// Firmware operating mode, when the control plane answered.
+    pub mode: Option<HostMode>,
+    /// A depth stream is configured (mode ON requested).
+    pub depth_streaming: bool,
+    /// Depth bulk-ring counters (completions/bytes/failures) for the
+    /// flow-vs-silence diagnosis; `None` when the stream is off.
+    pub depth_ring: Option<crate::ring::RingStats>,
+}
+
 /// An opened, calibrated Xtion device.
 pub struct Xtion {
     /// Async bulk rings; declared BEFORE `usb` so they are dropped first
@@ -1744,6 +1760,194 @@ impl Xtion {
         Self::firmware_init_reset(&mut self.link, &mut self.usb, self.version, self.usb_core)
     }
 
+    // ------------------------------------------------------------------
+    // Camera health: stuck detection and the restart ladder (0.3.9)
+    // ------------------------------------------------------------------
+
+    /// Is the CONTROL plane alive? Two KEEP_ALIVE exchanges with a 1 s
+    /// budget each. This answers "does the camera respond at all" —
+    /// stream silence is a different question
+    /// ([`Self::stream_silent`](Self::stream_silent)).
+    pub fn is_control_alive(&mut self) -> bool {
+        for _ in 0..2 {
+            if self
+                .link
+                .exchange(&mut self.usb, Opcode::KeepAlive, &[], Duration::from_secs(1))
+                .is_ok()
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// One-shot health snapshot: control-plane liveness, the firmware
+    /// operating mode (when the control plane answers) and, when a
+    /// depth stream is configured, the bulk-ring counters whose delta
+    /// across two samples tells data flow from silence.
+    ///
+    /// Prints nothing; callers decide. See [`Self::stream_silent`] for
+    /// the two-sample "is it stuck" verdict and
+    /// [`Self::restart_camera`] for the cure.
+    pub fn health_check(&mut self) -> HealthReport {
+        let control_alive = self.is_control_alive();
+        let mode = if control_alive {
+            self.get_mode().ok()
+        } else {
+            None
+        };
+        let depth_ring = self.depth_ring_stats();
+        HealthReport {
+            control_alive,
+            mode,
+            depth_streaming: self.depth_config.is_some(),
+            depth_ring,
+        }
+    }
+
+    /// Is the running depth stream STUCK? Samples the bulk-ring byte
+    /// counter, waits `window`, samples again:
+    ///
+    /// - `None` — no depth stream is configured;
+    /// - `Some(true)` — zero completions and zero bytes advanced during
+    ///   the window while the stream mode is ON: the fw 5.8.22
+    ///   dead-stream state (the endpoint never sent data; see
+    ///   docs/PROTOCOL.md);
+    /// - `Some(false)` — data is flowing.
+    ///
+    /// A `Some(true)` verdict is the automatic trigger for
+    /// [`Self::restart_camera`]; the threshold window should be a few
+    /// frame periods (e.g. 500 ms at 30 fps) so a healthy stream is
+    /// never misjudged.
+    pub fn stream_silent(&mut self, window: Duration) -> Option<bool> {
+        let ring = self.depth_ring.as_ref()?;
+        let before = ring.stats();
+        std::thread::sleep(window);
+        let after = ring.stats();
+        Some(after.completions == before.completions && after.bytes == before.bytes)
+    }
+
+    /// Restart the camera IN PLACE when it does not respond — the
+    /// escalation ladder answering "can we reset it without pulling the
+    /// plug":
+    ///
+    /// 1. **tear down**: every bulk ring is dropped (pending URBs
+    ///    cancelled) and the stream configs cleared — no transfer may
+    ///    reference the handle across a reset;
+    /// 2. **soft reset** (`SET_MODE(SOFT_RESET)` + the reference init
+    ///    sequence, already ported as [`Self::soft_reset`]): fixes
+    ///    wedged stream-mode state (NACK(BadParams) poisoning) but NOT
+    ///    the dead-stream state — hardware evidence: the 0.3.7 run's
+    ///    four failing tests each opened fresh, soft reset included,
+    ///    and stayed silent;
+    /// 3. **USB port reset** ([`UsbDevice::reset_and_reopen`],
+    ///    `libusb_reset_device`) ONLY when the control plane is dead
+    ///    after the soft reset.
+    ///
+    /// For the dead-stream state specifically — where the control plane
+    /// stays alive and only the endpoint is silent — hardware evidence
+    /// says the soft reset does NOT cure it, so step 3 would never run
+    /// here; [`Self::restart_camera_deep`] is the guaranteed power-cycle
+    /// equivalent. [`Self::start_depth_verified`] /
+    /// [`Self::start_ir_verified`] run the two in order automatically.
+    ///
+    /// Version/fixed-params/calibration state survives in place — a
+    /// reset does not change the firmware — so the session continues on
+    /// the same `Xtion` value.
+    ///
+    /// Returns `Err` only when the device is beyond software rescue
+    /// (gone from the bus, or still dead after the port reset) —
+    /// the caller should then tell the user to actually power-cycle.
+    pub fn restart_camera(&mut self) -> Result<()> {
+        log::info!("restart_camera: tearing down streams");
+        // 1. teardown: rings first (their transfers point at the
+        //    handle), then the configs.
+        self.teardown_streams();
+
+        // 2. soft reset (control-plane re-baseline). Best effort: it
+        //    fails exactly when the control plane is dead, which is
+        //    the signal to escalate.
+        match self.soft_reset() {
+            Ok(()) => {
+                // Prove it with a keep-alive; soft reset's own liveness
+                // loop already did this, but belt-and-braces for the
+                // "ACKed then went quiet" pattern.
+                if self.is_control_alive() {
+                    log::info!("restart_camera: soft reset revived the control plane");
+                    return Ok(());
+                }
+            }
+            Err(err) => log::warn!("restart_camera: soft reset failed ({err}); escalating to USB port reset"),
+        }
+
+        // 3. USB port reset — the software power cycle.
+        self.usb_reset_and_baseline()
+    }
+
+    /// The GUARANTEED deep restart: always performs the USB port reset
+    /// (`libusb_reset_device` — the software unplug/replug), regardless
+    /// of what the soft reset achieved. This is the cure for the fw
+    /// 5.8.22 dead-stream state, where the control plane stays alive
+    /// (so [`Self::restart_camera`]'s soft-reset tier would return
+    /// early) while the bulk endpoint never sends a byte: only the
+    /// full re-arm a port reset forces — the same firmware path a
+    /// physical power cycle takes — clears it.
+    pub fn restart_camera_deep(&mut self) -> Result<()> {
+        log::info!("restart_camera_deep: teardown + USB port reset (power-cycle equivalent)");
+        self.teardown_streams();
+        // The soft reset is best-effort and non-gating here: when it
+        // works it shortens the firmware's re-arm, when it fails the
+        // port reset covers it.
+        if let Err(err) = self.soft_reset() {
+            log::warn!("restart_camera_deep: pre-reset soft reset failed ({err}) — continuing");
+        }
+        self.usb_reset_and_baseline()
+    }
+
+    /// Shared teardown: drop every bulk ring (pending transfers
+    /// cancelled) and clear the stream configs. Must run before any
+    /// USB-level reset — the rings hold raw pointers into the handle.
+    fn teardown_streams(&mut self) {
+        self.depth_ring = None;
+        self.color_ring = None;
+        self.ir_ring = None;
+        self.misc_ring = None;
+        self.depth_config = None;
+        self.color_config = None;
+        self.ir_config = None;
+    }
+
+    /// Port reset + liveness probe + OFF baseline (the tail shared by
+    /// both restart tiers).
+    fn usb_reset_and_baseline(&mut self) -> Result<()> {
+        log::info!("restart_camera: USB port reset (libusb_reset_device)");
+        self.usb.reset_and_reopen()?;
+
+        // Let the firmware finish booting its USB stack, then prove
+        // liveness with the init reset's own budget (10 x keep-alive).
+        std::thread::sleep(Duration::from_millis(500));
+        let mut ok = false;
+        for _ in 0..10 {
+            if self.is_control_alive() {
+                ok = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        if !ok {
+            return Err(XtionError::ControlTimeout);
+        }
+
+        // Re-force the OFF baseline (firmware_init_reset step 7): the
+        // port reset rebooted the USB layers, and a clean stream-mode
+        // state is what every following start_ expects.
+        for param in [Param::Stream0Mode, Param::Stream1Mode, Param::Stream2Mode] {
+            let _ = self.set_param(param, STREAM_MODE_OFF);
+        }
+        log::info!("restart_camera: camera back on the bus and alive");
+        Ok(())
+    }
+
     /// Configure and start the depth stream (stream1 in firmware terms).
     ///
     /// Parameter order mirrors the reference driver's property pipeline:
@@ -1837,14 +2041,22 @@ impl Xtion {
     /// 4. any other error (a refused mode, a real control failure) is
     ///    returned as-is after the stream is stopped.
     ///
+    /// 0.3.9 escalation: when ALL plain attempts stay silent, the
+    /// camera is restarted in place and given one more start per tier —
+    /// first [`Self::restart_camera`] (soft reset; cures wedged
+    /// stream-mode state), then [`Self::restart_camera_deep`] (USB port
+    /// reset — the power-cycle equivalent the hardware evidence names
+    /// as the dead-stream cure, since a soft reset provably does NOT
+    /// clear it). Only a failure after BOTH tiers returns the error,
+    /// whose text reports the ladder.
+    ///
     /// Returns the attempt number that first delivered a frame (1 = the
     /// stream was healthy on the first try, N > 1 = N-1 silent starts
     /// were revived). The probe frame is consumed — the stream keeps
     /// running behind it, so callers read subsequent frames as usual.
     /// The same recovery pattern presumably applies to the IR stream
     /// (whose 0.2.x silent-stream root cause was the missing CMOS
-    /// blanking fetch); it is depth-only for now because the camera
-    /// evidence is depth-only.
+    /// blanking fetch); see [`Self::start_ir_verified`].
     pub fn start_depth_verified(&mut self, config: DepthConfig, attempts: u32) -> Result<u32> {
         let attempts = attempts.max(1);
         for attempt in 1..=attempts {
@@ -1866,9 +2078,92 @@ impl Xtion {
                 }
             }
         }
+
+        // Plain retries exhausted: give the camera both restart tiers,
+        // one revived start each.
+        for (tier, restart) in [
+            ("soft", Xtion::restart_camera as fn(&mut Self) -> Result<()>),
+            ("USB port reset", Xtion::restart_camera_deep as fn(&mut Self) -> Result<()>),
+        ] {
+            log::warn!("depth start silent through {attempts} attempts — running {tier} restart");
+            if let Err(restart_err) = restart(self) {
+                return Err(XtionError::BadConfig(format!(
+                    "depth stream stayed silent through {attempts} start attempts and the \
+                     {tier} restart failed ({restart_err}); power-cycle the camera and retry"
+                )));
+            }
+            match self
+                .start_depth(config)
+                .and_then(|_| self.read_depth_frame(Duration::from_secs(3)).map(|_| ()))
+            {
+                Ok(()) => return Ok(attempts + 1),
+                Err(_) => {
+                    let _ = self.stop_depth();
+                }
+            }
+        }
+
         Err(XtionError::BadConfig(format!(
-            "depth stream stayed silent through {attempts} start attempts (fw 5.8.22 \
-             dead-stream quirk; power-cycle the camera and retry)"
+            "depth stream stayed silent through {attempts} start attempts plus a soft reset \
+             and a USB port restart (fw 5.8.22 dead-stream quirk); power-cycle the camera \
+             physically and retry"
+        )))
+    }
+
+    /// Start the infrared stream and VERIFY that it delivers frames —
+    /// the IR twin of [`Self::start_depth_verified`]: same probe frame
+    /// (3 s budget), same stop/restart revivals, same two-tier
+    /// [`Self::restart_camera`] / [`Self::restart_camera_deep`]
+    /// escalation. Returns the attempt number that first delivered a
+    /// frame; the probe frame is consumed.
+    pub fn start_ir_verified(&mut self, config: IrConfig, attempts: u32) -> Result<u32> {
+        let attempts = attempts.max(1);
+        for attempt in 1..=attempts {
+            self.start_ir(config)?;
+            match self.read_ir_frame(Duration::from_secs(3)) {
+                Ok(_) => return Ok(attempt),
+                Err(XtionError::FrameTimeout) => {
+                    if let Some(stats) = self.ir_ring_stats() {
+                        log::warn!(
+                            "ir start #{attempt} stayed silent (ring {stats:?}) — stopping \
+                             and restarting"
+                        );
+                    }
+                    let _ = self.stop_ir();
+                }
+                Err(err) => {
+                    let _ = self.stop_ir();
+                    return Err(err);
+                }
+            }
+        }
+
+        for (tier, restart) in [
+            ("soft", Xtion::restart_camera as fn(&mut Self) -> Result<()>),
+            ("USB port reset", Xtion::restart_camera_deep as fn(&mut Self) -> Result<()>),
+        ] {
+            log::warn!("ir start silent through {attempts} attempts — running {tier} restart");
+            if let Err(restart_err) = restart(self) {
+                return Err(XtionError::BadConfig(format!(
+                    "ir stream stayed silent through {attempts} start attempts and the \
+                     {tier} restart failed ({restart_err}); power-cycle the camera and retry"
+                )));
+            }
+            match self
+                .start_ir(config)
+                .and_then(|_| self.read_ir_frame(Duration::from_secs(3)).map(|_| ()))
+            {
+                Ok(()) => return Ok(attempts + 1),
+                Err(_) => {
+                    let _ = self.stop_ir();
+                }
+            }
+        }
+
+        Err(XtionError::BadConfig(format!(
+            "ir stream stayed silent through {attempts} start attempts plus a soft reset \
+             and a USB port restart (fw 5.8.22 dead-stream quirk); power-cycle the camera \
+             physically and retry"
         )))
     }
 

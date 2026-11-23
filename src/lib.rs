@@ -59,7 +59,8 @@ pub mod timestamp;
 pub mod usb;
 
 pub use device::{
-    AgcBin, ColorFrame, Crop, DepthConfig, DepthFrame, DeviceVersion, GmcConfig, Xtion,
+    AgcBin, ColorFrame, Crop, DepthConfig, DepthFrame, DeviceVersion, GmcConfig, HealthReport,
+    Xtion,
 };
 pub use error::{Nack, ProtocolError, Result, XtionError};
 pub use geometry::CameraIntrinsics;

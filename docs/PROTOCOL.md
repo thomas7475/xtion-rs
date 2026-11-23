@@ -166,6 +166,49 @@ next mode, which pins both the cure and the diagnosis gap:
   or break. A soft reset does NOT clear it (the four failing tests
   each opened fresh, soft reset included); a power cycle does.
 
+### The restart ladder: health, stuck probe, in-place reset (0.3.9)
+
+The 0.3.8 camera run turned the quirk's cure into an operator
+question: a test suite loses 3-4 tests per run to dead-stream
+sessions and the only documented remedy — "power-cycle the camera"
+— needs physical access. 0.3.9 encodes the full recovery ladder in
+the library, all of it in place on the SAME `Xtion` session:
+
+- **Health probe** — `Xtion::health_check()` snapshots control-plane
+  liveness (KEEP_ALIVE), the firmware mode and the depth bulk-ring
+  counters; `Xtion::is_control_alive()` is the raw control-plane
+  answer. Answers "does the camera respond at all".
+- **Stuck probe** — `Xtion::stream_silent(window)` samples the ring
+  byte/completion counters, sleeps `window`, samples again: while a
+  stream is ON, zero advance over the window is the dead-stream
+  verdict (data flowing = `Some(false)`). Answers "is it stuck".
+- **Restart tier 1** — `Xtion::restart_camera()`: drop all rings,
+  soft reset, keep-alive proof, OFF baseline. Cures wedged
+  stream-mode state (the NACK(BadParams) poisoning open() already
+  fights); does NOT cure dead-stream (hardware evidence, above).
+- **Restart tier 2** — `Xtion::restart_camera_deep()`: teardown +
+  ALWAYS a USB port reset (`libusb_reset_device` → Linux
+  `USBDEVFS_RESET` — the software unplug/replug: the firmware's USB
+  and stream layers fully re-arm exactly as they do on a physical
+  power cycle, which the hardware evidence names as the cure), then
+  liveness probing and the OFF baseline. The session survives it:
+  the handle is reopened in place, version/calibration state is
+  unchanged by a reset.
+- **Automatic escalation** — `start_depth_verified` /
+  `start_ir_verified` run the ladder themselves: up to `attempts`
+  plain stop/restart cycles, then one revived start per tier (soft,
+  then port reset). The final error text reports which tiers ran.
+  The mode-walk test additionally soft-resets after every REFUSED
+  mode: both camera runs saw silent starts cluster right after
+  refused SXGA/480P probes.
+
+Preventive host measure: **USB autosuspend**. The PS1080 firmware
+does not tolerate suspend/resume; wake-ups surface as
+multi-hundred-ms stream stalls (the bursty frame-timestamp jitter
+the 0.3.8 run measured) and plausibly as dead-stream states.
+`udev/70-xtion.rules` sets `power/control=on` for 1d27:0600/0601 —
+install it so the kernel never suspends an open camera.
+
 ### CMOS presets (GET_CMOS_PRESETS, opcode 36, fw >= 5.3.29)
 
 - Request payload: ONE LITTLE-endian u16 CMOS id (`XnCMOSType`:

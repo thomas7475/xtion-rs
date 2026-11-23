@@ -1,0 +1,22 @@
+# ASUS Xtion / PrimeSense PS1080 depth cameras.
+#
+# 1. Permissions: give the user group access (this is what the OpenNI
+#    "55-primesense.rules" shipped for VID 1d27, PIDs 0601/0600).
+# 2. Power: NEVER autosuspend. The PS1080 firmware does not tolerate
+#    USB suspend/resume well — wake-ups surface as multi-hundred-ms
+#    stream stalls (bursty frame-timestamp jitter) and as the
+#    "ACKed stream-on, silent endpoint" dead-stream state
+#    (docs/PROTOCOL.md). power/control = on tells the kernel this
+#    device must stay powered while it is open.
+#
+# Install:  sudo cp 70-xtion.rules /etc/udev/rules.d/
+#           sudo udevadm control --reload-rules && sudo udevadm trigger
+# (or unplug/replug the camera once)
+
+# Depth+IR units (Xtion PRO / PRO LIVE, PS1080, bulk control protocol)
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1d27", ATTR{idProduct}=="0600", MODE:="0666", ATTR{power/control}:="on"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1d27", ATTR{idProduct}=="0601", MODE:="0666", ATTR{power/control}:="on"
+
+# The usbfs device nodes the driver actually I/Os on
+ACTION=="add", SUBSYSTEM=="usb", ATTRS{idVendor}=="1d27", ATTRS{idProduct}=="0600", MODE:="0666", ATTR{power/control}:="on"
+ACTION=="add", SUBSYSTEM=="usb", ATTRS{idVendor}=="1d27", ATTRS{idProduct}=="0601", MODE:="0666", ATTR{power/control}:="on"

@@ -80,6 +80,43 @@ pub fn list_devices() -> Result<Vec<UsbDeviceInfo>> {
     Ok(found)
 }
 
+/// Open a device handle after a port reset, retrying while the
+/// re-enumeration settles (the kernel briefly holds the port; a
+/// too-early open fails with NotFound/NoDevice). Falls back to a fresh
+/// VID/PID enumeration when the cloned `Device` reference went stale
+/// (the kernel re-enumerated the device at a new bus address).
+fn reopen_handle(device: &rusb::Device<Context>, ctx: &Context) -> Result<DeviceHandle<Context>> {
+    const SETTLE: Duration = Duration::from_millis(250);
+    const TRIES: usize = 12; // ~3 s worst case
+
+    let mut last_err = rusb::Error::Other;
+    for _ in 0..TRIES {
+        match device.open() {
+            Ok(handle) => return Ok(handle),
+            Err(e) => last_err = e,
+        }
+        std::thread::sleep(SETTLE);
+    }
+
+    // Stale device reference: re-enumerate by VID/PID and take the
+    // first Xtion we can open.
+    for candidate in ctx.devices()?.iter() {
+        let desc = match candidate.device_descriptor() {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        if desc.vendor_id() == crate::protocol::USB_VID
+            && crate::protocol::USB_PIDS.contains(&desc.product_id())
+        {
+            match candidate.open() {
+                Ok(handle) => return Ok(handle),
+                Err(e) => last_err = e,
+            }
+        }
+    }
+    Err(XtionError::Usb(last_err))
+}
+
 impl UsbDevice {
     /// Open the first connected Xtion device.
     pub fn open_first() -> Result<UsbDevice> {
@@ -145,6 +182,67 @@ impl UsbDevice {
     /// Negotiated USB bus speed.
     pub fn speed(&self) -> rusb::Speed {
         self.speed
+    }
+
+    /// USB port reset (`libusb_reset_device` → Linux `USBDEVFS_RESET`)
+    /// followed by an in-place reopen of THIS device — the software
+    /// equivalent of an unplug/replug (a full firmware re-arm; the
+    /// standard cure when the PS1080 firmware wedges its stream state
+    /// machine but still answers the control plane, or stops answering
+    /// altogether).
+    ///
+    /// Reference semantics (`libusb` docs + Linux usbfs): the reset
+    /// invalidates every open handle — including this one — so the
+    /// caller MUST have dropped all bulk rings first (the rings hold
+    /// raw pointers into this handle; `Xtion::restart_camera` does it).
+    /// After the reset the device re-enumerates on the same port, the
+    /// kernel re-runs its configuration, and we reopen from the cloned
+    /// `Device` reference; if that reference went stale (the kernel
+    /// re-enumerated at a new address) we fall back to a fresh
+    /// VID/PID enumeration.
+    ///
+    /// The Xtion keeps its bus address across a port reset, so the
+    /// endpoint layout, max packet sizes and negotiated speed are
+    /// re-probed anyway (they are cheap and protect against the
+    /// pathological case).
+    pub fn reset_and_reopen(&mut self) -> Result<()> {
+        let device = self.handle.device().clone();
+
+        // The reset itself. Error::NoDevice here means the firmware is
+        // gone from the bus entirely (user unplugged); surface it.
+        self.handle.reset()?;
+
+        // Close the (now invalidated) handle before opening a new one.
+        // Dropping is all it takes; reassign via a placeholder to keep
+        // the borrow checker happy.
+        self.handle = reopen_handle(&device, &self.context)?;
+
+        // Re-claim and re-probe exactly like UsbDevice::open().
+        let _ = self.handle.set_auto_detach_kernel_driver(true);
+        let endpoints = Self::probe_endpoints(&self.handle)?;
+        if !endpoints.new_layout {
+            return Err(XtionError::UnsupportedFirmware);
+        }
+        self.handle
+            .claim_interface(0)
+            .map_err(|e| match e {
+                rusb::Error::Busy => XtionError::DeviceBusy,
+                other => other.into(),
+            })?;
+        for iface in 1..=2 {
+            let _ = self.handle.claim_interface(iface);
+        }
+        let (depth_mps, image_mps) = Self::max_packet_sizes(&self.handle)?;
+        let misc_mps = endpoints
+            .misc
+            .and_then(|ep| Self::find_endpoint(&self.handle, ep, true))
+            .unwrap_or(512);
+        self.speed = self.handle.device().speed();
+        self.endpoints = endpoints;
+        self.depth_max_packet_size = depth_mps;
+        self.image_max_packet_size = image_mps;
+        self.misc_max_packet_size = misc_mps;
+        Ok(())
     }
 
     /// Raw libusb context pointer for the async bulk rings. Valid while
