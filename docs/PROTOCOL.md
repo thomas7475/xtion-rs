@@ -200,6 +200,25 @@ re-verify it against the `.fla` payloads on every run. (RegistrationParams
 differs from the factory `.fla` only in its per-device calibration bytes
 — 35 bytes around 0x1A8-0x1F1 of the on-flash copy.)
 
+**Camera-validated 2026-11-23 (the 0.3.2 run, 9/9 green):** the full
+table holds **22 records (ids 0-21)**; every file with a stored CRC
+verified ON DEVICE (20/20 OK, including the 384 KiB ReferenceVGA read —
+the READ_FLASH chunking fix confirmed on real hardware). The region
+past id 13 had never been seen before; it is the per-device sensor
+block: id 14 **IDParams** (0x14), id 15 **SensorTECParams** (0x15),
+id 16 **SensorNESAParams** (0x1C), id 17 **SensorProjectorFaultParams**
+(0x17), id 18 **RegistrationParams** (0x13, 271 words), id 19
+**ProductionFile** (0x18, 2045 words — completes the flash map at bytes
+0x90000-0x9FFE), id 20 **ReferenceQVGA** (98,304 B at byte 0x150000),
+id 21 **ReferenceVGA** (393,216 B at byte 0xF0000, ending exactly where
+ReferenceQVGA begins). The FileTable's self-entry (record 0, crc
+0xfffc) does NOT verify against its own 8 KiB — a placeholder or
+computed over pre-write contents; it is the one expected MISMATCH. The
+DOWNLOAD_FILE type-lookup corruption was re-confirmed with the full
+table: type 0x12 served id 18's RegistrationParams (548 B = 271 w + 6),
+type 0x13 served id 19's ProductionFile (4096 B = 2045 w + 6), while
+0x0A -> ImageCmos and 0x0B -> DepthCmos served correctly.
+
 - `XnFlashFile` (GET_FILE_LIST reply rows) is parsed with the firmware's
   24-byte stride to stay byte-compatible with the vendor driver.
   **`size` counts 16-bit WORDS** — the vendor console's "SizeInWords"
@@ -249,6 +268,53 @@ reply data: `u16 value`. Param ids from `Sensor/XnParams.h`:
 Stream start order (from the C property pipeline): format -> resolution ->
 fps -> stream mode on; stop: stream mode off. Changing modes requires
 passing through OFF first (`SetStreamMode`).
+
+### Crop windows (params 46-60; 0.3.3)
+
+Each stream owns five crop parameters (`XnParams.h`): **46-50** image,
+**51-55** depth, **56-60** IR, in the order SIZE_X, SIZE_Y, OFFSET_X,
+OFFSET_Y, MODE. Firmware modes (`XnFirmwareCroppingMode`, PS1080.h:
+308-313): **0 disabled, 1 normal, 2 increased fps** (mode 2 needs
+fw >= 5.7.2; 5.8.22 has it). The write sequence is the same for all
+three streams (`SetCroppingImpl`, XnSensorDepthStream.cpp:768-840):
+
+- **enabling**: SizeX -> SizeY -> OffsetX -> OffsetY -> Mode (the mode
+  LAST — a NACK part-way leaves the previous window active, which is
+  the ordering the reference's rollback relies on);
+- **disabling**: the Mode param alone (0), geometry untouched;
+- the params are plain allow-while-open SET_PARAMs (no close/reopen
+  dance, no "bigger crop first" — that was an OpenNI 1.x-ism); the
+  frame in flight when the window changes is dropped as corrupt;
+- at every stream open, `OpenStreamImpl` re-applies the geometry when
+  a window is active and ALWAYS writes the mode (so stale firmware
+  state cannot leak a crop into a fresh stream).
+
+**Wire effect (the part that matters):** while a crop mode != 0 is
+active, the firmware transmits ONLY the window. Every frame arrives
+crop-sized and the host must size its buffers to `crop_w x crop_h`
+(`XnDepthProcessor::CalculateExpectedSize`, XnDepthProcessor.cpp:
+112-125; `XnSensorImageStream::CalculateExpectedSize` for the image
+pipe). Consequences per stream:
+
+- depth (packed-11): wire bytes `= crop_w * crop_h * 11 / 8` — the
+  pixel count must be a multiple of 8 (the bitstream consumes pixels
+  in groups of 8/11 bytes);
+- IR (packed-10): wire bytes `= crop_w * crop_h * 10 / 8` (multiple
+  of 4 pixels), and the MT9M001's `height + 8` extra rows do NOT
+  apply while cropped (`actualHeight = height`, XnIRProcessor.cpp:
+  249-255) — the quirk is a full-frame property only;
+- validation (`XnPixelStream::ValidateCropping`, XnPixelStream.cpp:
+  200-219): non-zero size, `x + w <= XRes`, `y + h <= YRes`.
+
+Mode 2 (INCREASED_FPS) shortens the CMOS readout on top of the
+window; whether fw 5.8.22 also needs a higher fps parameter to
+actually raise the frame rate is probed by hardware test 10. One
+interaction to keep in mind (from the reference): the C mirrors IR
+host-side AFTER cropping, so it flips the crop offset X for mirrored
+IR (`nXOffset = XRes - originX - width`, XnSensorIRStream.cpp:324-330);
+this driver keeps the firmware IR mirror off, so crop coordinates
+pass through unflipped. Depth and color mirroring happen in firmware
+and do not interact with crop coordinates.
 
 Depth input formats (`XnIODepthFormats`): UNCOMPRESSED_16_BIT=0,
 COMPRESSED_PS=1, UNCOMPRESSED_10_BIT=2, **UNCOMPRESSED_11_BIT=3 (Linux

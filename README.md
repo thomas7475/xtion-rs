@@ -25,13 +25,14 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | IR stream (16-bit grayscale, image pipe) | implemented in 0.2.0; wire-size fix in 0.2.3 (MT9M001 sends `height + 8` rows — hardware-measured, see docs/PROTOCOL.md section 8); **hardware-validated 2026-11-22, all four tests green** |
 | Hardware registration, emitter on/off, OVERHEAT/PROJECTOR_FAULT events | implemented in 0.2.0 |
 | Runtime options: mirror, hole filter, AGC, close range, GMC mode, exposure, white balance, gain, quality, flicker | implemented in 0.2.0 |
-| Cropping, depth AGC bins, GMC data, audio | not yet (Phase 3-4 of docs/FEATURE_PLAN.md) |
+| **Crop windows (0.3.3)**: `Crop` + `set_depth_crop` / `set_color_crop` / `set_ir_crop` | implemented — ported write-for-write from `SetCroppingImpl` (geometry first, mode last; disable = mode 0 only); while a window is active the firmware transmits ONLY the window, so frames arrive crop-sized and report their origin (`DepthFrame::crop`), with `to_world` staying full-frame correct; IR has no extra CMOS rows while cropped; mode 2 (increased fps) selectable, camera probe pending (hardware test 10) |
+| Depth AGC bins, GMC data, audio | not yet (Phase 3-4 of docs/FEATURE_PLAN.md) |
 | **Camera geometry (0.3.0)**: pinhole intrinsics from the on-device calibration (`depth_intrinsics`), depth-to-world (`to_world`/`point_cloud`, OpenNI convention: mm, X right, Y up, Z forward), PLY example | implemented — FOV formula ports the PS1080 depth-stream init (hfov spans the CMOS's native 1280 px line, vfov its 960 px height; ~58/45 deg on the Xtion spec), conversion ports the OpenNI2 core (`OniStream.cpp:399-404`); hardware gates: FOV vs spec and a RANSAC dominant-plane RMS (applied only when a plane covers >= 40% of the frame — non-planar scenes skip), in `depth_geometry_fov_and_timestamps` |
 | **Host-referenced frame timestamps (0.3.0)**: `timestamp_us` on every frame, wrap-aware (raw ticks wrap every 71.6 s at 60 MHz) | implemented — port of `XnDataProcessor::CreateTimestampFromDevice` (anchor + wrap estimation + 10 s sanity re-sync); clock rate from ALGORITHM_PARAMS 0x80 |
 | System commands (0.2.8): firmware log, CPU stats, BIST, TEC + emitter telemetry, CMOS blanking/register reads (I2C), AHB read, flash map / file list / file download / raw flash read | implemented — strictly READ-ONLY; the write-side commands stay excluded; **0.3.2 closed the flash story**: on-flash file table parsed from packed 22-byte `XnFlashFile` records (word-addressed — the firmware's GET_FILE_LIST rows drift +2 B per record on 5.8.22 because it walks them with its unpacked 24-byte struct), per-file CRC identified as CRC-16/CCITT-FALSE over big-endian words and verified against the factory image 8/8 (`Xtion::flash_file_table` + `Xtion::verify_flash_file`) |
 | Pre-3.0 firmware (bulk control endpoints) | not supported (explicit error) |
 
-Everything that can be verified without the camera **is** verified: 126
+Everything that can be verified without the camera **is** verified: 131
 lib tests pass on a bare CI machine (`cargo test`), and the numerical cores
 (packed-11 depth, 10-bit IR, shift-to-depth) are proven equal to the
 original C++ implementation by golden vectors generated from a verbatim C
@@ -110,6 +111,34 @@ are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
 
+- **0.3.3 — firmware crop windows** — the last Phase-3 feature that
+  adds a visible user capability (region-of-interest streaming),
+  ported write-for-write from the reference `SetCroppingImpl` (all
+  three streams identical): geometry first — SizeX, SizeY, OffsetX,
+  OffsetY — the mode LAST (a NACK part-way leaves the previous window
+  active); disabling writes only the mode (0); the params are plain
+  allow-while-open SET_PARAMs, so windows change on the fly (the frame
+  in flight is dropped as corrupt, like the C), and every stream open
+  re-applies them (`OpenStreamImpl` parity). The key wire fact (pinned
+  from `XnDepthProcessor::CalculateExpectedSize` and
+  `XnIRProcessor::OnEndOfFrame`): while a crop mode != 0 is active the
+  firmware transmits ONLY the window — depth frames arrive at
+  `crop_w * crop_h` pixels (packed-11: pixel count multiple of 8), IR
+  frames at `crop_w * crop_h` packed-10 pixels (multiple of 4) with NO
+  extra CMOS rows (the MT9M001 `height + 8` quirk is full-frame
+  only). New API: `Crop`, `set_depth_crop` / `set_color_crop` /
+  `set_ir_crop` (`increased_fps` selects mode 2, fw >= 5.7.2);
+  `DepthFrame`/`ColorFrame`/`IrFrame` carry `crop: Option<Crop>` and
+  cropped dimensions, and `to_world` shifts by the window origin so
+  world coordinates stay full-frame correct. Also: the flash type
+  names now cover the complete `XnFlashFileType` enum (the 0.3.2 run
+  revealed the per-device files 0x13-0x1C, including id 19 = the
+  ProductionFile), and the 0.3.2 camera run's ground truth (22-record
+  table, 20/20 on-device CRCs, DOWNLOAD_FILE mapping re-confirmed) is
+  recorded in docs/PROTOCOL.md and VALIDATION.md. Hardware test 10
+  (`depth_and_ir_crop_windows`) covers mode-1 crop, on-the-fly shrink,
+  disable, geometry, IR crop and a mode-2 increased-fps probe. 131 lib
+  + 4 golden tests, clippy clean, fmt clean.
 - **0.3.2 — flash file table decoded + CRC identified (+ READ_FLASH
   chunking fix)** — the 0.3.1 dump closed the whole flash story offline.
   Pinned: every flash address on this sensor is a 16-bit WORD

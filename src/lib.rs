@@ -58,7 +58,7 @@ pub mod stream;
 pub mod timestamp;
 pub mod usb;
 
-pub use device::{ColorFrame, DepthConfig, DepthFrame, DeviceVersion, Xtion};
+pub use device::{ColorFrame, Crop, DepthConfig, DepthFrame, DeviceVersion, Xtion};
 pub use error::{Nack, ProtocolError, Result, XtionError};
 pub use geometry::CameraIntrinsics;
 pub use ir::{IrConfig, IrFrame};

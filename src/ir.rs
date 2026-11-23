@@ -45,6 +45,8 @@ impl IrConfig {
 pub struct IrFrame {
     pub width: u32,
     pub height: u32,
+    /// The sub-window this frame represents (`None` = full frame).
+    pub crop: Option<crate::device::Crop>,
     /// 10-bit sensor values, left-aligned into u16 (exactly what
     /// `Unpack10to16` produces: value << 2 style shifts, max 0x3FF).
     pub data: Vec<u16>,
@@ -180,6 +182,43 @@ pub fn decode_ir_frame(
     Ok(IrFrame {
         width,
         height,
+        crop: None,
+        data: values,
+        timestamp,
+        timestamp_us: None,
+    })
+}
+
+/// Decode one CROPPED IR frame payload into an [`IrFrame`].
+///
+/// While a firmware crop window is active the IR CMOS transmits
+/// exactly `crop.width x crop.height` pixels: the MT9M001's extra-rows
+/// quirk applies to FULL frames only — "when cropping is turned on,
+/// actual depth size is smaller ... `actualHeight = height`"
+/// (XnIRProcessor.cpp:249-255). The wire size is therefore exactly
+/// `width * height` packed-10 pixels, with no trailing rows to strip.
+pub fn decode_ir_frame_cropped(
+    data: &[u8],
+    crop: crate::device::Crop,
+    timestamp: u32,
+) -> Result<IrFrame> {
+    let width = crop.width as u32;
+    let height = crop.height as u32;
+    let pixels = (width * height) as usize;
+    let wire = expected_wire_size(pixels);
+    if data.len() != wire {
+        return Err(XtionError::BadConfig(format!(
+            "cropped ir frame is corrupt: {} bytes != expected {wire} \
+             ({width}x{height} packed-10, no extra CMOS rows while cropped)",
+            data.len()
+        )));
+    }
+    let mut values = Vec::with_capacity(pixels);
+    unpack_packed10(data, &mut values);
+    Ok(IrFrame {
+        width,
+        height,
+        crop: Some(crop),
         data: values,
         timestamp,
         timestamp_us: None,
@@ -373,5 +412,35 @@ mod tests {
             }
         );
         assert_eq!(IrConfig::default().dimensions(), (640, 480));
+    }
+
+    /// Cropped IR frames: exactly `crop.width x crop.height` packed-10
+    /// pixels, NO extra CMOS rows (the MT9M001 `height + 8` quirk is a
+    /// full-frame property only — XnIRProcessor.cpp:249-255), and the
+    /// frame reports the crop window.
+    #[test]
+    fn decode_cropped_frame_has_no_extra_rows() {
+        use crate::device::Crop;
+        let crop = Crop {
+            x: 160,
+            y: 120,
+            width: 320,
+            height: 240,
+        };
+        // 320x240 = 76,800 pixels = 96,000 wire bytes — the FULL-frame
+        // MT9M001 wire size would be 320 * 248 * 10/8 = 99,200 bytes.
+        let wire = vec![0x55u8; 96_000];
+        let frame = decode_ir_frame_cropped(&wire, crop, 42).unwrap();
+        assert_eq!(frame.width, 320);
+        assert_eq!(frame.height, 240);
+        assert_eq!(frame.crop, Some(crop));
+        assert_eq!(frame.data.len(), 76_800);
+        assert_eq!(frame.timestamp, 42);
+
+        // wrong size (e.g. a full 248-row frame) must be rejected
+        let err = decode_ir_frame_cropped(&vec![0u8; 99_200], crop, 0).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("expected 96000"), "{msg}");
+        assert!(msg.contains("no extra CMOS rows"), "{msg}");
     }
 }

@@ -162,7 +162,21 @@ pub enum Param {
     IrResolution = 26,
     IrFps = 27,
     DepthGmcMode = 36,
+    ImageCropSizeX = 46,
+    ImageCropSizeY = 47,
+    ImageCropOffsetX = 48,
+    ImageCropOffsetY = 49,
     ImageCropMode = 50,
+    DepthCropSizeX = 51,
+    DepthCropSizeY = 52,
+    DepthCropOffsetX = 53,
+    DepthCropOffsetY = 54,
+    DepthCropMode = 55,
+    IrCropSizeX = 56,
+    IrCropSizeY = 57,
+    IrCropOffsetX = 58,
+    IrCropOffsetY = 59,
+    IrCropMode = 60,
     ImageMirror = 71,
     IrMirror = 72,
     ImageAutoWhiteBalanceMode = 77,
@@ -205,6 +219,21 @@ pub const STREAM_MODE_OFF: u16 = 0;
 pub const STREAM_MODE_COLOR: u16 = 1;
 pub const STREAM_MODE_DEPTH: u16 = 2;
 pub const STREAM_MODE_IR: u16 = 3;
+
+/// Firmware crop modes written to PARAM_*_CROP_MODE (50 / 55 / 60).
+/// Source: Include/PS1080.h `XnFirmwareCroppingMode` (lines 308-313).
+///
+/// When a crop window is ACTIVE (mode 1 or 2) the firmware transmits
+/// ONLY the window: every frame arrives crop-sized on the wire and the
+/// host must size and validate its buffers accordingly
+/// (`XnDepthProcessor::CalculateExpectedSize`, XnDepthProcessor.cpp:
+/// 112-125; `XnIRProcessor::OnEndOfFrame`, XnIRProcessor.cpp:244-273).
+/// Mode 2 additionally shortens the CMOS readout so frame rates above
+/// the full-frame maximum become possible (fw >= 5.7.2,
+/// `bIncreasedFpsCropSupported`, XnHostProtocol.cpp:640-643).
+pub const CROP_MODE_DISABLED: u16 = 0;
+pub const CROP_MODE_NORMAL: u16 = 1;
+pub const CROP_MODE_INCREASED_FPS: u16 = 2;
 
 /// Resolution ids written to PARAM_IMAGE_RESOLUTION / PARAM_DEPTH_RESOLUTION.
 /// Source: Include/XnStreamParams.h `XnResolutions`.

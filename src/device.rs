@@ -21,9 +21,9 @@ use crate::protocol::identity::{read_platform_string, read_usb_core_type, set_em
 use crate::protocol::presets::{read_cmos_presets, CmosPreset, CMOS_TYPE_IMAGE};
 use crate::protocol::system as sys;
 use crate::protocol::{
-    DepthFormat, HostMode, ImageFormat, Opcode, Param, Resolution, UsbCore,
-    SHIFTS_PARAM_COEFFICIENT, SHIFTS_SHIFT_SCALE, STREAM_MODE_COLOR, STREAM_MODE_DEPTH,
-    STREAM_MODE_IR, STREAM_MODE_OFF,
+    DepthFormat, HostMode, ImageFormat, Opcode, Param, Resolution, UsbCore, CROP_MODE_DISABLED,
+    CROP_MODE_INCREASED_FPS, CROP_MODE_NORMAL, SHIFTS_PARAM_COEFFICIENT, SHIFTS_SHIFT_SCALE,
+    STREAM_MODE_COLOR, STREAM_MODE_DEPTH, STREAM_MODE_IR, STREAM_MODE_OFF,
 };
 use crate::stream::{DeviceEvent, StreamAssembler};
 use crate::usb::UsbDevice;
@@ -188,11 +188,107 @@ impl ShiftStats {
     }
 }
 
+/// A sub-window of the full sensor frame, in full-frame pixel
+/// coordinates.
+///
+/// Written to the per-stream firmware crop parameters (46-50 image,
+/// 51-55 depth, 56-60 IR; `XnParams.h`) and applied by the FIRMWARE:
+/// while a crop is active the device transmits only the window, so
+/// frames arrive crop-sized on the wire
+/// (`XnDepthProcessor::CalculateExpectedSize`). `x`/`y` select the
+/// window's top-left corner inside the active resolution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Crop {
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub height: u16,
+}
+
+impl Crop {
+    /// Validate against the active stream resolution and wire format,
+    /// exactly like the reference (`XnPixelStream::ValidateCropping`,
+    /// XnPixelStream.cpp:200-219: non-zero size, window inside the
+    /// frame) plus the pixel-group divisibility each packed wire format
+    /// needs (the firmware packs the readout as a flat bitstream:
+    /// 8 pixels per 11 bytes for packed-11 depth, 4 per 5 bytes for
+    /// packed-10 IR — a window whose pixel count is not a whole number
+    /// of groups has undefined wire framing).
+    fn validate(&self, res_w: u32, res_h: u32, group: usize) -> Result<()> {
+        if self.width == 0 || self.height == 0 {
+            return Err(XtionError::BadConfig(
+                "crop window is empty: width and height must be non-zero".into(),
+            ));
+        }
+        if self.x as u32 + self.width as u32 > res_w || self.y as u32 + self.height as u32 > res_h {
+            return Err(XtionError::BadConfig(format!(
+                "crop window {}x{} at ({},{}) does not fit the {}x{} frame",
+                self.width, self.height, self.x, self.y, res_w, res_h
+            )));
+        }
+        if self.width as usize * self.height as usize % group != 0 {
+            return Err(XtionError::BadConfig(format!(
+                "crop {}x{} = {} pixels is not a whole number of {group}-pixel \
+                 wire groups; pick dimensions whose product is divisible by {group}",
+                self.width,
+                self.height,
+                self.width as usize * self.height as usize
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// Crop state kept per stream: the window plus the firmware mode it is
+/// written with (1 = normal, 2 = increased fps).
+#[derive(Debug, Clone, Copy)]
+struct CropState {
+    crop: Crop,
+    mode: u16,
+}
+
+/// The five crop parameters of one stream (`XnParams.h` 46-60).
+#[derive(Clone, Copy)]
+struct CropParams {
+    size_x: Param,
+    size_y: Param,
+    offset_x: Param,
+    offset_y: Param,
+    mode: Param,
+}
+
+const IMAGE_CROP_PARAMS: CropParams = CropParams {
+    size_x: Param::ImageCropSizeX,
+    size_y: Param::ImageCropSizeY,
+    offset_x: Param::ImageCropOffsetX,
+    offset_y: Param::ImageCropOffsetY,
+    mode: Param::ImageCropMode,
+};
+const DEPTH_CROP_PARAMS: CropParams = CropParams {
+    size_x: Param::DepthCropSizeX,
+    size_y: Param::DepthCropSizeY,
+    offset_x: Param::DepthCropOffsetX,
+    offset_y: Param::DepthCropOffsetY,
+    mode: Param::DepthCropMode,
+};
+const IR_CROP_PARAMS: CropParams = CropParams {
+    size_x: Param::IrCropSizeX,
+    size_y: Param::IrCropSizeY,
+    offset_x: Param::IrCropOffsetX,
+    offset_y: Param::IrCropOffsetY,
+    mode: Param::IrCropMode,
+};
+
 /// A decoded depth frame: metric depth in millimeters.
 #[derive(Debug, Clone)]
 pub struct DepthFrame {
     pub width: u32,
     pub height: u32,
+    /// The sub-window this frame represents inside the configured
+    /// resolution (`None` = full frame). Pixel (0,0) of `data` is the
+    /// window's top-left corner; [`to_world`](Self::to_world) accounts
+    /// for the offset.
+    pub crop: Option<Crop>,
     /// Depth in millimeters per pixel (row-major); 0 = invalid.
     pub data: Vec<u16>,
     /// Raw device timestamp of the frame's last packet (32-bit ticks of
@@ -230,7 +326,12 @@ impl DepthFrame {
     ) -> Option<(f64, f64, f64)> {
         let idx = y as usize * self.width as usize + x as usize;
         let z = *self.data.get(idx)?;
-        intrinsics.to_world(x, y, z)
+        // A cropped frame's pixels are shifted by the window origin in
+        // the full-frame coordinate system the intrinsics describe.
+        match self.crop {
+            Some(crop) => intrinsics.to_world(x + crop.x as u32, y + crop.y as u32, z),
+            None => intrinsics.to_world(x, y, z),
+        }
     }
 
     /// The whole frame as a world-coordinate point cloud: one `(x, y, z)`
@@ -256,6 +357,8 @@ impl DepthFrame {
 pub struct ColorFrame {
     pub width: u32,
     pub height: u32,
+    /// The sub-window this frame represents (`None` = full frame).
+    pub crop: Option<Crop>,
     pub data: Vec<u8>,
     pub timestamp: u32,
     /// Host-referenced microseconds since the session's first frame
@@ -289,6 +392,13 @@ pub struct Xtion {
     depth_config: Option<DepthConfig>,
     color_config: Option<ColorConfig>,
     ir_config: Option<IrConfig>,
+    /// Crop windows, kept per stream and re-applied at every stream
+    /// start (C parity: `OpenStreamImpl` writes the crop geometry +
+    /// mode after the stream-on param; XnSensorDepthStream.cpp:412-425,
+    /// XnSensorImageStream.cpp:359-372, XnSensorIRStream.cpp:190-203).
+    depth_crop: Option<CropState>,
+    color_crop: Option<CropState>,
+    ir_crop: Option<CropState>,
     /// USB core of the device (Jango on all known firmware; read at
     /// open with a documented fallback).
     usb_core: UsbCore,
@@ -383,6 +493,9 @@ impl Xtion {
             color_ring: None,
             ir_ring: None,
             misc_ring: None,
+            depth_crop: None,
+            color_crop: None,
+            ir_crop: None,
             depth_assembler: StreamAssembler::new(fw_magic, ignore),
             color_assembler: StreamAssembler::new(fw_magic, ignore),
             ir_assembler: StreamAssembler::new(fw_magic, ignore),
@@ -942,6 +1055,140 @@ impl Xtion {
         self.set_param(Param::DepthGmcMode, enable as u16)
     }
 
+    /// Set, change, or clear the DEPTH crop window (params 51-55).
+    ///
+    /// `Some(crop)` activates the window — the firmware then transmits
+    /// ONLY those pixels: [`DepthFrame`](crate::DepthFrame) arrives
+    /// `crop.width x crop.height` in size, with
+    /// [`crop`](crate::DepthFrame::crop) carrying the origin, and
+    /// [`to_world`](crate::DepthFrame::to_world) still returns correct
+    /// full-frame world coordinates. `None` disables cropping (mode 0,
+    /// geometry untouched — the reference sequence) and full frames
+    /// return.
+    ///
+    /// `increased_fps` selects firmware crop mode 2 (fw >= 5.7.2): the
+    /// CMOS reads out only the window, which makes frame rates above
+    /// the full-frame maximum possible (pair it with a higher `fps` in
+    /// [`DepthConfig`] where the firmware accepts it).
+    ///
+    /// The window is validated against the ACTIVE depth resolution
+    /// (start the stream first) and against the packed-11 wire format
+    /// (pixel count divisible by 8 — e.g. 320x240 or 160x120, not
+    /// 161x121). Changes while streaming are plain parameter writes
+    /// ("allow while open" in the reference); the frame in flight when
+    /// the window changes is dropped as corrupt, exactly like the C.
+    /// The window is kept and re-applied by the next
+    /// [`start_depth`](Self::start_depth) after a stop.
+    pub fn set_depth_crop(&mut self, crop: Option<Crop>, increased_fps: bool) -> Result<()> {
+        let config = self.depth_config.as_ref().ok_or_else(|| {
+            XtionError::BadConfig(
+                "start the depth stream before setting a crop: the window is \
+                 validated against the active resolution"
+                    .into(),
+            )
+        })?;
+        let (res_w, res_h) = config.dimensions();
+        // packed-11 consumes pixels in groups of 8 (11 bytes); the
+        // 16-bit format has no packing constraint.
+        let group = match config.input_format {
+            DepthFormat::Uncompressed11Bit => 8,
+            _ => 1,
+        };
+        let state = self.crop_state(crop, increased_fps, res_w, res_h, group)?;
+        write_crop_via(
+            &mut self.link,
+            &mut self.usb,
+            DEPTH_CROP_PARAMS,
+            state,
+            COMMAND_TIMEOUT,
+        )?;
+        self.depth_crop = state;
+        Ok(())
+    }
+
+    /// Set, change, or clear the COLOR crop window (params 46-50).
+    ///
+    /// Same contract as [`set_depth_crop`](Self::set_depth_crop) for the
+    /// image pipe (requires the color stream to be running on units
+    /// that have a color sensor).
+    pub fn set_color_crop(&mut self, crop: Option<Crop>, increased_fps: bool) -> Result<()> {
+        let config = self.color_config.as_ref().ok_or_else(|| {
+            XtionError::BadConfig(
+                "start the color stream before setting a crop: the window is \
+                 validated against the active resolution"
+                    .into(),
+            )
+        })?;
+        let (res_w, res_h) = config.resolution.dimensions();
+        // YUV422 is byte-per-component on the wire: no packing groups.
+        let state = self.crop_state(crop, increased_fps, res_w, res_h, 1)?;
+        write_crop_via(
+            &mut self.link,
+            &mut self.usb,
+            IMAGE_CROP_PARAMS,
+            state,
+            COMMAND_TIMEOUT,
+        )?;
+        self.color_crop = state;
+        Ok(())
+    }
+
+    /// Set, change, or clear the IR crop window (params 56-60).
+    ///
+    /// Same contract as [`set_depth_crop`](Self::set_depth_crop), with
+    /// two IR specifics: the window's pixel count must be divisible by
+    /// 4 (packed-10 wire format, 4 pixels per 5 bytes), and a cropped IR
+    /// frame carries NO extra CMOS rows — the MT9M001's `height + 8`
+    /// quirk applies to full frames only
+    /// (`XnIRProcessor.cpp:249-255`).
+    pub fn set_ir_crop(&mut self, crop: Option<Crop>, increased_fps: bool) -> Result<()> {
+        let config = self.ir_config.as_ref().ok_or_else(|| {
+            XtionError::BadConfig(
+                "start the IR stream before setting a crop: the window is \
+                 validated against the active resolution"
+                    .into(),
+            )
+        })?;
+        let (res_w, res_h) = config.dimensions();
+        // packed-10 consumes pixels in groups of 4 (5 bytes).
+        let state = self.crop_state(crop, increased_fps, res_w, res_h, 4)?;
+        write_crop_via(
+            &mut self.link,
+            &mut self.usb,
+            IR_CROP_PARAMS,
+            state,
+            COMMAND_TIMEOUT,
+        )?;
+        self.ir_crop = state;
+        Ok(())
+    }
+
+    /// Validate a requested crop and build the state to write
+    /// (`None` disables). Shared core of the three stream setters.
+    fn crop_state(
+        &self,
+        crop: Option<Crop>,
+        increased_fps: bool,
+        res_w: u32,
+        res_h: u32,
+        group: usize,
+    ) -> Result<Option<CropState>> {
+        match crop {
+            Some(crop) => {
+                crop.validate(res_w, res_h, group)?;
+                Ok(Some(CropState {
+                    crop,
+                    mode: if increased_fps {
+                        CROP_MODE_INCREASED_FPS
+                    } else {
+                        CROP_MODE_NORMAL
+                    },
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Flip the color image horizontally (PARAM_IMAGE_MIRROR).
     pub fn set_image_mirror(&mut self, enable: bool) -> Result<()> {
         self.set_param(Param::ImageMirror, enable as u16)
@@ -1039,6 +1286,17 @@ impl Xtion {
             COMMAND_TIMEOUT,
         )?;
         self.set_param(Param::Stream1Mode, STREAM_MODE_DEPTH)?;
+        // OpenStreamImpl tail (XnSensorDepthStream.cpp:398-425): the crop
+        // geometry is re-applied when a window is active, then the crop
+        // mode — ALWAYS written, so stale firmware state from a previous
+        // session can never leak a crop into this stream.
+        write_crop_via(
+            &mut self.link,
+            &mut self.usb,
+            DEPTH_CROP_PARAMS,
+            self.depth_crop,
+            COMMAND_TIMEOUT,
+        )?;
 
         // Start the async URB ring BEFORE the device begins to stream:
         // pre-submitted transfers mean the FPGA FIFO always has somewhere
@@ -1197,6 +1455,7 @@ impl Xtion {
             resolution,
             fps,
             STREAM_MODE_COLOR,
+            self.color_crop,
             COMMAND_TIMEOUT,
         )
         .map_err(|err| {
@@ -1255,7 +1514,13 @@ impl Xtion {
                 "the color stream is running; color and IR share the image pipe".into(),
             ));
         }
-        configure_ir_via(&mut self.link, &mut self.usb, config, COMMAND_TIMEOUT)?;
+        configure_ir_via(
+            &mut self.link,
+            &mut self.usb,
+            config,
+            self.ir_crop,
+            COMMAND_TIMEOUT,
+        )?;
 
         self.ir_ring = Some(crate::ring::BulkRing::start(
             self.usb.raw_context(),
@@ -1377,7 +1642,15 @@ impl Xtion {
     /// dropped and reading continues.
     pub fn read_depth_frame(&mut self, timeout: Duration) -> Result<DepthFrame> {
         let config = self.depth_config.ok_or(XtionError::StreamNotRunning)?;
-        let (width, height) = config.dimensions();
+        // While a crop window is active the firmware transmits ONLY the
+        // window: frames are crop-sized and report the crop dimensions
+        // and origin (XnDepthProcessor::CalculateExpectedSize / OnEndOfFrame,
+        // XnDepthProcessor.cpp:112-172).
+        let crop = self.depth_crop.map(|cs| cs.crop);
+        let (width, height) = match crop {
+            Some(c) => (c.width as u32, c.height as u32),
+            None => config.dimensions(),
+        };
         let expected_pixels = (width * height) as usize;
         let deadline = Instant::now() + timeout;
 
@@ -1410,6 +1683,7 @@ impl Xtion {
                 return {
                     let mut frame =
                         self.decode_depth_frame(&frame, width, height, expected_pixels, config)?;
+                    frame.crop = crop;
                     frame.timestamp_us = self.convert_timestamp(frame.timestamp);
                     Ok(frame)
                 };
@@ -1457,7 +1731,14 @@ impl Xtion {
     /// size before the BT.601 conversion.
     pub fn read_color_frame(&mut self, timeout: Duration) -> Result<ColorFrame> {
         let config = self.color_config.ok_or(XtionError::StreamNotRunning)?;
-        let (width, height) = config.resolution.dimensions();
+        // While a crop window is active the firmware transmits only the
+        // window (XnSensorImageStream::CalculateExpectedSize,
+        // XnSensorImageStream.cpp:786-817): frames are crop-sized.
+        let crop = self.color_crop.map(|cs| cs.crop);
+        let (width, height) = match crop {
+            Some(c) => (c.width as u32, c.height as u32),
+            None => config.resolution.dimensions(),
+        };
         // YUV422 decoded size: 2 bytes per pixel, no extra rows
         // (XnImageProcessor.cpp:75-88).
         let expected = (width * height * 2) as usize;
@@ -1513,6 +1794,7 @@ impl Xtion {
                             Ok(ColorFrame {
                                 width,
                                 height,
+                                crop,
                                 data: rgb,
                                 timestamp: frame.timestamp,
                                 timestamp_us,
@@ -1574,15 +1856,29 @@ impl Xtion {
     /// instead of silently looping into a timeout that hides the cause.
     pub fn read_ir_frame(&mut self, timeout: Duration) -> Result<IrFrame> {
         let config = self.ir_config.ok_or(XtionError::StreamNotRunning)?;
-        let (width, height) = config.dimensions();
-        // The IR CMOS (an MT9M001 on every Xtion) transmits `height + 8`
-        // rows in every resolution except SXGA — see ir::wire_extra_rows
-        // (XnIRProcessor.cpp:244-282). Frames are validated against the
-        // WIRE size and cropped back to `height` rows when decoded.
         let cmos = self.fixed_params.depth_cmos_type;
-        let extra = wire_extra_rows(cmos, config.resolution);
-        let expected = ir_wire_size(width, height, cmos, config.resolution);
-        let wire_rows = height as i32 + extra;
+        // While a crop window is active the IR CMOS transmits exactly the
+        // window — NO extra rows (the MT9M001 `height + 8` quirk applies
+        // to full frames only; XnIRProcessor.cpp:249-255).
+        let crop = self.ir_crop.map(|cs| cs.crop);
+        let (width, height, expected, wire_rows, extra) = match crop {
+            Some(c) => {
+                let (w, h) = (c.width as u32, c.height as u32);
+                let expected = crate::ir::expected_wire_size((w * h) as usize);
+                (w, h, expected, h as i32, 0i32)
+            }
+            None => {
+                let (w, h) = config.dimensions();
+                let extra = wire_extra_rows(cmos, config.resolution);
+                (
+                    w,
+                    h,
+                    ir_wire_size(w, h, cmos, config.resolution),
+                    h as i32 + extra,
+                    extra,
+                )
+            }
+        };
         let deadline = Instant::now() + timeout;
         let mut unusable = 0u32;
 
@@ -1602,14 +1898,21 @@ impl Xtion {
                 match reason {
                     None => {
                         let timestamp_us = self.convert_timestamp(frame.timestamp);
-                        let mut frame = decode_ir_frame(
-                            &frame.data,
-                            width,
-                            height,
-                            config.resolution,
-                            cmos,
-                            frame.timestamp,
-                        )?;
+                        let mut frame = match crop {
+                            Some(crop) => crate::ir::decode_ir_frame_cropped(
+                                &frame.data,
+                                crop,
+                                frame.timestamp,
+                            )?,
+                            None => decode_ir_frame(
+                                &frame.data,
+                                width,
+                                height,
+                                config.resolution,
+                                cmos,
+                                frame.timestamp,
+                            )?,
+                        };
                         frame.timestamp_us = timestamp_us;
                         return Ok(frame);
                     }
@@ -1687,6 +1990,8 @@ impl Xtion {
         Ok(DepthFrame {
             width,
             height,
+            // set by the caller (read_depth_frame) from the active crop
+            crop: None,
             data,
             timestamp: frame.timestamp,
             timestamp_us: None,
@@ -1748,6 +2053,35 @@ fn set_param_via<T: ControlTransport>(
     Ok(())
 }
 
+/// Crop write sequence, transport-generic for testing.
+///
+/// Port of `SetCroppingImpl` — the sequence is identical for all three
+/// streams (XnSensorDepthStream.cpp:768-840, XnSensorImageStream.cpp:
+/// 541-612, XnSensorIRStream.cpp:304-380): when ENABLING, the geometry
+/// goes first — size X, size Y, offset X, offset Y — and the mode param
+/// LAST; when DISABLING, only the mode param is written, geometry
+/// untouched. Because the mode is written last, a NACK part-way through
+/// leaves the previously active window in charge (the reference relies
+/// on the same ordering for its rollback).
+fn write_crop_via<T: ControlTransport>(
+    link: &mut CommandLink,
+    transport: &mut T,
+    params: CropParams,
+    state: Option<CropState>,
+    timeout: Duration,
+) -> Result<()> {
+    if let Some(cs) = state {
+        set_param_via(link, transport, params.size_x, cs.crop.width, timeout)?;
+        set_param_via(link, transport, params.size_y, cs.crop.height, timeout)?;
+        set_param_via(link, transport, params.offset_x, cs.crop.x, timeout)?;
+        set_param_via(link, transport, params.offset_y, cs.crop.y, timeout)?;
+        set_param_via(link, transport, params.mode, cs.mode, timeout)?;
+    } else {
+        set_param_via(link, transport, params.mode, CROP_MODE_DISABLED, timeout)?;
+    }
+    Ok(())
+}
+
 /// Color (image) stream write sequence, transport-generic for testing.
 ///
 /// Port of `XnSensorImageStream::ConfigureStreamImpl` +
@@ -1765,6 +2099,7 @@ fn configure_color_via<T: ControlTransport>(
     resolution: Resolution,
     fps: u16,
     stream_on_value: u16,
+    color_crop: Option<CropState>,
     timeout: Duration,
 ) -> Result<()> {
     // Stream-mode changes go through OFF first (see firmware_init_reset
@@ -1795,10 +2130,12 @@ fn configure_color_via<T: ControlTransport>(
         stream_on_value,
         timeout,
     )?;
-    // OpenStreamImpl tail: crop mode is always written (disabled here);
-    // fw >= 5.8.9 also gets auto exposure + auto white balance, whose
-    // reference defaults are TRUE (XnSensorImageStream.h:47-53).
-    set_param_via(link, transport, Param::ImageCropMode, 0, timeout)?;
+    // OpenStreamImpl tail (XnSensorImageStream.cpp:352-379): the crop
+    // geometry is re-applied when a window is active, then the crop
+    // mode — always written; fw >= 5.8.9 also gets auto exposure +
+    // auto white balance, whose reference defaults are TRUE
+    // (XnSensorImageStream.h:47-53).
+    write_crop_via(link, transport, IMAGE_CROP_PARAMS, color_crop, timeout)?;
     set_param_via(link, transport, Param::ImageAutoExposureMode, 1, timeout)?;
     set_param_via(
         link,
@@ -1818,6 +2155,7 @@ fn configure_ir_via<T: ControlTransport>(
     link: &mut CommandLink,
     transport: &mut T,
     config: IrConfig,
+    ir_crop: Option<CropState>,
     timeout: Duration,
 ) -> Result<()> {
     // Stream-mode changes go through OFF first (see firmware_init_reset
@@ -1847,6 +2185,13 @@ fn configure_ir_via<T: ControlTransport>(
     // hardware ACKs every command but never produces IR packets.
     read_cmos_blanking(link, transport, config.resolution, config.fps, timeout)?;
     set_param_via(link, transport, Param::Stream0Mode, STREAM_MODE_IR, timeout)?;
+    // OpenStreamImpl tail (XnSensorIRStream.cpp:183-203): crop geometry
+    // when a window is active, then the crop mode — always written.
+    // (The reference flips offset X for mirrored IR because it mirrors
+    // IR host-side AFTER cropping; our driver leaves the firmware IR
+    // mirror off — `configure_ir_via` forces param 72 to 0 — so the
+    // window coordinates pass through unflipped.)
+    write_crop_via(link, transport, IR_CROP_PARAMS, ir_crop, timeout)?;
     Ok(())
 }
 
@@ -2046,7 +2391,21 @@ mod tests {
         assert_eq!(Param::IrResolution.as_u16(), 26);
         assert_eq!(Param::IrFps.as_u16(), 27);
         assert_eq!(Param::DepthGmcMode.as_u16(), 36);
+        assert_eq!(Param::ImageCropSizeX.as_u16(), 46);
+        assert_eq!(Param::ImageCropSizeY.as_u16(), 47);
+        assert_eq!(Param::ImageCropOffsetX.as_u16(), 48);
+        assert_eq!(Param::ImageCropOffsetY.as_u16(), 49);
         assert_eq!(Param::ImageCropMode.as_u16(), 50);
+        assert_eq!(Param::DepthCropSizeX.as_u16(), 51);
+        assert_eq!(Param::DepthCropSizeY.as_u16(), 52);
+        assert_eq!(Param::DepthCropOffsetX.as_u16(), 53);
+        assert_eq!(Param::DepthCropOffsetY.as_u16(), 54);
+        assert_eq!(Param::DepthCropMode.as_u16(), 55);
+        assert_eq!(Param::IrCropSizeX.as_u16(), 56);
+        assert_eq!(Param::IrCropSizeY.as_u16(), 57);
+        assert_eq!(Param::IrCropOffsetX.as_u16(), 58);
+        assert_eq!(Param::IrCropOffsetY.as_u16(), 59);
+        assert_eq!(Param::IrCropMode.as_u16(), 60);
         assert_eq!(Param::ImageMirror.as_u16(), 71);
         assert_eq!(Param::IrMirror.as_u16(), 72);
         assert_eq!(Param::ImageAutoWhiteBalanceMode.as_u16(), 77);
@@ -2100,6 +2459,7 @@ mod tests {
                     setparam_ack_reply(3, 0),
                     algorithm_reply(4, 16),
                     setparam_ack_reply(5, 3),
+                    setparam_ack_reply(6, 0), // IrCropMode = 0
                 ],
                 sent: vec![],
             },
@@ -2111,14 +2471,15 @@ mod tests {
                 resolution: Resolution::Vga,
                 fps: 30,
             },
+            None,
             Duration::from_millis(50),
         )
         .unwrap();
-        assert_eq!(fake.sent.len(), 6);
+        assert_eq!(fake.sent.len(), 7);
         // SET_PARAMs ...
         let params: Vec<(u16, u16)> = fake.sent[..4]
             .iter()
-            .chain(fake.sent[5..6].iter())
+            .chain(fake.sent[5..7].iter())
             .map(|req| {
                 (
                     u16::from_le_bytes([req[8], req[9]]),
@@ -2134,6 +2495,7 @@ mod tests {
                 (27, 30), // PARAM_IR_FPS
                 (72, 0),  // PARAM_IR_MIRROR forced off
                 (5, 3),   // PARAM_GENERAL_STREAM0_MODE = IR
+                (60, 0),  // PARAM_IR_CROP_MODE = disabled (OpenStreamImpl)
             ]
         );
         // ... then the CMOS blanking read between mirror and stream mode
@@ -2180,6 +2542,7 @@ mod tests {
             Resolution::Vga,
             30,
             STREAM_MODE_COLOR,
+            None,
             Duration::from_millis(50),
         )
         .unwrap();
@@ -2218,5 +2581,216 @@ mod tests {
         let freq_req = &fake.sent[4];
         assert_eq!(u16::from_le_bytes([freq_req[12], freq_req[13]]), 0);
         assert_eq!(u16::from_le_bytes([freq_req[14], freq_req[15]]), 0);
+    }
+
+    // ------------------------------------------------------------------
+    // Crop windows (0.3.3)
+    // ------------------------------------------------------------------
+
+    /// The crop write must match `SetCroppingImpl` write-for-write:
+    /// geometry first (size X, size Y, offset X, offset Y), the mode
+    /// param LAST; disabling writes ONLY the mode (XnSensorDepthStream
+    /// .cpp:788-805 — image and IR identical).
+    #[test]
+    fn crop_write_sequence_matches_reference() {
+        let crop = Crop {
+            x: 160,
+            y: 120,
+            width: 320,
+            height: 240,
+        };
+        let state = CropState {
+            crop,
+            mode: CROP_MODE_NORMAL,
+        };
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![
+                    setparam_ack_reply(0, 320),
+                    setparam_ack_reply(1, 240),
+                    setparam_ack_reply(2, 160),
+                    setparam_ack_reply(3, 120),
+                    setparam_ack_reply(4, CROP_MODE_NORMAL),
+                ],
+                sent: vec![],
+            },
+        );
+        write_crop_via(
+            &mut link,
+            &mut fake,
+            DEPTH_CROP_PARAMS,
+            Some(state),
+            Duration::from_millis(50),
+        )
+        .unwrap();
+        assert_eq!(fake.sent.len(), 5);
+        let params: Vec<(u16, u16)> = fake
+            .sent
+            .iter()
+            .map(|req| {
+                (
+                    u16::from_le_bytes([req[8], req[9]]),
+                    u16::from_le_bytes([req[10], req[11]]),
+                )
+            })
+            .collect();
+        assert_eq!(
+            params,
+            vec![
+                (51, 320), // PARAM_DEPTH_CROP_SIZE_X
+                (52, 240), // PARAM_DEPTH_CROP_SIZE_Y
+                (53, 160), // PARAM_DEPTH_CROP_OFFSET_X
+                (54, 120), // PARAM_DEPTH_CROP_OFFSET_Y
+                (55, 1),   // PARAM_DEPTH_CROP_MODE = NORMAL
+            ]
+        );
+
+        // Disabling: one write, the mode only.
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![setparam_ack_reply(0, 0)],
+                sent: vec![],
+            },
+        );
+        write_crop_via(
+            &mut link,
+            &mut fake,
+            IR_CROP_PARAMS,
+            None,
+            Duration::from_millis(50),
+        )
+        .unwrap();
+        assert_eq!(fake.sent.len(), 1);
+        assert_eq!(
+            u16::from_le_bytes([fake.sent[0][8], fake.sent[0][9]]),
+            Param::IrCropMode.as_u16()
+        );
+        assert_eq!(
+            u16::from_le_bytes([fake.sent[0][10], fake.sent[0][11]]),
+            CROP_MODE_DISABLED
+        );
+    }
+
+    /// Bounds and packing validation (`XnPixelStream::ValidateCropping`
+    /// parity + the per-format pixel-group constraint).
+    #[test]
+    fn crop_validation_rejects_bad_windows() {
+        let ok = Crop {
+            x: 160,
+            y: 120,
+            width: 320,
+            height: 240,
+        };
+        ok.validate(640, 480, 8).unwrap();
+        ok.validate(640, 480, 1).unwrap();
+
+        // zero-size
+        assert!(Crop {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 100
+        }
+        .validate(640, 480, 1)
+        .is_err());
+        // out of frame
+        assert!(Crop {
+            x: 400,
+            y: 0,
+            width: 320,
+            height: 240
+        }
+        .validate(640, 480, 1)
+        .is_err());
+        assert!(Crop {
+            x: 0,
+            y: 400,
+            width: 320,
+            height: 240
+        }
+        .validate(640, 480, 1)
+        .is_err());
+        // exactly full frame is allowed
+        Crop {
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 480,
+        }
+        .validate(640, 480, 1)
+        .unwrap();
+        // packed-11: 161x121 = 19481 pixels is not divisible by 8
+        assert!(Crop {
+            x: 0,
+            y: 0,
+            width: 161,
+            height: 121
+        }
+        .validate(640, 480, 8)
+        .is_err());
+        // packed-10 (IR): 322x240 = 77280 IS divisible by 4 -> fine
+        Crop {
+            x: 0,
+            y: 0,
+            width: 322,
+            height: 240,
+        }
+        .validate(640, 480, 4)
+        .unwrap();
+    }
+
+    /// A cropped frame's `to_world` must shift pixels by the window
+    /// origin, so world coordinates stay full-frame consistent
+    /// (photogrammetry on a region of interest).
+    #[test]
+    fn cropped_frame_to_world_shifts_by_origin() {
+        let intrinsics = crate::geometry::CameraIntrinsics {
+            width: 640,
+            height: 480,
+            fx: 570.0,
+            fy: 570.0,
+            cx: 320.0,
+            cy: 240.0,
+            hfov: 1.0,
+            vfov: 0.8,
+            zpd: 120.0,
+            zpps: 0.1052,
+        };
+        let crop = Crop {
+            x: 160,
+            y: 120,
+            width: 320,
+            height: 240,
+        };
+        let frame = DepthFrame {
+            width: 320,
+            height: 240,
+            crop: Some(crop),
+            data: vec![1000; 320 * 240],
+            timestamp: 0,
+            timestamp_us: None,
+            shift_stats: ShiftStats::default(),
+        };
+        // pixel (10, 20) of the window is full-frame (170, 140)
+        let (x, y, z) = frame.to_world(&intrinsics, 10, 20).unwrap();
+        let (ex, ey, ez) = intrinsics.to_world(170, 140, 1000).unwrap();
+        assert!((x - ex).abs() < 1e-9);
+        assert!((y - ey).abs() < 1e-9);
+        assert!((z - ez).abs() < 1e-9);
+        // and a full frame behaves as before
+        let full = DepthFrame {
+            width: 640,
+            height: 480,
+            crop: None,
+            data: vec![1000; 640 * 480],
+            timestamp: 0,
+            timestamp_us: None,
+            shift_stats: ShiftStats::default(),
+        };
+        let (x, _, _) = full.to_world(&intrinsics, 10, 20).unwrap();
+        let (ex, _, _) = intrinsics.to_world(10, 20, 1000).unwrap();
+        assert!((x - ex).abs() < 1e-9);
     }
 }

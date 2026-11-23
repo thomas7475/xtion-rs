@@ -1203,3 +1203,175 @@ fn plane_fit_synthetic() {
         fit.coverage()
     );
 }
+
+/// Crop windows end-to-end (0.3.3): the firmware transmits ONLY the
+/// window, frames arrive crop-sized with the origin reported, and the
+/// window can be changed on the fly (crop params are "allow while
+/// open" in the reference).
+///
+/// Sections: full-frame baseline -> mode-1 crop 320x240 (centered) ->
+/// on-the-fly shrink to 160x120 -> disable (full frames return) ->
+/// geometry spot check via to_world -> IR crop 320x240 (packed-10, no
+/// extra CMOS rows while cropped) -> mode-2 (increased-fps) probe with
+/// fps=60 attempted and the measured frame rate printed (whether fw
+/// 5.8.22 raises the readout rate this way is an open question — the
+/// probe documents it, it does not gate on it).
+#[test]
+fn depth_and_ir_crop_windows() {
+    if !hardware_present() {
+        eprintln!("skipped: no Xtion attached");
+        return;
+    }
+    let _lock = lock_device();
+    let mut cam = Xtion::open().expect("open");
+    let intrinsics = cam.depth_intrinsics(xtion::Resolution::Vga);
+
+    // ---- full-frame baseline ----
+    cam.start_depth(DepthConfig::default())
+        .expect("start depth");
+    let baseline = cam
+        .read_depth_frame(Duration::from_secs(10))
+        .expect("baseline full frame");
+    assert_eq!((baseline.width, baseline.height), (640, 480));
+    assert_eq!(baseline.crop, None);
+    let baseline_valid = baseline.valid_pixels();
+    println!("baseline: 640x480, {baseline_valid} valid pixels");
+
+    // ---- mode-1 crop: centered 320x240 ----
+    let crop = xtion::Crop {
+        x: 160,
+        y: 120,
+        width: 320,
+        height: 240,
+    };
+    cam.set_depth_crop(Some(crop), false)
+        .expect("set depth crop 320x240");
+    let frame = cam
+        .read_depth_frame(Duration::from_secs(10))
+        .expect("first cropped depth frame");
+    assert_eq!((frame.width, frame.height), (320, 240));
+    assert_eq!(frame.crop, Some(crop));
+    assert_eq!(frame.data.len(), 320 * 240);
+    let valid = frame.valid_pixels();
+    println!(
+        "cropped 320x240: {} valid pixels (baseline {}, window is 25% of the frame)",
+        valid, baseline_valid
+    );
+    assert!(
+        valid > 1000,
+        "cropped frame has too few valid pixels: {valid}"
+    );
+    assert!(
+        (valid as f64) < (baseline_valid as f64) * 1.05,
+        "cropped frame has more valid pixels than the whole frame ({valid} > {baseline_valid})"
+    );
+    // same scene, window centred on the frame centre: min depth must
+    // stay in the plausible band of the baseline
+    if let (Some(b), Some(c)) = (baseline.min_depth(), frame.min_depth()) {
+        println!("min depth: baseline {b} mm, cropped {c} mm");
+        assert!(
+            c > 200 && c < 6000,
+            "cropped min depth {c} mm is not plausible"
+        );
+    }
+
+    // ---- geometry: the crop centre is the frame centre -> x,y ~ 0 ----
+    let (cx, cy, cz) = frame
+        .to_world(&intrinsics, 160, 120)
+        .expect("crop centre converts");
+    println!("crop centre -> world ({cx:.1}, {cy:.1}, {cz:.1}) mm");
+    assert!(cx.abs() < 50.0 && cy.abs() < 50.0, "crop centre off axis");
+
+    // ---- on-the-fly shrink to 160x120 (allow-while-open) ----
+    let small = xtion::Crop {
+        x: 240,
+        y: 180,
+        width: 160,
+        height: 120,
+    };
+    cam.set_depth_crop(Some(small), false)
+        .expect("shrink crop on the fly");
+    let frame = cam
+        .read_depth_frame(Duration::from_secs(10))
+        .expect("shrunk depth frame");
+    assert_eq!((frame.width, frame.height), (160, 120));
+    assert_eq!(frame.crop, Some(small));
+    assert!(frame.valid_pixels() > 200);
+
+    // ---- disable: full frames return ----
+    cam.set_depth_crop(None, false).expect("disable crop");
+    let frame = cam
+        .read_depth_frame(Duration::from_secs(10))
+        .expect("full frame after disable");
+    assert_eq!((frame.width, frame.height), (640, 480));
+    assert_eq!(frame.crop, None);
+    cam.stop_depth().expect("stop depth");
+
+    // ---- IR crop: 320x240, NO extra CMOS rows on the wire ----
+    cam.start_ir(xtion::IrConfig::default()).expect("start IR");
+    cam.set_ir_crop(Some(crop), false).expect("set IR crop");
+    let ir = cam
+        .read_ir_frame(Duration::from_secs(10))
+        .expect("cropped IR frame");
+    assert_eq!((ir.width, ir.height), (320, 240));
+    assert_eq!(ir.crop, Some(crop));
+    assert_eq!(ir.data.len(), 320 * 240);
+    println!(
+        "cropped IR 320x240: value range {:?} (full-frame wire would carry 248 rows; the \
+         cropped frame passed the exact 240-row size gate)",
+        ir.value_range()
+    );
+    assert!(ir.value_range().is_some());
+    cam.set_ir_crop(None, false).expect("disable IR crop");
+    let ir = cam
+        .read_ir_frame(Duration::from_secs(10))
+        .expect("full IR frame");
+    assert_eq!((ir.width, ir.height), (640, 480));
+    cam.stop_ir().expect("stop IR");
+
+    // ---- mode-2 probe: increased-fps crop + fps=60 attempted ----
+    cam.start_depth(DepthConfig::default())
+        .expect("restart depth");
+    cam.set_depth_crop(Some(crop), true)
+        .expect("crop mode 2 (increased fps)");
+    match cam.set_param(xtion::Param::DepthFps, 60) {
+        Ok(()) => println!("depth fps 60 with crop mode 2: ACCEPTED"),
+        Err(err) => println!(
+            "depth fps 60 with crop mode 2: rejected ({err}) — the readout rate is whatever \
+             the firmware does with mode 2 alone"
+        ),
+    }
+    let mut stamps = Vec::new();
+    for _ in 0..60 {
+        match cam.read_depth_frame(Duration::from_secs(5)) {
+            Ok(frame) => stamps.push(frame.timestamp_us.expect("timestamps converted")),
+            Err(err) => panic!("mode-2 depth read: {err}"),
+        }
+    }
+    let deltas: Vec<f64> = stamps
+        .windows(2)
+        .map(|p| (p[1] - p[0]) as f64 / 1000.0)
+        .collect();
+    let mean = deltas.iter().sum::<f64>() / deltas.len() as f64;
+    let fps = 1000.0 / mean;
+    println!(
+        "mode-2 320x240: mean frame delta {mean:.2} ms = {fps:.2} fps (full-frame VGA \
+         baseline is ~29.97); frame dims still {}",
+        320
+    );
+    if fps > 40.0 {
+        println!("-> increased-fps crop WORKS on this firmware build");
+    } else {
+        println!(
+            "-> increased-fps crop alone does not raise the rate on this firmware build \
+             (needs the fps parameter, which was rejected above)"
+        );
+    }
+    // cleanup: leave the device uncropped and stopped
+    cam.set_depth_crop(None, false).expect("disable crop");
+    let frame = cam
+        .read_depth_frame(Duration::from_secs(10))
+        .expect("full frame after mode-2 disable");
+    assert_eq!((frame.width, frame.height), (640, 480));
+    cam.stop_depth().expect("stop depth");
+}

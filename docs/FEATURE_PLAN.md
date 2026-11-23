@@ -319,10 +319,26 @@ that reuses the already-proven image pipe:
 
 ### Phase 3 — medium effort, still zero-risk (NEXT)
 
-9. **Cropping (PARAMs 46-60)** — firmware crop size/offset/mode per
-   stream, with the reference driver's "bigger crop first, then shrink"
-   protocol for changing crop on the fly (SizeX -> SizeY -> OffsetX ->
-   OffsetY -> Mode last). The next feature to implement.
+9. **Cropping (PARAMs 46-60)** — IMPLEMENTED in 0.3.3 (`Crop`,
+    `set_depth_crop` / `set_color_crop` / `set_ir_crop`, frames report
+    cropped dimensions + origin, `to_world` stays full-frame correct).
+    Ported write-for-write from `SetCroppingImpl` (all three streams
+    identical): geometry first — SizeX, SizeY, OffsetX, OffsetY — the
+    mode LAST; disabling writes only the mode (0). While a window is
+    active (mode 1 normal / 2 increased-fps, fw >= 5.7.2) the firmware
+    transmits ONLY the window, so frames arrive crop-sized — including
+    IR, where the MT9M001 `height + 8` extra rows apply to full frames
+    only (XnIRProcessor.cpp:249-255). Validation is the C's
+    `ValidateCropping` (non-zero, inside the active resolution) plus
+    the packed wire formats' pixel-group divisibility (depth packed-11:
+    multiple of 8; IR packed-10: multiple of 4). The window is kept
+    across stop/start and re-applied at every stream open
+    (`OpenStreamImpl` parity). Camera validation: test 10
+    (`depth_and_ir_crop_windows`).
+    NOTE (corrects an earlier note here): there is NO "bigger crop
+    first" dance in OpenNI 2.2.0 — the crop params are plain
+    allow-while-open SET_PARAMs; the frame in flight when the window
+    changes is dropped as corrupt, exactly like the C.
 10. **Full C parity at image open** — the reference `OpenStreamImpl`
     also writes crop-mode 50 = disabled and, on fw >= 5.8.9
     (bImageAdjustmentsSupported), auto-exposure (80) + auto-white-balance

@@ -775,8 +775,11 @@ pub fn read_cmos_register<T: ControlTransport>(
     Ok(words[0].wrapping_shl(8).wrapping_add(words[1]))
 }
 
-/// Human-readable flash file-type names (Include/PS1080.h:337-355 and
-/// the updater's per-sensor calibration images).
+/// Human-readable flash file-type names — the complete
+/// `XnFlashFileType` enum (Include/PS1080.h:335-368). The 0.3.2 camera
+/// run revealed the per-device files 0x13-0x1C live on this unit
+/// (ids 14-21 of the on-flash table), so every enum value now has a
+/// name.
 pub fn flash_file_type_name(file_type: u16) -> &'static str {
     match file_type {
         0x00 => "FileTable",
@@ -798,6 +801,19 @@ pub fn flash_file_type_name(file_type: u16) -> &'static str {
         0x10 => "DebugParams",
         0x11 => "PrimeProcessor",
         0x12 => "GainControl",
+        // "RegistartionParams" in the vendor header (sic)
+        0x13 => "RegistrationParams",
+        0x14 => "IDParams",
+        0x15 => "SensorTECParams",
+        0x16 => "SensorAPCParams",
+        0x17 => "SensorProjectorFaultParams",
+        0x18 => "ProductionFile",
+        0x19 => "UpgradeInProgress",
+        0x1A => "WavelengthCorrection",
+        0x1B => "GMCReferenceOffset",
+        0x1C => "SensorNESAParams",
+        0x1D => "SensorFault",
+        0x1E => "VendorData",
         _ => "Unknown",
     }
 }
@@ -1090,6 +1106,27 @@ mod tests {
         assert_eq!(map[0].version_major, 5);
         assert_eq!(map[0].version_build, 22);
         assert_eq!(flash_file_type_name(0x0A), "ImageCmos");
+    }
+
+    /// The 0.3.2 camera run revealed the per-device file types 0x13-0x1C
+    /// on real silicon (table ids 14-21); every enum value of
+    /// XnFlashFileType (PS1080.h:335-368) must have its name.
+    #[test]
+    fn flash_type_names_cover_the_full_vendor_enum() {
+        assert_eq!(flash_file_type_name(0x13), "RegistrationParams");
+        assert_eq!(flash_file_type_name(0x14), "IDParams");
+        assert_eq!(flash_file_type_name(0x15), "SensorTECParams");
+        assert_eq!(flash_file_type_name(0x16), "SensorAPCParams");
+        assert_eq!(flash_file_type_name(0x17), "SensorProjectorFaultParams");
+        assert_eq!(flash_file_type_name(0x18), "ProductionFile");
+        assert_eq!(flash_file_type_name(0x19), "UpgradeInProgress");
+        assert_eq!(flash_file_type_name(0x1A), "WavelengthCorrection");
+        assert_eq!(flash_file_type_name(0x1B), "GMCReferenceOffset");
+        assert_eq!(flash_file_type_name(0x1C), "SensorNESAParams");
+        assert_eq!(flash_file_type_name(0x1D), "SensorFault");
+        assert_eq!(flash_file_type_name(0x1E), "VendorData");
+        // beyond the vendor enum
+        assert_eq!(flash_file_type_name(0x1F), "Unknown");
     }
 
     #[test]
