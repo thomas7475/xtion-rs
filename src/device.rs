@@ -297,21 +297,32 @@ fn agc_bin_params(bin: usize) -> Result<(Param, Param)> {
 ///
 /// The two bounds go out as two single-pair SET_PARAM requests —
 /// wire-identical to `XnHostProtocolSetDepthAGCBin`
-/// (XnHostProtocol.cpp:3124-3141) — but in a transient-safe ORDER.
-/// This firmware validates every individual parameter write against
-/// the sibling bound's CURRENT value and NACKs `BadParams` when the
-/// write would momentarily leave `min > max`: the reference's
-/// LOW-then-HIGH order hits exactly that whenever a bin grows upward
-/// (the factory bins are all (0,0), so writing LOW=512 while HIGH is
-/// still 0 is rejected — the v0.3.4 camera run died on the first such
-/// bin). Moving the bound that preserves the invariant FIRST never
-/// trips the check:
+/// (XnHostProtocol.cpp:3124-3141) — but in a transient-safe ORDER, and
+/// the write is VERIFIED BY READBACK:
 ///
-/// - new bin entirely ABOVE the current one (`new.min > current.max`):
-///   raise HIGH first — every intermediate state stays ordered;
-/// - otherwise (shrink, slide down, or overlap): lower LOW first —
-///   symmetrically safe, and it also collapses a bin back to the
-///   factory (0,0) state.
+/// - **Order.** This firmware validates every individual parameter
+///   write against the sibling bound's CURRENT value and rejects
+///   `BadParams` when the write would momentarily leave `min > max`:
+///   the reference's LOW-then-HIGH order hits exactly that whenever a
+///   bin grows upward (the factory bins are all (0,0), so writing
+///   LOW=512 while HIGH is still 0 is refused — the v0.3.4 camera run
+///   died on the first such bin). Moving the bound that preserves the
+///   invariant FIRST never trips the check:
+///   - new bin entirely ABOVE the current one (`new.min > current.max`):
+///     raise HIGH first — every intermediate state stays ordered;
+///   - otherwise (shrink, slide down, or overlap): lower LOW first —
+///     symmetrically safe, and it also collapses a bin back to the
+///     factory (0,0) state.
+/// - **Readback.** A `BadParams` NACK does NOT mean the write was
+///   refused: the 0.3.5 camera run left bin0 at `0..512` after a
+///   NACKed `HIGH <- 512` write — the firmware APPLIES an
+///   invariant-preserving write and then rejects the reply
+///   (apply-then-reject), while an invariant-VIOLATING write (LOW <-
+///   512 while HIGH is 0) is rejected without applying. So BOTH bounds
+///   are sent even when the first reply is a NACK, and the bin is
+///   read back afterwards: Ok means the bin now reads exactly as
+///   requested, Err means it does not (a genuinely refused write).
+///   Non-NACK errors (timeout, malformed reply) abort immediately.
 fn write_agc_bin_via<T: ControlTransport>(
     link: &mut CommandLink,
     transport: &mut T,
@@ -325,12 +336,65 @@ fn write_agc_bin_via<T: ControlTransport>(
         min_shift: get_param_via(link, transport, low, timeout)?,
         max_shift: get_param_via(link, transport, high, timeout)?,
     };
-    if value.min_shift > current.max_shift {
-        set_param_via(link, transport, high, value.max_shift, timeout)?;
-        set_param_via(link, transport, low, value.min_shift, timeout)?;
+    let bounds = if value.min_shift > current.max_shift {
+        // grows above the old range: raise HIGH first
+        [(high, value.max_shift), (low, value.min_shift)]
     } else {
-        set_param_via(link, transport, low, value.min_shift, timeout)?;
-        set_param_via(link, transport, high, value.max_shift, timeout)?;
+        // shrink / slide down / overlap: lower LOW first
+        [(low, value.min_shift), (high, value.max_shift)]
+    };
+    for (param, bound) in bounds {
+        if let Err(e) = set_param_via(link, transport, param, bound, timeout) {
+            match e {
+                // The firmware may still have applied the write (the
+                // 0.3.5 camera-run finding) — the readback below decides.
+                XtionError::Nack(_) => {}
+                other => return Err(other),
+            }
+        }
+    }
+    let applied = AgcBin {
+        min_shift: get_param_via(link, transport, low, timeout)?,
+        max_shift: get_param_via(link, transport, high, timeout)?,
+    };
+    if applied != value {
+        return Err(XtionError::BadConfig(format!(
+            "depth AGC bin {bin} write did not take effect: sent {}..{}, read back \
+             {}..{} (the firmware NACKed the write and did not apply it)",
+            value.min_shift, value.max_shift, applied.min_shift, applied.max_shift
+        )));
+    }
+    Ok(())
+}
+
+/// Write one firmware parameter and verify it by reading it back —
+/// the contract the depth-processing switches need on this firmware:
+/// a NACK reply does not prove the write was refused (the AGC-bin
+/// evidence above shows a value can be applied and THEN rejected), so
+/// the readback is the source of truth. Ok means the parameter now
+/// reads back exactly as requested. Non-NACK errors (timeout,
+/// malformed reply) abort as usual.
+fn set_param_verified_via<T: ControlTransport>(
+    link: &mut CommandLink,
+    transport: &mut T,
+    param: Param,
+    value: u16,
+    timeout: Duration,
+) -> Result<()> {
+    if let Err(e) = set_param_via(link, transport, param, value, timeout) {
+        match e {
+            // possibly applied anyway — the readback decides
+            XtionError::Nack(_) => {}
+            other => return Err(other),
+        }
+    }
+    let echoed = get_param_via(link, transport, param, timeout)?;
+    if echoed != value {
+        return Err(XtionError::BadConfig(format!(
+            "param {} <- {value} did not take effect (reads back {echoed}: the \
+             firmware NACKed the write and did not apply it)",
+            param.as_u16()
+        )));
     }
     Ok(())
 }
@@ -1472,14 +1536,14 @@ impl Xtion {
     /// intermediate state violates `min <= max` — the reference's
     /// LOW-first order is rejected by this firmware when a bin grows
     /// upward.
+    ///
+    /// Because this firmware can APPLY a write and still NACK the
+    /// reply (the 0.3.5 camera-run finding), both bounds are sent even
+    /// under NACK and the call is verified by readback: Ok means the
+    /// bin now reads back exactly as requested; Err means the
+    /// firmware truly refused (or the transport failed).
     pub fn set_depth_agc_bin(&mut self, bin: usize, value: AgcBin) -> Result<()> {
-        write_agc_bin_via(
-            &mut self.link,
-            &mut self.usb,
-            bin,
-            value,
-            COMMAND_TIMEOUT,
-        )
+        write_agc_bin_via(&mut self.link, &mut self.usb, bin, value, COMMAND_TIMEOUT)
     }
 
     /// Read the close-range switch (PARAM_DEPTH_CLOSE_RANGE, param 84,
@@ -1495,8 +1559,18 @@ impl Xtion {
     /// needed host-side AHB register pokes plus a gain change
     /// (`CloseRangeControl`, XnSensorDepthStream.cpp:842-873); that
     /// path is deliberately not ported.
+    ///
+    /// The write is verified by readback (this firmware's NACK replies
+    /// do not reliably mean "not applied" — see [`set_depth_agc_bin`]):
+    /// Ok means the switch now reads back as requested.
     pub fn set_close_range(&mut self, enable: bool) -> Result<()> {
-        self.set_param(Param::DepthCloseRange, enable as u16)
+        set_param_verified_via(
+            &mut self.link,
+            &mut self.usb,
+            Param::DepthCloseRange,
+            enable as u16,
+            COMMAND_TIMEOUT,
+        )
     }
 
     /// Read the wavelength-correction switch
@@ -1507,9 +1581,17 @@ impl Xtion {
         Ok(self.get_param(Param::WavelengthCorrectionEnabled)? != 0)
     }
 
-    /// Enable or disable wavelength correction (param 73).
+    /// Enable or disable wavelength correction (param 73). The write
+    /// is verified by readback (see [`set_close_range`]): Ok means the
+    /// switch now reads back as requested.
     pub fn set_wavelength_correction(&mut self, enable: bool) -> Result<()> {
-        self.set_param(Param::WavelengthCorrectionEnabled, enable as u16)
+        set_param_verified_via(
+            &mut self.link,
+            &mut self.usb,
+            Param::WavelengthCorrectionEnabled,
+            enable as u16,
+            COMMAND_TIMEOUT,
+        )
     }
 
     /// Read the wavelength-correction DEBUG switch
@@ -1524,9 +1606,17 @@ impl Xtion {
     }
 
     /// Enable or disable wavelength-correction debug telemetry
-    /// (param 74).
+    /// (param 74). The write is verified by readback (see
+    /// [`set_close_range`]): Ok means the switch now reads back as
+    /// requested.
     pub fn set_wavelength_correction_debug(&mut self, enable: bool) -> Result<()> {
-        self.set_param(Param::WavelengthCorrectionDebugEnabled, enable as u16)
+        set_param_verified_via(
+            &mut self.link,
+            &mut self.usb,
+            Param::WavelengthCorrectionDebugEnabled,
+            enable as u16,
+            COMMAND_TIMEOUT,
+        )
     }
 
     /// Read the firmware operating mode (GET_MODE, opcode 5).
@@ -2728,6 +2818,19 @@ mod tests {
         v
     }
 
+    /// NACK reply for a SET_PARAM — the 0.3.5 camera-run shape: the
+    /// device answers `BadParams` while (for invariant-preserving
+    /// writes) having applied the value anyway.
+    fn setparam_nack_bad_params_reply(id: u16) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&FW_MAGIC_V26.to_le_bytes());
+        v.extend_from_slice(&1u16.to_le_bytes()); // error word only
+        v.extend_from_slice(&Opcode::SetParam.as_u16().to_le_bytes());
+        v.extend_from_slice(&id.to_le_bytes());
+        v.extend_from_slice(&(Nack::BadParams as u16).to_le_bytes());
+        v
+    }
+
     /// Value reply for a GET_PARAM.
     fn getparam_reply(id: u16, value: u16) -> Vec<u8> {
         let mut v = Vec::new();
@@ -2869,6 +2972,8 @@ mod tests {
                     getparam_reply(1, 0), // bin 1 HIGH currently 0
                     setparam_ack_reply(2, 1),
                     setparam_ack_reply(3, 1),
+                    getparam_reply(4, 512),  // verify: LOW now 512
+                    getparam_reply(5, 1024), // verify: HIGH now 1024
                 ],
                 sent: vec![],
             },
@@ -2907,10 +3012,12 @@ mod tests {
             CommandLink::new(ProtocolVersion::V26),
             FakeTransport {
                 replies: vec![
-                    getparam_reply(0, 1536),   // bin 3 LOW currently 1536
-                    getparam_reply(1, 2047),   // bin 3 HIGH currently 2047
+                    getparam_reply(0, 1536), // bin 3 LOW currently 1536
+                    getparam_reply(1, 2047), // bin 3 HIGH currently 2047
                     setparam_ack_reply(2, 1),
                     setparam_ack_reply(3, 1),
+                    getparam_reply(4, 0), // verify: LOW now 0
+                    getparam_reply(5, 0), // verify: HIGH now 0
                 ],
                 sent: vec![],
             },
@@ -2939,6 +3046,154 @@ mod tests {
             .collect();
         // LOW (param 69 = 0) BEFORE HIGH (param 70 = 0)
         assert_eq!(writes, vec![(69, 0), (70, 0)]);
+    }
+
+    /// The 0.3.5 camera-run quirk, modelled exactly: BOTH bound writes
+    /// come back NACKed `BadParams` and the value LANDED anyway — the
+    /// firmware applies an invariant-preserving write and then rejects
+    /// the reply. The write must succeed (Ok), with both bounds sent.
+    #[test]
+    fn agc_bin_write_lands_despite_nack() {
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![
+                    getparam_reply(0, 0),              // bin 0 LOW currently 0
+                    getparam_reply(1, 0),              // bin 0 HIGH currently 0
+                    setparam_nack_bad_params_reply(2), // LOW <- 0: NACKed
+                    setparam_nack_bad_params_reply(3), // HIGH <- 512: NACKed
+                    getparam_reply(4, 0),              // ...but it landed:
+                    getparam_reply(5, 512),            // bin0 now 0..512
+                ],
+                sent: vec![],
+            },
+        );
+        write_agc_bin_via(
+            &mut link,
+            &mut fake,
+            0,
+            AgcBin {
+                min_shift: 0,
+                max_shift: 512,
+            },
+            Duration::from_millis(50),
+        )
+        .expect("a NACKed-but-applied write is a SUCCESS");
+        let writes: Vec<(u16, u16)> = fake
+            .sent
+            .iter()
+            .filter(|req| req.len() == 12)
+            .map(|req| {
+                (
+                    u16::from_le_bytes([req[8], req[9]]),
+                    u16::from_le_bytes([req[10], req[11]]),
+                )
+            })
+            .collect();
+        // both bounds sent despite both NACKs (the 0.3.5 failure was a
+        // bail-out between the two writes leaving bin0 stuck at 0..512)
+        assert_eq!(writes, vec![(63, 0), (64, 512)]);
+    }
+
+    /// The genuinely-refused case: NACKed and NOT applied — the readback
+    /// differs from the request, so the write is an error that names
+    /// both values.
+    #[test]
+    fn agc_bin_write_truly_refused_is_an_error() {
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![
+                    getparam_reply(0, 0),
+                    getparam_reply(1, 0),
+                    setparam_nack_bad_params_reply(2),
+                    setparam_nack_bad_params_reply(3),
+                    getparam_reply(4, 0), // nothing landed
+                    getparam_reply(5, 0),
+                ],
+                sent: vec![],
+            },
+        );
+        let err = write_agc_bin_via(
+            &mut link,
+            &mut fake,
+            0,
+            AgcBin {
+                min_shift: 0,
+                max_shift: 512,
+            },
+            Duration::from_millis(50),
+        )
+        .unwrap_err();
+        assert!(matches!(err, XtionError::BadConfig(_)), "got {err:?}");
+        let msg = format!("{err}");
+        assert!(msg.contains("0..512"), "sent values in message: {msg}");
+        assert!(msg.contains("0..0"), "read-back values in message: {msg}");
+    }
+
+    /// The verified single-param write used by the close-range and
+    /// wavelength switches: a NACKed write that reads back as requested
+    /// is Ok (apply-then-reject), one that reads back unchanged is an
+    /// error.
+    #[test]
+    fn set_param_verified_decides_by_readback() {
+        // NACK + the value landed -> Ok
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![setparam_nack_bad_params_reply(0), getparam_reply(1, 1)],
+                sent: vec![],
+            },
+        );
+        set_param_verified_via(
+            &mut link,
+            &mut fake,
+            Param::DepthCloseRange,
+            1,
+            Duration::from_millis(50),
+        )
+        .expect("NACKed-but-applied switch write succeeds");
+
+        // NACK + the value did not land -> Err naming both values
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![setparam_nack_bad_params_reply(0), getparam_reply(1, 0)],
+                sent: vec![],
+            },
+        );
+        let err = set_param_verified_via(
+            &mut link,
+            &mut fake,
+            Param::DepthCloseRange,
+            1,
+            Duration::from_millis(50),
+        )
+        .unwrap_err();
+        assert!(matches!(err, XtionError::BadConfig(_)), "got {err:?}");
+        let msg = format!("{err}");
+        assert!(msg.contains("84"), "param id in message: {msg}");
+        assert!(
+            msg.contains("reads back 0"),
+            "read-back value in message: {msg}"
+        );
+
+        // plain ACK path: write + verify read still Ok
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![setparam_ack_reply(0, 1), getparam_reply(1, 1)],
+                sent: vec![],
+            },
+        );
+        set_param_verified_via(
+            &mut link,
+            &mut fake,
+            Param::DepthCloseRange,
+            1,
+            Duration::from_millis(50),
+        )
+        .expect("ACKed write verifies trivially");
     }
 
     /// An invalid range (or bin index) is rejected host-side without

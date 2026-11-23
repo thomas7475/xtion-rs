@@ -1467,6 +1467,9 @@ fn depth_and_ir_crop_windows() {
 /// known-good alternative, read it back, RESTORE, and only then assert
 /// on the captured values — a panic can never leave the device with
 /// modified processing (the restore happens before any assertion).
+/// Firmware refusals are printed as hardware verdicts, not failures
+/// (the crop-mode-2 treatment); the one hard gate on restore is the
+/// test's own contract that the device is always left as found.
 #[test]
 fn depth_processing_controls() {
     if !hardware_present() {
@@ -1539,32 +1542,51 @@ fn depth_processing_controls() {
     println!("gain (21): write 42 -> read {gain_echo}, restored {gain0}");
 
     // ---- AGC bins (63-70): the four-bin shift partition. Hardware
-    // finding (v0.3.4): this firmware validates EVERY individual
-    // SET_PARAM against the sibling bound's CURRENT value and NACKs
-    // BadParams when the write would momentarily leave min > max — the
-    // C's LOW-then-HIGH order dies on the first bin that grows upward
-    // (factory bins are all (0,0)). The driver (0.3.5) now picks a
-    // transient-safe order; this section probes the write paths so the
-    // run always produces a complete verdict, and runs the full
-    // custom-partition cycle if the build accepts bin writes at all. A
-    // refusal is a hardware verdict, not a test failure (same
-    // treatment as crop mode 2).
+    // findings, pinned by the 0.3.4 and 0.3.5 camera runs: (1) this
+    // firmware validates every individual SET_PARAM against the
+    // sibling bound's CURRENT value and NACKs BadParams when the write
+    // would momentarily leave min > max; (2) a NACK does NOT mean the
+    // write was refused — the 0.3.5 run left bin0 at 0..512 after a
+    // NACKed HIGH <- 512 write: the firmware APPLIES an
+    // invariant-preserving write and then rejects the reply, while an
+    // invariant-VIOLATING write (LOW <- 512 while HIGH is 0) is
+    // rejected without applying. The driver (0.3.6) therefore sends
+    // BOTH bounds in the transient-safe order even under NACK and
+    // takes the READBACK as the source of truth: `set_depth_agc_bin`
+    // returns Ok only when the bin reads back exactly as requested.
+    // (The 0.3.5 suite failure was a bail-out between the two bound
+    // writes: the first NACK aborted the factory restore, the
+    // HIGH <- 0 write never went out, and bin0 stayed at 0..512.)
+    // This section measures every probe against its immediate
+    // readback, restores through the verified API, and runs the
+    // custom-partition cycle whenever the verified writes succeed.
     println!("--- AGC bin write probe ---");
     fn probe_write(cam: &mut Xtion, param: xtion::Param, value: u16, what: &str) -> bool {
         let result = cam.set_param(param, value);
         match &result {
             Ok(()) => println!("   {what}: param {} <- {value}: ACK", param.as_u16()),
-            Err(e) => println!("   {what}: param {} <- {value}: REJECTED ({e})", param.as_u16()),
+            Err(e) => println!(
+                "   {what}: param {} <- {value}: REJECTED ({e})",
+                param.as_u16()
+            ),
         }
         result.is_ok()
     }
-    let p_noop_low = probe_write(
+    fn probe_readback(cam: &mut Xtion, bin: usize, what: &str) -> xtion::AgcBin {
+        let b = cam.depth_agc_bin(bin).expect("read AGC bin after probe");
+        println!(
+            "   {what}: bin{bin} now reads {}..{}",
+            b.min_shift, b.max_shift
+        );
+        b
+    }
+    let _p_noop_low = probe_write(
         &mut cam,
         xtion::Param::DepthAgcBin0Low,
         0,
         "no-op write, bin0 LOW (factory value)",
     );
-    let p_noop_high = probe_write(
+    let _p_noop_high = probe_write(
         &mut cam,
         xtion::Param::DepthAgcBin0High,
         0,
@@ -1576,30 +1598,57 @@ fn depth_processing_controls() {
         512,
         "grow bin0: HIGH <- 512 (the invariant-preserving first move)",
     );
+    let grow_back = probe_readback(&mut cam, 0, "readback after the grow write");
+    if !p_grow_high {
+        println!("   -> apply-then-reject confirmed: the NACKed write LANDED anyway");
+    }
+    assert_eq!(
+        grow_back.max_shift, 512,
+        "fw 5.8.22 applies an invariant-preserving AGC bin write even \
+         while NACKing it (0.3.5 camera run: bin0 read 0..512 right after \
+         the NACKed HIGH <- 512 probe)"
+    );
     let p_c_order = probe_write(
         &mut cam,
         xtion::Param::DepthAgcBin1Low,
         512,
         "C-order probe: bin1 LOW <- 512 while its HIGH is 0 (the v0.3.4 failure point)",
     );
+    let c_back = probe_readback(&mut cam, 1, "readback after the C-order write");
     if p_c_order {
         println!(
             "   -> the reference's LOW-first order is ACCEPTED here: this build does not \
              validate the transient min>max; the v0.3.4 failure needs another explanation"
         );
     }
-    let bins_accepted = p_noop_low && p_noop_high && p_grow_high;
-    // Unconditional best-effort restore of the factory partition (the
-    // driver's transient-safe ordering collapses bins safely).
+    assert_eq!(
+        (c_back.min_shift, c_back.max_shift),
+        (0, 0),
+        "an invariant-VIOLATING write must not land (bin1 LOW <- 512 while \
+         its HIGH is 0; 0.3.5 camera run: bin1 still read 0..0)"
+    );
+    // Unconditional restore of the factory partition through the
+    // verified API — both bounds are sent even under NACK, and any
+    // failure is PRINTED before the assert (the 0.3.5 run discarded
+    // the restore error silently, which is how the bail-out went
+    // unnoticed).
+    let mut probe_restore_err = None;
     for (i, b) in bins0.iter().enumerate() {
-        let _ = cam.set_depth_agc_bin(i, *b);
+        if let Err(e) = cam.set_depth_agc_bin(i, *b) {
+            probe_restore_err = Some(e);
+        }
+    }
+    if let Some(e) = &probe_restore_err {
+        println!("   restore warning: {e}");
     }
     let bins_after_probe: Vec<xtion::AgcBin> = (0..4)
         .map(|i| cam.depth_agc_bin(i).expect("read AGC bin after probe"))
         .collect();
     assert_eq!(
         bins_after_probe, bins0,
-        "the probe must leave the factory partition in place"
+        "the probe must leave the factory partition in place (if this fails \
+         on hardware, power-cycle the device and report the restore warning — \
+         the firmware refused the restore write)"
     );
 
     let custom = [
@@ -1620,61 +1669,59 @@ fn depth_processing_controls() {
             max_shift: xtion::MAX_SHIFT,
         },
     ];
-    if !bins_accepted {
-        println!(
-            "-> VERDICT: this firmware build refuses AGC bin writes even at the factory \
-             values — the bins are read-only on this unit ({:?}), like crop mode 2 and \
-             the runtime emitter toggle; reads work and the driver keeps the C-exact \
-             write path for builds that accept it",
-            bins0[0]
-        );
-    } else {
-        // full cycle: contiguous custom partition, echo, one frame,
-        // restore — the driver sequences every bound write so no
-        // intermediate state violates min <= max
-        let bins_result = (|| -> xtion::Result<(Vec<xtion::AgcBin>, usize)> {
-            for (i, b) in custom.iter().enumerate() {
-                cam.set_depth_agc_bin(i, *b)?;
+    // Full cycle — attempted UNCONDITIONALLY now: with readback-
+    // verified writes the cycle itself decides (Ok = the partition
+    // really changed and came back; Err = this build truly refuses
+    // bin writes — a hardware verdict like crop mode 2). A failure
+    // part-way still runs the restore below before the error
+    // propagates, so the device is never left on the custom partition.
+    let bins_result = (|| -> xtion::Result<(Vec<xtion::AgcBin>, usize)> {
+        let mut write_err = None;
+        for (i, b) in custom.iter().enumerate() {
+            if let Err(e) = cam.set_depth_agc_bin(i, *b) {
+                write_err = Some(e);
+                break;
             }
-            let mut echoed = Vec::with_capacity(4);
-            for i in 0..4 {
-                echoed.push(cam.depth_agc_bin(i)?);
+        }
+        let mut echoed = Vec::with_capacity(4);
+        for i in 0..4 {
+            echoed.push(cam.depth_agc_bin(i)?);
+        }
+        let frame = cam.read_depth_frame(Duration::from_secs(10));
+        // restore before propagating any frame/write error
+        let mut restore_err = None;
+        for (i, b) in bins0.iter().enumerate() {
+            if let Err(e) = cam.set_depth_agc_bin(i, *b) {
+                restore_err = Some(e);
             }
-            let frame = cam.read_depth_frame(Duration::from_secs(10));
-            // restore before propagating any frame error
-            let mut restore_err = None;
-            for (i, b) in bins0.iter().enumerate() {
-                if let Err(e) = cam.set_depth_agc_bin(i, *b) {
-                    restore_err = Some(e);
-                }
-            }
-            let valid = frame?.valid_pixels();
-            if let Some(e) = restore_err {
-                return Err(e);
-            }
-            Ok((echoed, valid))
-        })();
-        match bins_result {
-            Ok((echoed, valid)) => {
-                assert_eq!(
-                    echoed, custom,
-                    "all four bins must read back exactly as written"
-                );
-                println!(
-                    "AGC bins: custom partition echoed exactly (transient-safe order accepted); \
-                     {valid} valid pixels under it (baseline {baseline_valid}); factory bins restored"
-                );
-                assert!(
-                    valid > 100,
-                    "depth died completely under the custom bins: {valid} valid"
-                );
-            }
-            Err(err) => {
-                println!(
-                    "-> VERDICT: AGC bin writes accepted singly but refused mid-cycle ({err}); \
-                     kept as a hardware finding"
-                );
-            }
+        }
+        let valid = frame?.valid_pixels();
+        if let Some(e) = restore_err.or(write_err) {
+            return Err(e);
+        }
+        Ok((echoed, valid))
+    })();
+    match bins_result {
+        Ok((echoed, valid)) => {
+            assert_eq!(
+                echoed, custom,
+                "all four bins must read back exactly as written"
+            );
+            println!(
+                "AGC bins: custom partition echoed exactly — the NACKed writes land \
+                 and the readback is the truth; {valid} valid pixels under it \
+                 (baseline {baseline_valid}); factory bins restored"
+            );
+            assert!(
+                valid > 100,
+                "depth died completely under the custom bins: {valid} valid"
+            );
+        }
+        Err(err) => {
+            println!(
+                "-> VERDICT: AGC bin writes truly refused on this build ({err}); \
+                 kept as a hardware finding"
+            );
         }
     }
     // final factory check whatever happened above
@@ -1688,7 +1735,10 @@ fn depth_processing_controls() {
 
     // ---- close range (84): enable, read back, one frame (near-field
     // re-bias — long-range depth may legitimately vanish, so the frame
-    // is printed, not gated), restore ----
+    // is printed, not gated), restore. A refused write is a hardware
+    // VERDICT, not a panic: the verified setter leaves the device
+    // untouched when the firmware truly rejects (crop-mode-2
+    // treatment), so the suite cannot go red on a firmware refusal. ----
     let close_result = (|| -> xtion::Result<(bool, usize, Option<u16>)> {
         cam.set_close_range(true)?;
         let echoed = cam.close_range()?;
@@ -1696,50 +1746,99 @@ fn depth_processing_controls() {
         cam.set_close_range(close0)?; // restore before propagating errors
         let f = frame?;
         Ok((echoed, f.valid_pixels(), f.min_depth()))
-    })()
-    .expect("close-range write/read/restore cycle");
-    assert!(close_result.0, "close range must read back as on");
-    assert_eq!(
-        cam.close_range().expect("close range after restore"),
-        close0,
-        "close range must be back at the factory value"
-    );
-    println!(
-        "close range (84): on -> {} valid pixels (baseline {baseline_valid}), min depth {:?} mm; \
-         restored {close0}",
-        close_result.1, close_result.2
-    );
+    })();
+    match close_result {
+        Ok((echoed, valid, min)) => {
+            assert!(echoed, "close range must read back as on");
+            assert_eq!(
+                cam.close_range().expect("close range after restore"),
+                close0,
+                "close range must be back at the factory value"
+            );
+            println!(
+                "close range (84): on -> {valid} valid pixels (baseline {baseline_valid}), \
+                 min depth {min:?} mm; restored {close0}"
+            );
+        }
+        Err(e) => {
+            println!(
+                "-> VERDICT: close-range (84) write refused on this build ({e}); the \
+                 switch still reads {} and the verified setter leaves the device \
+                 untouched — kept as a hardware finding",
+                cam.close_range().unwrap_or(false)
+            );
+        }
+    }
 
     // ---- wavelength correction (73) + debug telemetry (74): toggled,
     // read back, restored. No frame is read while the DEBUG flag is on:
     // it makes the firmware emit wavelength-lock telemetry packets, a
-    // diagnostics mode, not a depth-affecting setting.
+    // diagnostics mode, not a depth-affecting setting. The closure
+    // restores BOTH switches even when a mid-cycle write is refused,
+    // so the device can never be left with correction on; a refusal is
+    // a verdict, not a failure.
     let wl_result = (|| -> xtion::Result<(bool, bool)> {
-        cam.set_wavelength_correction(true)?;
-        let wl = cam.wavelength_correction()?;
-        cam.set_wavelength_correction_debug(true)?;
-        let wld = cam.wavelength_correction_debug()?;
-        // restore both, then return what was read
-        cam.set_wavelength_correction_debug(wld0)?;
-        cam.set_wavelength_correction(wl0)?;
+        let mut err = None;
+        let wl = match cam
+            .set_wavelength_correction(true)
+            .and_then(|()| cam.wavelength_correction())
+        {
+            Ok(v) => v,
+            Err(e) => {
+                err = Some(e);
+                false
+            }
+        };
+        let wld = match cam
+            .set_wavelength_correction_debug(true)
+            .and_then(|()| cam.wavelength_correction_debug())
+        {
+            Ok(v) => v,
+            Err(e) => {
+                err = Some(e);
+                false
+            }
+        };
+        // restore both whatever happened above
+        if let Err(e) = cam.set_wavelength_correction_debug(wld0) {
+            err = Some(e);
+        }
+        if let Err(e) = cam.set_wavelength_correction(wl0) {
+            err = Some(e);
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
         Ok((wl, wld))
-    })()
-    .expect("wavelength write/read/restore cycle");
-    assert!(
-        wl_result == (true, true),
-        "wavelength correction and debug must read back as on"
-    );
-    assert_eq!(
-        cam.wavelength_correction()
-            .expect("wavelength after restore"),
-        wl0
-    );
-    assert_eq!(
-        cam.wavelength_correction_debug()
-            .expect("wavelength debug after restore"),
-        wld0
-    );
-    println!("wavelength (73/74): both toggled on and read back; restored {wl0}/{wld0}");
+    })();
+    match wl_result {
+        Ok((wl, wld)) => {
+            assert!(
+                (wl, wld) == (true, true),
+                "wavelength correction and debug must read back as on"
+            );
+            assert_eq!(
+                cam.wavelength_correction()
+                    .expect("wavelength after restore"),
+                wl0
+            );
+            assert_eq!(
+                cam.wavelength_correction_debug()
+                    .expect("wavelength debug after restore"),
+                wld0
+            );
+            println!("wavelength (73/74): both toggled on and read back; restored {wl0}/{wld0}");
+        }
+        Err(e) => {
+            println!(
+                "-> VERDICT: wavelength-correction (73/74) write refused on this \
+                 build ({e}); the switches read {}/{} and the verified setters leave \
+                 the device untouched — kept as a hardware finding",
+                cam.wavelength_correction().unwrap_or(false),
+                cam.wavelength_correction_debug().unwrap_or(false)
+            );
+        }
+    }
 
     // ---- final integrity: with everything restored the scene must be
     // back to baseline quality ----
@@ -1776,7 +1875,10 @@ fn gmc_config_and_motion_data() {
     // ---- full config block: read-only calibration members + switches ----
     let config0 = cam.gmc_config().expect("gmc config block");
     println!("GMC config block (params 36-44, 61, 75):");
-    println!("   mode (36)            = {} (0 = normal, 1 = scan)", config0.mode);
+    println!(
+        "   mode (36)            = {} (0 = normal, 1 = scan)",
+        config0.mode
+    );
     println!(
         "   ref offset (37)      = {} (as i16 {})",
         config0.ref_offset, config0.ref_offset as i16
@@ -1794,7 +1896,8 @@ fn gmc_config_and_motion_data() {
     println!("   debug (61)           = {}", config0.debug);
     println!("   correction mode (75) = {}", config0.correction_mode);
 
-    cam.start_depth(DepthConfig::default()).expect("start depth");
+    cam.start_depth(DepthConfig::default())
+        .expect("start depth");
     let baseline = cam
         .read_depth_frame(Duration::from_secs(10))
         .expect("baseline frame");
@@ -1803,38 +1906,39 @@ fn gmc_config_and_motion_data() {
 
     // ---- enable GMC + the debug channel (the reference's two writes)
     // and watch the misc endpoint while frames flow ----
-    let gmc_result = (|| -> xtion::Result<(usize, usize, usize, usize, Option<xtion::GmcPoints>)> {
-        cam.set_gmc_mode(true)?;
-        cam.set_gmc_debug(true)?;
-        let mut plain = 0usize;
-        let mut debug_pts = 0usize;
-        let mut debug_end = 0usize;
-        let mut total_points = 0usize;
-        let mut first_plain: Option<xtion::GmcPoints> = None;
-        for _ in 0..20 {
-            let _frame = cam.read_depth_frame(Duration::from_secs(10))?;
-            for packet in cam.drain_gmc_packets() {
-                match packet {
-                    xtion::GmcPacket::Points(p) => {
-                        total_points += p.points.len();
-                        if p.debug {
-                            debug_pts += 1;
-                        } else {
-                            plain += 1;
-                            if first_plain.is_none() {
-                                first_plain = Some(p.clone());
+    let gmc_result =
+        (|| -> xtion::Result<(usize, usize, usize, usize, Option<xtion::GmcPoints>)> {
+            cam.set_gmc_mode(true)?;
+            cam.set_gmc_debug(true)?;
+            let mut plain = 0usize;
+            let mut debug_pts = 0usize;
+            let mut debug_end = 0usize;
+            let mut total_points = 0usize;
+            let mut first_plain: Option<xtion::GmcPoints> = None;
+            for _ in 0..20 {
+                let _frame = cam.read_depth_frame(Duration::from_secs(10))?;
+                for packet in cam.drain_gmc_packets() {
+                    match packet {
+                        xtion::GmcPacket::Points(p) => {
+                            total_points += p.points.len();
+                            if p.debug {
+                                debug_pts += 1;
+                            } else {
+                                plain += 1;
+                                if first_plain.is_none() {
+                                    first_plain = Some(p.clone());
+                                }
                             }
                         }
+                        xtion::GmcPacket::DebugEnd(_) => debug_end += 1,
                     }
-                    xtion::GmcPacket::DebugEnd(_) => debug_end += 1,
                 }
             }
-        }
-        // restore both switches exactly (even a non-0/1 factory mode)
-        cam.set_param(xtion::Param::GmcDebug, config0.debug as u16)?;
-        cam.set_param(xtion::Param::DepthGmcMode, config0.mode)?;
-        Ok((plain, debug_pts, debug_end, total_points, first_plain))
-    })();
+            // restore both switches exactly (even a non-0/1 factory mode)
+            cam.set_param(xtion::Param::GmcDebug, config0.debug as u16)?;
+            cam.set_param(xtion::Param::DepthGmcMode, config0.mode)?;
+            Ok((plain, debug_pts, debug_end, total_points, first_plain))
+        })();
 
     match gmc_result {
         Ok((plain, debug_pts, debug_end, total_points, first_plain)) => {

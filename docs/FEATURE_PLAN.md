@@ -260,8 +260,8 @@ now fixed and covered by unit tests:
 | 19 | Image quality | PARAM 16 | missing | trivial | none (runtime param) |
 | 20 | Anti-flicker | PARAM 17 | missing | trivial | none (runtime param) |
 | 21 | Cropping (all streams) | PARAMs 46-60 + mode | **present (0.3.3; mode 2 hw-unsupported)** | - | none, but complex bookkeeping |
-| 22 | Depth AGC bins | PARAMs 63-70 | **present (0.3.4)** | - | none (runtime params) |
-| 23 | Wavelength correction | PARAMs 73/74 | **present (0.3.4)** | - | none (runtime params) |
+| 22 | Depth AGC bins | PARAMs 63-70 | **present (0.3.4; readback-verified 0.3.6)** | - | none (runtime params) |
+| 23 | Wavelength correction | PARAMs 73/74 | **present (0.3.4; readback-verified 0.3.6)** | - | none (runtime params) |
 | 24 | GMC data/debug stream | packets 0xa200/0xb200, OPCODE 26 | **present (0.3.5; plain 0xa200 + 0xb200/0xb500 decoded — the reference never routed 0xa200)** | - | none (read) |
 | 25 | Firmware log | OPCODE 7 + PARAMs 30/31 | missing | medium | low (PARAM 30/31 are runtime log config) |
 | 26 | CPU stats | OPCODE 27 | missing | small | none (read) |
@@ -384,9 +384,15 @@ that reuses the already-proven image pipe:
     `depth_agc_bin`/`set_depth_agc_bin` for params 63-70,
     `wavelength_correction`/`set_wavelength_correction` (+debug) for
     73/74, `close_range`/`set_close_range` for 84). All allow-while-open
-    single-param writes; AGC bins are written LOW then HIGH as two
-    separate SET_PARAMs (`XnHostProtocolSetDepthAGCBin` parity). Camera
-    validation: test 11 (`depth_processing_controls`). The old
+    single-param writes; AGC bins are written as two separate SET_PARAMs
+    per bin (`XnHostProtocolSetDepthAGCBin` parity) in a transient-safe
+    order. Camera validation: test 11 (`depth_processing_controls`).
+    **0.3.6 (camera-run follow-up): this firmware can APPLY an AGC-bin
+    write and still NACK the reply (apply-then-reject; invariant-
+    violating writes are rejected for real), so all depth-processing
+    setters — bins, close range 84, wavelength 73/74 — now send the
+    write, tolerate the NACK, and verify BY READBACK: Ok means the
+    value reads back exactly as requested.** The old
     `set_depth_agc(bool)` one-liner was REMOVED — param 21 is a gain
     value, not a switch, and writing 0/1 to it was a bug.
     Still open from this item: ALGORITHM 0x80 FREQUENCY *write* for

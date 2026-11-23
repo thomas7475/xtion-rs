@@ -359,25 +359,37 @@ following frames:
   `XnHostProtocolSetDepthAGCBin`, XnHostProtocol.cpp:3124-3141); the
   wire (and this driver's API) carries raw shifts. Writes are TWO
   separate single SET_PARAMs per bin.
-  **Hardware finding (fw 5.8.22, 0.3.4 camera run): the firmware
-  validates every individual write against the sibling bound's CURRENT
-  value and NACKs `BadParams` when the write would momentarily leave
-  `min > max` — the reference's LOW-then-HIGH order dies on the first
-  bin that grows upward (factory bins are all (0,0)). 0.3.5 therefore
-  sequences each bin transient-safely: raise HIGH first when the new
-  bin sits above the old one, lower LOW first otherwise; the probe
-  ladder in hardware test 11 pins the exact behaviour per build.**
+  **Hardware findings (fw 5.8.22, 0.3.4 + 0.3.5 camera runs): (1)
+  the firmware validates every individual write against the sibling
+  bound's CURRENT value and NACKs `BadParams` when the write would
+  momentarily leave `min > max` — the reference's LOW-then-HIGH order
+  dies on the first bin that grows upward (factory bins are all
+  (0,0)); (2) a NACK does NOT mean the write was refused: the 0.3.5
+  run left bin0 at `0..512` after a NACKed `HIGH <- 512` write —
+  the firmware APPLIES an invariant-preserving write and then
+  rejects the reply (apply-then-reject), while an invariant-
+  VIOLATING write (LOW <- 512 while HIGH is 0) is rejected without
+  applying. 0.3.6 therefore sequences each bin transient-safely
+  (raise HIGH first when the new bin sits above the old one, lower
+  LOW first otherwise), sends BOTH bounds even under NACK, and makes
+  the READBACK the source of truth: `set_depth_agc_bin` returns Ok
+  only when the bin reads back exactly as requested. Hardware test
+  11 measures every probe against its immediate readback and hard-
+  gates both camera-verified facts.**
 - **Wavelength correction (params 73/74, fw >= 5.2)**: param 73
   enables the firmware's correction of depth against the projector's
   actual laser wavelength vs. the factory reference; param 74 is a
   DEBUG switch that additionally emits wavelength-lock telemetry
   packets (TEC set-point steps, hop counts —
-  `XnWavelengthCorrectionDebugPacket`).
+  `XnWavelengthCorrectionDebugPacket`). Both setters verify by
+  readback (see the AGC-bin apply-then-reject finding above — a
+  NACK reply alone cannot be trusted on this build): Ok means the
+  switch now reads back as requested.
 - **Close range (param 84, fw >= 5.6)**: re-biases the receiver so
   saturated near-field reflections stop swallowing sub-50 cm depth.
   On fw >= 5.6 the firmware implements the mode internally; the
   pre-5.6 host-side recipe (AHB register pokes + gain 1/42) is not
-  ported.
+  ported. The setter verifies by readback for the same reason.
 
 Depth input formats (`XnIODepthFormats`): UNCOMPRESSED_16_BIT=0,
 COMPRESSED_PS=1, UNCOMPRESSED_10_BIT=2, **UNCOMPRESSED_11_BIT=3 (Linux

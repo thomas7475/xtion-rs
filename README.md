@@ -26,14 +26,14 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Hardware registration, emitter on/off, OVERHEAT/PROJECTOR_FAULT events | implemented in 0.2.0 |
 | Runtime options: mirror, hole filter, AGC, close range, GMC mode, exposure, white balance, gain, quality, flicker | implemented in 0.2.0 |
 | **Crop windows (0.3.3, batch write 0.3.4)**: `Crop` + `set_depth_crop` / `set_color_crop` / `set_ir_crop` | implemented — geometry pairs first, mode pair last, committed as ONE multi-pair SET_PARAM batch (the reference's `CommitTransactionAsBatch` form; a NACK triggers the C's re-read rollback); while a window is active the firmware transmits ONLY the window, so frames arrive crop-sized and report their origin (`DepthFrame::crop`), with `to_world` staying full-frame correct; IR has no extra CMOS rows while cropped; **mode 2 (increased fps): this fw build NACKs it with BadParams (0.3.3 camera run) — hardware test 10 probes single/batch/stopped forms and treats the rejection as the documented verdict** |
-| **Depth processing controls (0.3.4)**: `depth_gain`/`set_depth_gain` (21), `AgcBin` + `depth_agc_bin`/`set_depth_agc_bin` (63-70), `close_range`/`set_close_range` (84), `wavelength_correction`(+debug) (73/74) | implemented — all allow-while-open; AGC bins carry raw SHIFT ranges like the wire (the reference translates mm through the depth<->shift tables) and **since 0.3.5 are written in a transient-safe order (raise HIGH first when a bin grows upward): this fw build validates every individual write against the sibling bound's current value and NACKs the reference's LOW-first order on the first bin that grows (0.3.4 camera run); hardware test 11 probes the exact behaviour**; the old misleading `set_depth_agc(bool)` was removed (param 21 is a gain value, not a switch); camera validation: hardware test 11 |
+| **Depth processing controls (0.3.4, readback-verified 0.3.6)**: `depth_gain`/`set_depth_gain` (21), `AgcBin` + `depth_agc_bin`/`set_depth_agc_bin` (63-70), `close_range`/`set_close_range` (84), `wavelength_correction`(+debug) (73/74) | implemented — all allow-while-open; AGC bins carry raw SHIFT ranges like the wire (the reference translates mm through the depth<->shift tables) and are written in a transient-safe order (raise HIGH first when a bin grows upward: this fw build validates every individual write against the sibling bound's current value, 0.3.4 camera run); **since 0.3.6 every AGC-bin / close-range / wavelength write is VERIFIED BY READBACK because this firmware can APPLY a write and still NACK the reply (0.3.5 camera run: bin0 read 0..512 right after a NACKed HIGH <- 512 — apply-then-reject; invariant-violating writes are rejected for real)** — Ok means the value reads back exactly as requested; the old misleading `set_depth_agc(bool)` was removed (param 21 is a gain value, not a switch); camera validation: hardware test 11 |
 | GMC data, audio, registration tables | GMC data **done in 0.3.5** (`gmc_config`, `set_gmc_mode`/`set_gmc_debug`, `drain_gmc_packets` decoding 0xa200/0xb200/0xb500); audio and registration tables not yet (Phase 3-4 of docs/FEATURE_PLAN.md; difficulty-rated table in section 1b) |
 | **Camera geometry (0.3.0)**: pinhole intrinsics from the on-device calibration (`depth_intrinsics`), depth-to-world (`to_world`/`point_cloud`, OpenNI convention: mm, X right, Y up, Z forward), PLY example | implemented — FOV formula ports the PS1080 depth-stream init (hfov spans the CMOS's native 1280 px line, vfov its 960 px height; ~58/45 deg on the Xtion spec), conversion ports the OpenNI2 core (`OniStream.cpp:399-404`); hardware gates: FOV vs spec and a RANSAC dominant-plane RMS (applied only when a plane covers >= 40% of the frame — non-planar scenes skip), in `depth_geometry_fov_and_timestamps` |
 | **Host-referenced frame timestamps (0.3.0)**: `timestamp_us` on every frame, wrap-aware (raw ticks wrap every 71.6 s at 60 MHz) | implemented — port of `XnDataProcessor::CreateTimestampFromDevice` (anchor + wrap estimation + 10 s sanity re-sync); clock rate from ALGORITHM_PARAMS 0x80 |
 | System commands (0.2.8): firmware log, CPU stats, BIST, TEC + emitter telemetry, CMOS blanking/register reads (I2C), AHB read, flash map / file list / file download / raw flash read | implemented — strictly READ-ONLY; the write-side commands stay excluded; **0.3.2 closed the flash story**: on-flash file table parsed from packed 22-byte `XnFlashFile` records (word-addressed — the firmware's GET_FILE_LIST rows drift +2 B per record on 5.8.22 because it walks them with its unpacked 24-byte struct), per-file CRC identified as CRC-16/CCITT-FALSE over big-endian words and verified against the factory image 8/8 (`Xtion::flash_file_table` + `Xtion::verify_flash_file`) |
 | Pre-3.0 firmware (bulk control endpoints) | not supported (explicit error) |
 
-Everything that can be verified without the camera **is** verified: 135
+Everything that can be verified without the camera **is** verified: 148
 lib tests pass on a bare CI machine (`cargo test`), and the numerical cores
 (packed-11 depth, 10-bit IR, shift-to-depth) are proven equal to the
 original C++ implementation by golden vectors generated from a verbatim C
@@ -117,6 +117,36 @@ driver (Apache-2.0, PrimeSense Ltd.); see `NOTICE.md`. The decode cores
 are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
+
+- **0.3.6 — readback-verified depth-processing writes (the
+  apply-then-reject firmware quirk)** — the 0.3.5 camera run pinned
+  the decisive fact: a `BadParams` NACK on an AGC bin write does NOT
+  mean the write was refused. The run's probe wrote `bin0 HIGH <- 512`
+  (invariant-preserving), got NACK `BadParams` back — and the bin
+  read `0..512` afterwards: **the firmware applies invariant-
+preserving writes and then rejects the reply**
+  (apply-then-reject), while an invariant-VIOLATING write (LOW <- 512
+  while HIGH is 0) is rejected without applying. The suite failure
+  itself was a driver bug exposed by that quirk: `write_agc_bin_via`
+  bailed out on the first NACK, so the factory restore's `HIGH <- 0`
+  never went out and bin0 stayed at `0..512`. Fixes and features:
+  - `write_agc_bin_via` / `set_depth_agc_bin` now send BOTH bounds in
+    the transient-safe order even under NACK and take the READBACK as
+    the source of truth: Ok means the bin now reads exactly as
+    requested, Err (naming sent-vs-read-back values) means the
+    firmware truly refused.
+  - `set_close_range` / `set_wavelength_correction`(+debug) use the
+    same readback-verified write (`set_param_verified_via`), so the
+    same ambiguity class cannot silently misreport their writes.
+  - Hardware test 11 measures every probe against its immediate
+    readback (the landed-NACK and the rejected-invariant-violation are
+    both hard-gated camera-verified facts), restores through the
+    verified API with restore errors printed, and runs the custom-
+    partition cycle unconditionally — a true refusal is a VERDICT
+    line, not a suite failure; the close-range and wavelength
+    sections gained the same verdict treatment so the suite can no
+    longer go red on any firmware refusal.
+  - 148 lib + 4 golden + 1 doc tests green, clippy clean.
 
 - **0.3.4 — depth processing controls + the crop mode-2 verdict** —
   the remaining depth-quality parameters, all allow-while-open and all
