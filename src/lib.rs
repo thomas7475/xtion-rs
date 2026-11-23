@@ -58,7 +58,7 @@ pub mod stream;
 pub mod timestamp;
 pub mod usb;
 
-pub use device::{ColorFrame, Crop, DepthConfig, DepthFrame, DeviceVersion, Xtion};
+pub use device::{AgcBin, ColorFrame, Crop, DepthConfig, DepthFrame, DeviceVersion, Xtion};
 pub use error::{Nack, ProtocolError, Result, XtionError};
 pub use geometry::CameraIntrinsics;
 pub use ir::{IrConfig, IrFrame};
@@ -66,7 +66,10 @@ pub use protocol::system::{
     bist, CpuTaskStats, EmitterData, FirmwareLogEntry, FlashEntry, FlashFile,
     TecFastConvergenceData,
 };
-pub use protocol::{CmosPreset, DepthFormat, HostMode, ImageFormat, Param, Resolution, UsbCore};
+pub use protocol::{
+    CmosPreset, DepthFormat, HostMode, ImageFormat, Param, Resolution, UsbCore, CROP_MODE_DISABLED,
+    CROP_MODE_INCREASED_FPS, CROP_MODE_NORMAL, MAX_SHIFT,
+};
 pub use ring::{RingStats, BULK_MULTIPLIER, RING_BUFFERS};
 pub use stream::DeviceEvent;
 pub use timestamp::TimestampConverter;

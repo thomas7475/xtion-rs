@@ -22,8 +22,8 @@ use crate::protocol::presets::{read_cmos_presets, CmosPreset, CMOS_TYPE_IMAGE};
 use crate::protocol::system as sys;
 use crate::protocol::{
     DepthFormat, HostMode, ImageFormat, Opcode, Param, Resolution, UsbCore, CROP_MODE_DISABLED,
-    CROP_MODE_INCREASED_FPS, CROP_MODE_NORMAL, SHIFTS_PARAM_COEFFICIENT, SHIFTS_SHIFT_SCALE,
-    STREAM_MODE_COLOR, STREAM_MODE_DEPTH, STREAM_MODE_IR, STREAM_MODE_OFF,
+    CROP_MODE_INCREASED_FPS, CROP_MODE_NORMAL, MAX_SHIFT, SHIFTS_PARAM_COEFFICIENT,
+    SHIFTS_SHIFT_SCALE, STREAM_MODE_COLOR, STREAM_MODE_DEPTH, STREAM_MODE_IR, STREAM_MODE_OFF,
 };
 use crate::stream::{DeviceEvent, StreamAssembler};
 use crate::usb::UsbDevice;
@@ -239,9 +239,62 @@ impl Crop {
     }
 }
 
+/// One depth AGC bin: a half-open range of SHIFT values
+/// `[min_shift, max_shift]`, 0..=[`MAX_SHIFT`]. The firmware applies a
+/// per-bin integration gain to pixels whose correlation shift falls
+/// inside the bin, so near (small shift) and far (large shift) targets
+/// can be exposed differently in the same frame — the depth-pipe
+/// counterpart of a camera's multi-zone auto exposure.
+///
+/// The reference's public property is millimetre-based
+/// (`XnDepthAGCBin {nBin, nMin, nMax}`, translated through the
+/// per-device depth<->shift tables, XnSensorDepthStream.cpp:722-766);
+/// the wire carries raw shifts, and so does this API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AgcBin {
+    /// Smallest shift in the bin.
+    pub min_shift: u16,
+    /// Largest shift in the bin.
+    pub max_shift: u16,
+}
+
+impl AgcBin {
+    /// Host-side validation before the wire write: an ordered range
+    /// inside the 0..=2047 shift space.
+    fn validate(&self) -> Result<()> {
+        if self.min_shift > self.max_shift {
+            return Err(XtionError::BadConfig(format!(
+                "AGC bin min shift {} is above max shift {}",
+                self.min_shift, self.max_shift
+            )));
+        }
+        if self.max_shift > MAX_SHIFT {
+            return Err(XtionError::BadConfig(format!(
+                "AGC bin max shift {} is beyond the shift space (0..={MAX_SHIFT})",
+                self.max_shift
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// The (LOW, HIGH) param pair of depth AGC bin `bin` — four bins,
+/// params 63-70 (`XnParams.h`).
+fn agc_bin_params(bin: usize) -> Result<(Param, Param)> {
+    match bin {
+        0 => Ok((Param::DepthAgcBin0Low, Param::DepthAgcBin0High)),
+        1 => Ok((Param::DepthAgcBin1Low, Param::DepthAgcBin1High)),
+        2 => Ok((Param::DepthAgcBin2Low, Param::DepthAgcBin2High)),
+        3 => Ok((Param::DepthAgcBin3Low, Param::DepthAgcBin3High)),
+        _ => Err(XtionError::BadConfig(format!(
+            "depth AGC has exactly four bins (0-3), got bin {bin}"
+        ))),
+    }
+}
+
 /// Crop state kept per stream: the window plus the firmware mode it is
 /// written with (1 = normal, 2 = increased fps).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct CropState {
     crop: Crop,
     mode: u16,
@@ -1037,17 +1090,9 @@ impl Xtion {
         self.set_param(Param::DepthHoleFilter, enable as u16)
     }
 
-    /// Enable depth automatic gain control (PARAM_DEPTH_AGC).
-    pub fn set_depth_agc(&mut self, enable: bool) -> Result<()> {
-        self.set_param(Param::DepthAgc, enable as u16)
-    }
-
-    /// Switch the depth stream to close-range mode (PARAM_DEPTH_CLOSE_RANGE,
-    /// firmware >= 5.6): trades long range for sub-50 cm sensitivity using
-    /// the same ConstShift calibration this driver already reads.
-    pub fn set_close_range(&mut self, enable: bool) -> Result<()> {
-        self.set_param(Param::DepthCloseRange, enable as u16)
-    }
+    // Depth gain / AGC bins / close range / wavelength correction live
+    // in the "Depth processing controls" section below (params 21,
+    // 63-70, 73/74, 84).
 
     /// Enable global-motion-compensation processing on the depth stream
     /// (PARAM_DEPTH_GMC_MODE).
@@ -1095,14 +1140,14 @@ impl Xtion {
             _ => 1,
         };
         let state = self.crop_state(crop, increased_fps, res_w, res_h, group)?;
+        self.depth_crop = state;
         write_crop_via(
             &mut self.link,
             &mut self.usb,
             DEPTH_CROP_PARAMS,
-            state,
+            &mut self.depth_crop,
             COMMAND_TIMEOUT,
         )?;
-        self.depth_crop = state;
         Ok(())
     }
 
@@ -1122,14 +1167,14 @@ impl Xtion {
         let (res_w, res_h) = config.resolution.dimensions();
         // YUV422 is byte-per-component on the wire: no packing groups.
         let state = self.crop_state(crop, increased_fps, res_w, res_h, 1)?;
+        self.color_crop = state;
         write_crop_via(
             &mut self.link,
             &mut self.usb,
             IMAGE_CROP_PARAMS,
-            state,
+            &mut self.color_crop,
             COMMAND_TIMEOUT,
         )?;
-        self.color_crop = state;
         Ok(())
     }
 
@@ -1152,14 +1197,14 @@ impl Xtion {
         let (res_w, res_h) = config.dimensions();
         // packed-10 consumes pixels in groups of 4 (5 bytes).
         let state = self.crop_state(crop, increased_fps, res_w, res_h, 4)?;
+        self.ir_crop = state;
         write_crop_via(
             &mut self.link,
             &mut self.usb,
             IR_CROP_PARAMS,
-            state,
+            &mut self.ir_crop,
             COMMAND_TIMEOUT,
         )?;
-        self.ir_crop = state;
         Ok(())
     }
 
@@ -1230,21 +1275,113 @@ impl Xtion {
 
     /// Read one firmware parameter.
     pub fn get_param(&mut self, param: Param) -> Result<u16> {
-        let data = self.link.exchange(
-            &mut self.usb,
-            Opcode::GetParam,
-            &param.as_u16().to_le_bytes(),
-            COMMAND_TIMEOUT,
-        )?;
-        if data.len() < 2 {
-            return Err(XtionError::BadConfig("param reply too short".into()));
-        }
-        Ok(u16::from_le_bytes([data[0], data[1]]))
+        get_param_via(&mut self.link, &mut self.usb, param, COMMAND_TIMEOUT)
     }
 
     /// Write one firmware parameter.
     pub fn set_param(&mut self, param: Param, value: u16) -> Result<()> {
         set_param_via(&mut self.link, &mut self.usb, param, value, COMMAND_TIMEOUT)
+    }
+
+    /// Write several firmware parameters with one SET_PARAM request
+    /// (the firmware's multi-pair batch form — see [`set_depth_crop`]
+    /// for the crop use). Advanced use; prefer the dedicated setters.
+    pub fn set_params(&mut self, pairs: &[(Param, u16)]) -> Result<()> {
+        set_params_via(&mut self.link, &mut self.usb, pairs, COMMAND_TIMEOUT)
+    }
+
+    // --------------------------------------------------------------
+    // Depth processing controls (params 21, 63-70, 73/74, 84)
+    //
+    // All four groups are plain allow-while-open parameters
+    // (`MapFirmwareProperty(..., TRUE)`, XnSensorDepthStream.cpp:
+    // 280-314): they can be changed while the depth stream runs and
+    // take effect on the following frames.
+    // --------------------------------------------------------------
+
+    /// Read the depth gain (PARAM_DEPTH_AGC, param 21 — the legacy
+    /// name is misleading: this is the reference's "Gain" property, a
+    /// plain integration-strength value, not a switch; the factory
+    /// default is 50, and the reference's pre-5.6 close-range recipe
+    /// steps it to 1 and back to 42).
+    pub fn depth_gain(&mut self) -> Result<u16> {
+        self.get_param(Param::DepthAgc)
+    }
+
+    /// Set the depth gain (PARAM_DEPTH_AGC, param 21).
+    pub fn set_depth_gain(&mut self, gain: u16) -> Result<()> {
+        self.set_param(Param::DepthAgc, gain)
+    }
+
+    /// Read depth AGC bin `bin` (0-3): the [min, max] SHIFT range that
+    /// bin covers on the wire.
+    pub fn depth_agc_bin(&mut self, bin: usize) -> Result<AgcBin> {
+        let (low, high) = agc_bin_params(bin)?;
+        let min_shift = self.get_param(low)?;
+        let max_shift = self.get_param(high)?;
+        Ok(AgcBin {
+            min_shift,
+            max_shift,
+        })
+    }
+
+    /// Set depth AGC bin `bin` (0-3) to a [min, max] shift range.
+    /// The LOW param is written before the HIGH one, exactly like
+    /// `XnHostProtocolSetDepthAGCBin` (XnHostProtocol.cpp:3124-3141:
+    /// two separate SET_PARAMs — no batch here).
+    pub fn set_depth_agc_bin(&mut self, bin: usize, value: AgcBin) -> Result<()> {
+        let (low, high) = agc_bin_params(bin)?;
+        value.validate()?;
+        self.set_param(low, value.min_shift)?;
+        self.set_param(high, value.max_shift)?;
+        Ok(())
+    }
+
+    /// Read the close-range switch (PARAM_DEPTH_CLOSE_RANGE, param 84,
+    /// fw >= 5.6).
+    pub fn close_range(&mut self) -> Result<bool> {
+        Ok(self.get_param(Param::DepthCloseRange)? != 0)
+    }
+
+    /// Enable or disable close-range depth (param 84). On fw >= 5.6
+    /// (this driver's baseline) the firmware implements the mode
+    /// internally — it re-biases the receiver so saturated
+    /// near-field reflections stop swallowing depth. Older firmwares
+    /// needed host-side AHB register pokes plus a gain change
+    /// (`CloseRangeControl`, XnSensorDepthStream.cpp:842-873); that
+    /// path is deliberately not ported.
+    pub fn set_close_range(&mut self, enable: bool) -> Result<()> {
+        self.set_param(Param::DepthCloseRange, enable as u16)
+    }
+
+    /// Read the wavelength-correction switch
+    /// (PARAM_WAVELENGTH_CORRECTION_ENABLED, param 73, fw >= 5.2):
+    /// whether the firmware corrects depth for the projector's
+    /// actual laser wavelength against the factory reference.
+    pub fn wavelength_correction(&mut self) -> Result<bool> {
+        Ok(self.get_param(Param::WavelengthCorrectionEnabled)? != 0)
+    }
+
+    /// Enable or disable wavelength correction (param 73).
+    pub fn set_wavelength_correction(&mut self, enable: bool) -> Result<()> {
+        self.set_param(Param::WavelengthCorrectionEnabled, enable as u16)
+    }
+
+    /// Read the wavelength-correction DEBUG switch
+    /// (PARAM_WAVELENGTH_CORRECTION_DEBUG_ENABLED, param 74): when on,
+    /// the firmware additionally emits wavelength-lock telemetry
+    /// packets — TEC set-point steps, hop counts, sliding-window state
+    /// (`XnWavelengthCorrectionDebugPacket`, dumped by the reference
+    /// to a CSV). A diagnostics mode; leave off for normal depth
+    /// streaming.
+    pub fn wavelength_correction_debug(&mut self) -> Result<bool> {
+        Ok(self.get_param(Param::WavelengthCorrectionDebugEnabled)? != 0)
+    }
+
+    /// Enable or disable wavelength-correction debug telemetry
+    /// (param 74).
+    pub fn set_wavelength_correction_debug(&mut self, enable: bool) -> Result<()> {
+        self.set_param(Param::WavelengthCorrectionDebugEnabled, enable as u16)
     }
 
     /// Read the firmware operating mode (GET_MODE, opcode 5).
@@ -1294,7 +1431,7 @@ impl Xtion {
             &mut self.link,
             &mut self.usb,
             DEPTH_CROP_PARAMS,
-            self.depth_crop,
+            &mut self.depth_crop,
             COMMAND_TIMEOUT,
         )?;
 
@@ -1455,7 +1592,7 @@ impl Xtion {
             resolution,
             fps,
             STREAM_MODE_COLOR,
-            self.color_crop,
+            &mut self.color_crop,
             COMMAND_TIMEOUT,
         )
         .map_err(|err| {
@@ -1518,7 +1655,7 @@ impl Xtion {
             &mut self.link,
             &mut self.usb,
             config,
-            self.ir_crop,
+            &mut self.ir_crop,
             COMMAND_TIMEOUT,
         )?;
 
@@ -2046,40 +2183,126 @@ fn set_param_via<T: ControlTransport>(
     value: u16,
     timeout: Duration,
 ) -> Result<()> {
-    let mut payload = Vec::with_capacity(4);
-    payload.extend_from_slice(&param.as_u16().to_le_bytes());
-    payload.extend_from_slice(&value.to_le_bytes());
+    set_params_via(link, transport, &[(param, value)], timeout)
+}
+
+/// Read one firmware parameter over any control transport (the
+/// transport-generic core of [`Xtion::get_param`]).
+fn get_param_via<T: ControlTransport>(
+    link: &mut CommandLink,
+    transport: &mut T,
+    param: Param,
+    timeout: Duration,
+) -> Result<u16> {
+    let data = link.exchange(
+        transport,
+        Opcode::GetParam,
+        &param.as_u16().to_le_bytes(),
+        timeout,
+    )?;
+    if data.len() < 2 {
+        return Err(XtionError::BadConfig("param reply too short".into()));
+    }
+    Ok(u16::from_le_bytes([data[0], data[1]]))
+}
+
+/// Write several firmware parameters with a single SET_PARAM request:
+/// the payload is N (param, value) word pairs — the firmware's batch
+/// form, committed this way by the reference for every crop change
+/// (`CommitTransactionAsBatch` -> `XnHostProtocolSetMultipleParams`,
+/// XnHostProtocol.cpp:2830-2860; pair layout `XnInnerParamData`,
+/// PS1080.h:460-466), so a multi-param change is applied as one unit
+/// instead of half-applied. A one-pair call is wire-identical to
+/// [`set_param_via`].
+fn set_params_via<T: ControlTransport>(
+    link: &mut CommandLink,
+    transport: &mut T,
+    pairs: &[(Param, u16)],
+    timeout: Duration,
+) -> Result<()> {
+    if pairs.is_empty() {
+        return Err(XtionError::BadConfig(
+            "set_params: refusing an empty parameter batch".into(),
+        ));
+    }
+    let mut payload = Vec::with_capacity(pairs.len() * 4);
+    for &(param, value) in pairs {
+        payload.extend_from_slice(&param.as_u16().to_le_bytes());
+        payload.extend_from_slice(&value.to_le_bytes());
+    }
     link.exchange(transport, Opcode::SetParam, &payload, timeout)?;
     Ok(())
 }
 
-/// Crop write sequence, transport-generic for testing.
+/// Crop write, transport-generic for testing.
 ///
-/// Port of `SetCroppingImpl` — the sequence is identical for all three
-/// streams (XnSensorDepthStream.cpp:768-840, XnSensorImageStream.cpp:
-/// 541-612, XnSensorIRStream.cpp:304-380): when ENABLING, the geometry
-/// goes first — size X, size Y, offset X, offset Y — and the mode param
-/// LAST; when DISABLING, only the mode param is written, geometry
-/// untouched. Because the mode is written last, a NACK part-way through
-/// leaves the previously active window in charge (the reference relies
-/// on the same ordering for its rollback).
+/// Port of `SetCroppingImpl` (XnSensorDepthStream.cpp:768-840; image
+/// and IR identical): the geometry pairs — size X, size Y, offset X,
+/// offset Y — go FIRST and the MODE pair LAST, all inside ONE
+/// multi-pair SET_PARAM batch (the reference wraps these writes in a
+/// firmware transaction and commits it with
+/// `CommitTransactionAsBatch`, XnSensorFirmwareParams.cpp:350-433, so
+/// the firmware applies the whole window change at once). Disabling
+/// sends just the mode pair — wire-identical to a single param write.
+/// On failure the reference re-reads the five crop params to re-sync
+/// its host state (`UpdateFromFirmware`, XnSensorDepthStream.cpp:
+/// 807-829); `*state` is updated the same way, so a caller never
+/// keeps a window the firmware does not actually have.
 fn write_crop_via<T: ControlTransport>(
     link: &mut CommandLink,
     transport: &mut T,
     params: CropParams,
-    state: Option<CropState>,
+    state: &mut Option<CropState>,
     timeout: Duration,
 ) -> Result<()> {
-    if let Some(cs) = state {
-        set_param_via(link, transport, params.size_x, cs.crop.width, timeout)?;
-        set_param_via(link, transport, params.size_y, cs.crop.height, timeout)?;
-        set_param_via(link, transport, params.offset_x, cs.crop.x, timeout)?;
-        set_param_via(link, transport, params.offset_y, cs.crop.y, timeout)?;
-        set_param_via(link, transport, params.mode, cs.mode, timeout)?;
-    } else {
-        set_param_via(link, transport, params.mode, CROP_MODE_DISABLED, timeout)?;
+    let pairs: Vec<(Param, u16)> = match *state {
+        Some(cs) => vec![
+            (params.size_x, cs.crop.width),
+            (params.size_y, cs.crop.height),
+            (params.offset_x, cs.crop.x),
+            (params.offset_y, cs.crop.y),
+            (params.mode, cs.mode),
+        ],
+        None => vec![(params.mode, CROP_MODE_DISABLED)],
+    };
+    if let Err(err) = set_params_via(link, transport, &pairs, timeout) {
+        // Rollback parity: best-effort re-read of what the firmware
+        // actually holds. A re-read failure keeps the requested value
+        // and surfaces the original write error.
+        if let Ok(actual) = read_crop_via(link, transport, params, timeout) {
+            *state = actual;
+        }
+        return Err(err);
     }
     Ok(())
+}
+
+/// Re-read the five crop params of one stream and rebuild the state
+/// (mode 0 = disabled -> `None`; geometry params hold the last window
+/// even while disabled, exactly like the reference's firmware props).
+fn read_crop_via<T: ControlTransport>(
+    link: &mut CommandLink,
+    transport: &mut T,
+    params: CropParams,
+    timeout: Duration,
+) -> Result<Option<CropState>> {
+    let mode = get_param_via(link, transport, params.mode, timeout)?;
+    if mode == CROP_MODE_DISABLED {
+        return Ok(None);
+    }
+    let width = get_param_via(link, transport, params.size_x, timeout)?;
+    let height = get_param_via(link, transport, params.size_y, timeout)?;
+    let x = get_param_via(link, transport, params.offset_x, timeout)?;
+    let y = get_param_via(link, transport, params.offset_y, timeout)?;
+    Ok(Some(CropState {
+        crop: Crop {
+            x,
+            y,
+            width,
+            height,
+        },
+        mode,
+    }))
 }
 
 /// Color (image) stream write sequence, transport-generic for testing.
@@ -2099,7 +2322,7 @@ fn configure_color_via<T: ControlTransport>(
     resolution: Resolution,
     fps: u16,
     stream_on_value: u16,
-    color_crop: Option<CropState>,
+    color_crop: &mut Option<CropState>,
     timeout: Duration,
 ) -> Result<()> {
     // Stream-mode changes go through OFF first (see firmware_init_reset
@@ -2155,7 +2378,7 @@ fn configure_ir_via<T: ControlTransport>(
     link: &mut CommandLink,
     transport: &mut T,
     config: IrConfig,
-    ir_crop: Option<CropState>,
+    ir_crop: &mut Option<CropState>,
     timeout: Duration,
 ) -> Result<()> {
     // Stream-mode changes go through OFF first (see firmware_init_reset
@@ -2360,6 +2583,29 @@ mod tests {
         v
     }
 
+    /// Value reply for a GET_PARAM.
+    fn getparam_reply(id: u16, value: u16) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&FW_MAGIC_V26.to_le_bytes());
+        v.extend_from_slice(&2u16.to_le_bytes());
+        v.extend_from_slice(&Opcode::GetParam.as_u16().to_le_bytes());
+        v.extend_from_slice(&id.to_le_bytes());
+        v.extend_from_slice(&0u16.to_le_bytes()); // ACK
+        v.extend_from_slice(&value.to_le_bytes());
+        v
+    }
+
+    /// NACK reply for any opcode (error word only).
+    fn nack_reply(id: u16, opcode: Opcode, code: u16) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&FW_MAGIC_V26.to_le_bytes());
+        v.extend_from_slice(&1u16.to_le_bytes());
+        v.extend_from_slice(&opcode.as_u16().to_le_bytes());
+        v.extend_from_slice(&id.to_le_bytes());
+        v.extend_from_slice(&code.to_le_bytes());
+        v
+    }
+
     /// Generic ALGORITHM_PARAMS reply carrying `data_bytes` payload bytes
     /// (error word + data), for the given request id.
     fn algorithm_reply(id: u16, data_bytes: usize) -> Vec<u8> {
@@ -2408,6 +2654,16 @@ mod tests {
         assert_eq!(Param::IrCropMode.as_u16(), 60);
         assert_eq!(Param::ImageMirror.as_u16(), 71);
         assert_eq!(Param::IrMirror.as_u16(), 72);
+        assert_eq!(Param::WavelengthCorrectionEnabled.as_u16(), 73);
+        assert_eq!(Param::WavelengthCorrectionDebugEnabled.as_u16(), 74);
+        assert_eq!(Param::DepthAgcBin0Low.as_u16(), 63);
+        assert_eq!(Param::DepthAgcBin0High.as_u16(), 64);
+        assert_eq!(Param::DepthAgcBin1Low.as_u16(), 65);
+        assert_eq!(Param::DepthAgcBin1High.as_u16(), 66);
+        assert_eq!(Param::DepthAgcBin2Low.as_u16(), 67);
+        assert_eq!(Param::DepthAgcBin2High.as_u16(), 68);
+        assert_eq!(Param::DepthAgcBin3Low.as_u16(), 69);
+        assert_eq!(Param::DepthAgcBin3High.as_u16(), 70);
         assert_eq!(Param::ImageAutoWhiteBalanceMode.as_u16(), 77);
         assert_eq!(Param::ImageAutoExposureMode.as_u16(), 80);
         assert_eq!(Param::ImageExposureBar.as_u16(), 81);
@@ -2471,7 +2727,7 @@ mod tests {
                 resolution: Resolution::Vga,
                 fps: 30,
             },
-            None,
+            &mut None,
             Duration::from_millis(50),
         )
         .unwrap();
@@ -2542,7 +2798,7 @@ mod tests {
             Resolution::Vga,
             30,
             STREAM_MODE_COLOR,
-            None,
+            &mut None,
             Duration::from_millis(50),
         )
         .unwrap();
@@ -2587,10 +2843,13 @@ mod tests {
     // Crop windows (0.3.3)
     // ------------------------------------------------------------------
 
-    /// The crop write must match `SetCroppingImpl` write-for-write:
-    /// geometry first (size X, size Y, offset X, offset Y), the mode
-    /// param LAST; disabling writes ONLY the mode (XnSensorDepthStream
-    /// .cpp:788-805 — image and IR identical).
+    /// The crop write must match `SetCroppingImpl`: geometry pairs first
+    /// (size X, size Y, offset X, offset Y), the MODE pair last — all in
+    /// ONE multi-pair SET_PARAM batch (the reference commits its crop
+    /// firmware-transaction with `CommitTransactionAsBatch`, i.e.
+    /// `XnHostProtocolSetMultipleParams`); disabling sends just the
+    /// mode pair (XnSensorDepthStream.cpp:768-840 — image and IR
+    /// identical).
     #[test]
     fn crop_write_sequence_matches_reference() {
         let crop = Crop {
@@ -2599,20 +2858,14 @@ mod tests {
             width: 320,
             height: 240,
         };
-        let state = CropState {
+        let mut state = Some(CropState {
             crop,
             mode: CROP_MODE_NORMAL,
-        };
+        });
         let (mut link, mut fake) = (
             CommandLink::new(ProtocolVersion::V26),
             FakeTransport {
-                replies: vec![
-                    setparam_ack_reply(0, 320),
-                    setparam_ack_reply(1, 240),
-                    setparam_ack_reply(2, 160),
-                    setparam_ack_reply(3, 120),
-                    setparam_ack_reply(4, CROP_MODE_NORMAL),
-                ],
+                replies: vec![setparam_ack_reply(0, CROP_MODE_NORMAL)],
                 sent: vec![],
             },
         );
@@ -2620,33 +2873,40 @@ mod tests {
             &mut link,
             &mut fake,
             DEPTH_CROP_PARAMS,
-            Some(state),
+            &mut state,
             Duration::from_millis(50),
         )
         .unwrap();
-        assert_eq!(fake.sent.len(), 5);
-        let params: Vec<(u16, u16)> = fake
-            .sent
-            .iter()
-            .map(|req| {
+        // ONE request: header + 5 pairs (20 payload bytes).
+        assert_eq!(fake.sent.len(), 1);
+        let req = &fake.sent[0];
+        assert_eq!(req.len(), 8 + 20);
+        assert_eq!(
+            u16::from_le_bytes([req[4], req[5]]),
+            Opcode::SetParam.as_u16()
+        );
+        let pairs: Vec<(u16, u16)> = (0..5)
+            .map(|i| {
                 (
-                    u16::from_le_bytes([req[8], req[9]]),
-                    u16::from_le_bytes([req[10], req[11]]),
+                    u16::from_le_bytes([req[8 + i * 4], req[9 + i * 4]]),
+                    u16::from_le_bytes([req[10 + i * 4], req[11 + i * 4]]),
                 )
             })
             .collect();
         assert_eq!(
-            params,
+            pairs,
             vec![
                 (51, 320), // PARAM_DEPTH_CROP_SIZE_X
                 (52, 240), // PARAM_DEPTH_CROP_SIZE_Y
                 (53, 160), // PARAM_DEPTH_CROP_OFFSET_X
                 (54, 120), // PARAM_DEPTH_CROP_OFFSET_Y
-                (55, 1),   // PARAM_DEPTH_CROP_MODE = NORMAL
+                (55, 1),   // PARAM_DEPTH_CROP_MODE = NORMAL (last!)
             ]
         );
 
-        // Disabling: one write, the mode only.
+        // Disabling: one request, the mode pair only (wire-identical to
+        // a single param write).
+        let mut state = None;
         let (mut link, mut fake) = (
             CommandLink::new(ProtocolVersion::V26),
             FakeTransport {
@@ -2658,11 +2918,12 @@ mod tests {
             &mut link,
             &mut fake,
             IR_CROP_PARAMS,
-            None,
+            &mut state,
             Duration::from_millis(50),
         )
         .unwrap();
         assert_eq!(fake.sent.len(), 1);
+        assert_eq!(fake.sent[0].len(), 8 + 4);
         assert_eq!(
             u16::from_le_bytes([fake.sent[0][8], fake.sent[0][9]]),
             Param::IrCropMode.as_u16()
@@ -2671,6 +2932,187 @@ mod tests {
             u16::from_le_bytes([fake.sent[0][10], fake.sent[0][11]]),
             CROP_MODE_DISABLED
         );
+    }
+
+    /// Regression for the 0.3.3 camera finding: crop mode 2
+    /// (increased fps) NACKs `BadParams` on the ASUS 5.8.22 firmware
+    /// while the same window is accepted with mode 1. The driver must
+    /// (a) send the C-exact batch — ONE request, five pairs, mode pair
+    /// LAST —, (b) surface the NACK unchanged (no silent fallback to
+    /// mode 1), and (c) re-sync its crop state from the firmware, like
+    /// `SetCroppingImpl`'s `UpdateFromFirmware` rollback
+    /// (XnSensorDepthStream.cpp:807-829).
+    #[test]
+    fn crop_mode2_nack_resyncs_state() {
+        let crop = Crop {
+            x: 160,
+            y: 120,
+            width: 320,
+            height: 240,
+        };
+        let mut state = Some(CropState {
+            crop,
+            mode: CROP_MODE_INCREASED_FPS,
+        });
+        // The batch NACKs; the firmware still holds the previous
+        // mode-1 window with the same geometry.
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![
+                    nack_reply(0, Opcode::SetParam, 5), // BadParams
+                    getparam_reply(1, CROP_MODE_NORMAL),
+                    getparam_reply(2, 320), // size x
+                    getparam_reply(3, 240), // size y
+                    getparam_reply(4, 160), // offset x
+                    getparam_reply(5, 120), // offset y
+                ],
+                sent: vec![],
+            },
+        );
+        let err = write_crop_via(
+            &mut link,
+            &mut fake,
+            DEPTH_CROP_PARAMS,
+            &mut state,
+            Duration::from_millis(50),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, XtionError::Nack(Nack::BadParams)),
+            "the original NACK must surface: {err}"
+        );
+        // exactly one write attempt + the five rollback reads
+        assert_eq!(fake.sent.len(), 6);
+        let req = &fake.sent[0];
+        assert_eq!(req.len(), 8 + 20, "the crop write is ONE 5-pair batch");
+        let (mode_param, mode_value) = (
+            u16::from_le_bytes([req[8 + 16], req[9 + 16]]),
+            u16::from_le_bytes([req[8 + 18], req[9 + 18]]),
+        );
+        assert_eq!(mode_param, Param::DepthCropMode.as_u16());
+        assert_eq!(mode_value, CROP_MODE_INCREASED_FPS);
+        // state re-synced to what the firmware actually holds
+        assert_eq!(
+            state,
+            Some(CropState {
+                crop,
+                mode: CROP_MODE_NORMAL,
+            })
+        );
+    }
+
+    /// AGC bin parameter mapping (params 63-70) and the host-side
+    /// validation of a bin's shift range.
+    #[test]
+    fn agc_bin_params_and_validation() {
+        assert_eq!(
+            agc_bin_params(0).unwrap(),
+            (Param::DepthAgcBin0Low, Param::DepthAgcBin0High)
+        );
+        assert_eq!(
+            agc_bin_params(3).unwrap(),
+            (Param::DepthAgcBin3Low, Param::DepthAgcBin3High)
+        );
+        let err = agc_bin_params(4).unwrap_err();
+        assert!(err.to_string().contains("four bins"), "{err}");
+
+        AgcBin {
+            min_shift: 0,
+            max_shift: MAX_SHIFT,
+        }
+        .validate()
+        .unwrap();
+        assert!(AgcBin {
+            min_shift: 300,
+            max_shift: 100,
+        }
+        .validate()
+        .is_err());
+        assert!(AgcBin {
+            min_shift: 0,
+            max_shift: MAX_SHIFT + 1,
+        }
+        .validate()
+        .is_err());
+    }
+
+    /// An AGC bin write is TWO separate SET_PARAMs — LOW first, HIGH
+    /// second — exactly like `XnHostProtocolSetDepthAGCBin`
+    /// (XnHostProtocol.cpp:3124-3141; no batch on this path).
+    #[test]
+    fn agc_bin_write_is_two_separate_param_writes() {
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![
+                    setparam_ack_reply(0, 100), // bin1 LOW
+                    setparam_ack_reply(1, 600), // bin1 HIGH
+                ],
+                sent: vec![],
+            },
+        );
+        set_param_via(
+            &mut link,
+            &mut fake,
+            Param::DepthAgcBin1Low,
+            100,
+            Duration::from_millis(50),
+        )
+        .unwrap();
+        set_param_via(
+            &mut link,
+            &mut fake,
+            Param::DepthAgcBin1High,
+            600,
+            Duration::from_millis(50),
+        )
+        .unwrap();
+        assert_eq!(fake.sent.len(), 2);
+        let pairs: Vec<(u16, u16)> = fake
+            .sent
+            .iter()
+            .map(|req| {
+                (
+                    u16::from_le_bytes([req[8], req[9]]),
+                    u16::from_le_bytes([req[10], req[11]]),
+                )
+            })
+            .collect();
+        assert_eq!(pairs, vec![(65, 100), (66, 600)]);
+    }
+
+    /// The depth-processing boolean switches write plain 0/1 word
+    /// values to their exact vendor param ids (21, 73, 74, 84).
+    #[test]
+    fn depth_processing_switch_wire_ids() {
+        let cases = [
+            (Param::DepthAgc, 42),
+            (Param::WavelengthCorrectionEnabled, 1),
+            (Param::WavelengthCorrectionDebugEnabled, 1),
+            (Param::DepthCloseRange, 1),
+        ];
+        for (param, value) in cases {
+            let (mut link, mut fake) = (
+                CommandLink::new(ProtocolVersion::V26),
+                FakeTransport {
+                    replies: vec![setparam_ack_reply(0, value)],
+                    sent: vec![],
+                },
+            );
+            set_param_via(
+                &mut link,
+                &mut fake,
+                param,
+                value,
+                Duration::from_millis(50),
+            )
+            .unwrap();
+            assert_eq!(fake.sent.len(), 1);
+            let req = &fake.sent[0];
+            assert_eq!(u16::from_le_bytes([req[8], req[9]]), param.as_u16());
+            assert_eq!(u16::from_le_bytes([req[10], req[11]]), value);
+        }
     }
 
     /// Bounds and packing validation (`XnPixelStream::ValidateCropping`

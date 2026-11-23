@@ -247,8 +247,8 @@ now fixed and covered by unit tests:
 | 6 | Depth registration (depth onto color) | PARAM 2 (hardware, in-firmware) | missing | small | none (runtime param) |
 | 7 | Depth mirror | PARAM 23 | missing | trivial | none (runtime param) |
 | 8 | Depth hole filter | PARAM 22 | missing | trivial | none (runtime param) |
-| 9 | Depth AGC (gain) | PARAM 21 | missing | trivial | none (runtime param) |
-| 10 | Close range | PARAM 84 (fw >= 5.6) | missing | trivial | none (runtime param) |
+| 9 | Depth AGC (gain) | PARAM 21 | **present (0.3.4)** | - | none (runtime param) |
+| 10 | Close range | PARAM 84 (fw >= 5.6) | **present (0.3.4)** | - | none (runtime param) |
 | 11 | GMC mode | PARAM 36 | missing | trivial | none (runtime param) |
 | 12 | Emitter (IR projector) on/off | OPCODE 42 | missing | trivial | none (runtime state) |
 | 13 | IR stream | STREAM0_MODE=3 + PARAMs 26/27/72, 10-bit packed frames on the image pipe | missing | medium | none (stream config) |
@@ -259,9 +259,9 @@ now fixed and covered by unit tests:
 | 18 | Image gain (AGC) | PARAM 15 | missing | trivial | none (runtime param) |
 | 19 | Image quality | PARAM 16 | missing | trivial | none (runtime param) |
 | 20 | Anti-flicker | PARAM 17 | missing | trivial | none (runtime param) |
-| 21 | Cropping (all streams) | PARAMs 46-60 + mode | missing | medium | none, but complex bookkeeping |
-| 22 | Depth AGC bins | PARAMs 63-70 | missing | small | none (runtime params) |
-| 23 | Wavelength correction | PARAMs 73/74 | missing | small | none (runtime params) |
+| 21 | Cropping (all streams) | PARAMs 46-60 + mode | **present (0.3.3; mode 2 hw-unsupported)** | - | none, but complex bookkeeping |
+| 22 | Depth AGC bins | PARAMs 63-70 | **present (0.3.4)** | - | none (runtime params) |
+| 23 | Wavelength correction | PARAMs 73/74 | **present (0.3.4)** | - | none (runtime params) |
 | 24 | GMC data/debug stream | packets 0xa200/0xb200, OPCODE 26 | missing | medium | none (read) |
 | 25 | Firmware log | OPCODE 7 + PARAMs 30/31 | missing | medium | low (PARAM 30/31 are runtime log config) |
 | 26 | CPU stats | OPCODE 27 | missing | small | none (read) |
@@ -272,6 +272,32 @@ now fixed and covered by unit tests:
 
 Params already used by 0.1.5: 5, 6 (stream modes), 12-14 (image setup),
 18-20 (depth setup). Opcodes already used: 0, 1, 2, 3, 4, 22, 37.
+
+## 1b. Remaining surface with difficulty ratings (0.3.4)
+
+What is still missing vs. the OpenNI 2.2.0 PS1080 driver and the
+decompiled 5.8.22 firmware, rated for implementation difficulty
+(1 = one parameter/an evening; 2 = small module + test; 3 = several
+cooperating parts; 4 = large reverse-engineering or state machine;
+5 = a full subsystem). "This unit" = the ASUS Xtion Live Pro the driver
+is validated on (no color sensor; RD108 flash layout).
+
+| Feature | Source | Mechanism | Diff. | Value on this unit | Note |
+|---|---|---|---|---|---|
+| Depth→color registration end-to-end | OpenNI | PARAM 2 + ALGORITHM 0x02 tables + padding | **4** | none (no color sensor) | highest-value feature for RGB variants; `set_registration` write exists since 0.2.0, the table/padding machinery does not |
+| GMC motion data + config | OpenNI | packets 0xa200, OPCODE 26, params 36-44 | **3** | medium | projector-based ego-motion correction; decoder + set_gmc_params |
+| COMPRESSED_PS depth format | OpenNI | depth format 1, `XnStreamCompressDepth*` | **4** | low | bit-level decoder port; prerequisite for SXGA@30 |
+| SXGA depth (1280x1024@15) | OpenNI | CMOS preset + decoders (existing) | **2** | low | @15 works uncompressed; @30 additionally needs COMPRESSED_PS; crop already covers the ROI use case |
+| QVGA@60 + full mode matrix | OpenNI | CMOS presets | **1** | low | config only; crop (0.3.3) makes it less interesting |
+| Frame sync depth↔color | OpenNI | PARAM 1 | **2** | none (no color sensor) | RGB variants only |
+| Projector modulation frequency control | OpenNI | ALGORITHM 0x80 write | **2** | medium for rigs | per-camera frequency avoids multi-camera interference; the READ is already implemented |
+| Audio stream | OpenNI (disabled there too) | STREAM2_MODE=7, packets 0x9200, params 8-11/33-35 | **5** | unknown | full USB Audio Class in fw; hw presence of mics unverified on this unit |
+| Wavelength-debug telemetry decode | OpenNI | param 74 switch + debug packets | **2** | diagnostics | switch implemented 0.3.4; the packet parser is not |
+| NESA (0xd201) / TEC (0xd200) debug channels | fw-only | packet decoders | **2** | diagnostics | no product value known |
+| Accelerometer + orientation | **fw-only** (not in OpenNI) | ACC strings/handlers in the decompiled image | **4** | unknown | undocumented command surface; needs firmware RE first |
+| ONI recording format | OpenNI core | OniRecorder (host-side) | **3** | medium | dataset capture for photogrammetry; pure host work |
+| Keep-alive thread, hotplug, reconnection, soak | OpenNI core | OPCODE 1 loop + libusb events | **3** | high for production | robustness tier (M6), independent of the protocol surface |
+| Firmware update / flash writes | updater only | OPCODEs 13-15/17/23-24 | **excluded** | - | permanently excluded by the safety policy (section 3) |
 
 ## 2. Phases (ordered by effort and risk, lowest first)
 
@@ -299,9 +325,10 @@ that reuses the already-proven image pipe:
 4. `set_registration(bool)` — PARAM 2. On PS1080 the firmware registers
    depth onto color in hardware (`XnSensorDepthStream::DecideFirmwareRegistration`:
    PS1080 supports hardware registration at all resolutions).
-5. `set_depth_mirror`, `set_hole_filter`, `set_depth_agc`, `set_close_range`,
-   `set_gmc_mode` — PARAMs 23, 22, 21, 84, 36. Close range uses the
-   direct PARAM 84 (firmware >= 5.6; the validated camera runs 5.8.22).
+5. `set_depth_mirror`, `set_hole_filter`, `set_gmc_mode` — PARAMs 23, 22,
+   36 (`set_depth_agc`/`set_close_range` lived here until 0.3.4, when
+   they were replaced by the proper gain/bins/close-range API — see
+   Phase 3 item 11; param 21 is a gain value, not a boolean switch).
 6. `set_emitter_enabled(bool)` — OPCODE 42, payload `{u16 active}`. This
    is the runtime projector toggle; the *calibration* opcodes (31/33) stay
    excluded.
@@ -339,14 +366,31 @@ that reuses the already-proven image pipe:
     first" dance in OpenNI 2.2.0 — the crop params are plain
     allow-while-open SET_PARAMs; the frame in flight when the window
     changes is dropped as corrupt, exactly like the C.
+    0.3.4 correction: the reference commits the five crop writes as
+    ONE multi-pair SET_PARAM batch (`CommitTransactionAsBatch` ->
+    `XnHostProtocolSetMultipleParams`), and on a NACK re-reads the
+    params from the firmware (`UpdateFromFirmware`) — both now ported.
+    Camera verdict on mode 2 (increased fps): this 5.8.22 build NACKs
+    `DepthCropMode=2` with BadParams (single write, streaming); test 10
+    probes the batch and stream-stopped forms. Treat BadParams as
+    "unsupported on this unit".
 10. **Full C parity at image open** — the reference `OpenStreamImpl`
     also writes crop-mode 50 = disabled and, on fw >= 5.8.9
     (bImageAdjustmentsSupported), auto-exposure (80) + auto-white-balance
     (77) at every image stream open, after the stream0-mode write. Port
     these three writes for byte-level parity (harmless RAM params).
-11. Depth AGC bins (PARAMs 63-70) and wavelength correction (73/74,
-    ALGORITHM_PARAMS 0x80 FREQUENCY for multi-camera interference
-    avoidance).
+11. Depth AGC + bins, wavelength correction, close range — IMPLEMENTED
+    in 0.3.4 (`depth_gain`/`set_depth_gain`, `AgcBin` +
+    `depth_agc_bin`/`set_depth_agc_bin` for params 63-70,
+    `wavelength_correction`/`set_wavelength_correction` (+debug) for
+    73/74, `close_range`/`set_close_range` for 84). All allow-while-open
+    single-param writes; AGC bins are written LOW then HIGH as two
+    separate SET_PARAMs (`XnHostProtocolSetDepthAGCBin` parity). Camera
+    validation: test 11 (`depth_processing_controls`). The old
+    `set_depth_agc(bool)` one-liner was REMOVED — param 21 is a gain
+    value, not a switch, and writing 0/1 to it was a bug.
+    Still open from this item: ALGORITHM 0x80 FREQUENCY *write* for
+    multi-camera interference avoidance (see the difficulty table, 1b).
 12. GMC motion data (packet 0xa200, up to 100 points per packet) and its
     debug channel; `set_gmc_params` (OPCODE 26) configuration.
 13. **Depth-to-color registration end-to-end**: `set_registration(true)`

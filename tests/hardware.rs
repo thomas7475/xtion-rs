@@ -1329,43 +1329,126 @@ fn depth_and_ir_crop_windows() {
     assert_eq!((ir.width, ir.height), (640, 480));
     cam.stop_ir().expect("stop IR");
 
-    // ---- mode-2 probe: increased-fps crop + fps=60 attempted ----
+    // ---- mode-2 probe: increased-fps crop (fw >= 5.7.2 per OpenNI) ----
+    // 0.3.3 camera finding: a single SET_PARAM DepthCropMode=2 NACKs
+    // BadParams while streaming, although the version heuristic
+    // (bIncreasedFpsCropSupported, XnHostProtocol.cpp:640-643) says this
+    // 5.8.22 build supports it. This probe pins down whether the
+    // rejection depends on the write form or the stream state:
+    //   (a) the same single write again (regression check),
+    //   (b) the C-exact multi-pair batch — what SetCroppingImpl really
+    //       sends (CommitTransactionAsBatch ->
+    //       XnHostProtocolSetMultipleParams),
+    //   (c) the batch with the stream STOPPED (not C behavior — a
+    //       diagnostic; if this works, a "arm while stopped" recipe is
+    //       the 0.3.5 follow-up).
+    // A mode-2 rejection is a documented hardware property, NOT a
+    // driver bug: the section must end with the window verified working
+    // under mode 1, whatever the probe results are.
     cam.start_depth(DepthConfig::default())
         .expect("restart depth");
-    cam.set_depth_crop(Some(crop), true)
-        .expect("crop mode 2 (increased fps)");
-    match cam.set_param(xtion::Param::DepthFps, 60) {
-        Ok(()) => println!("depth fps 60 with crop mode 2: ACCEPTED"),
-        Err(err) => println!(
-            "depth fps 60 with crop mode 2: rejected ({err}) — the readout rate is whatever \
-             the firmware does with mode 2 alone"
-        ),
+    println!("--- crop mode 2 (increased fps) probe ---");
+    // (a) single param write while streaming
+    match cam.set_param(xtion::Param::DepthCropMode, xtion::CROP_MODE_INCREASED_FPS) {
+        Ok(()) => {
+            let mode = cam
+                .get_param(xtion::Param::DepthCropMode)
+                .expect("read back crop mode after unexpected ACK");
+            println!("(a) single write while streaming: ACK (mode reads {mode})");
+            // back to the disabled mode the driver state believes in
+            cam.set_param(xtion::Param::DepthCropMode, xtion::CROP_MODE_DISABLED)
+                .expect("restore crop mode 0 after unexpected ACK");
+        }
+        Err(err) => println!("(a) single write while streaming: {err}"),
     }
-    let mut stamps = Vec::new();
-    for _ in 0..60 {
-        match cam.read_depth_frame(Duration::from_secs(5)) {
-            Ok(frame) => stamps.push(frame.timestamp_us.expect("timestamps converted")),
-            Err(err) => panic!("mode-2 depth read: {err}"),
+    // (b) the C-exact 5-pair batch while streaming
+    let mut mode2_active = false;
+    match cam.set_depth_crop(Some(crop), true) {
+        Ok(()) => {
+            mode2_active = true;
+            println!("(b) C-exact 5-pair batch while streaming: ACK");
+        }
+        Err(err) => println!("(b) C-exact 5-pair batch while streaming: {err}"),
+    }
+    if !mode2_active {
+        // (c) the batch with the stream stopped
+        cam.stop_depth()
+            .expect("stop depth for the stream-stopped probe");
+        let batch = [
+            (xtion::Param::DepthCropSizeX, 320),
+            (xtion::Param::DepthCropSizeY, 240),
+            (xtion::Param::DepthCropOffsetX, 160),
+            (xtion::Param::DepthCropOffsetY, 120),
+            (xtion::Param::DepthCropMode, xtion::CROP_MODE_INCREASED_FPS),
+        ];
+        match cam.set_params(&batch) {
+            Ok(()) => {
+                let mode = cam
+                    .get_param(xtion::Param::DepthCropMode)
+                    .expect("read back crop mode after stopped ACK");
+                println!("(c) batch with stream stopped: ACK (mode reads {mode})");
+                mode2_active = mode == xtion::CROP_MODE_INCREASED_FPS;
+            }
+            Err(err) => println!("(c) batch with stream stopped: {err}"),
+        }
+        // start_depth re-applies the disabled mode (OpenStreamImpl
+        // parity: the crop mode is always written at stream open).
+        cam.start_depth(DepthConfig::default())
+            .expect("restart depth after the stream-stopped probe");
+        if mode2_active {
+            // re-arm the window while streaming for the measurement
+            match cam.set_depth_crop(Some(crop), true) {
+                Ok(()) => println!("(c) re-arm of the stopped-armed window while streaming: ACK"),
+                Err(err) => {
+                    mode2_active = false;
+                    println!("(c) re-arm while streaming after stopped ACK: {err}");
+                }
+            }
         }
     }
-    let deltas: Vec<f64> = stamps
-        .windows(2)
-        .map(|p| (p[1] - p[0]) as f64 / 1000.0)
-        .collect();
-    let mean = deltas.iter().sum::<f64>() / deltas.len() as f64;
-    let fps = 1000.0 / mean;
-    println!(
-        "mode-2 320x240: mean frame delta {mean:.2} ms = {fps:.2} fps (full-frame VGA \
-         baseline is ~29.97); frame dims still {}",
-        320
-    );
-    if fps > 40.0 {
-        println!("-> increased-fps crop WORKS on this firmware build");
+
+    if mode2_active {
+        match cam.set_param(xtion::Param::DepthFps, 60) {
+            Ok(()) => println!("depth fps 60 with crop mode 2: ACCEPTED"),
+            Err(err) => println!(
+                "depth fps 60 with crop mode 2: rejected ({err}) — the readout rate is whatever \
+                 the firmware does with mode 2 alone"
+            ),
+        }
+        let mut stamps = Vec::new();
+        for _ in 0..60 {
+            match cam.read_depth_frame(Duration::from_secs(5)) {
+                Ok(frame) => stamps.push(frame.timestamp_us.expect("timestamps converted")),
+                Err(err) => panic!("mode-2 depth read: {err}"),
+            }
+        }
+        let deltas: Vec<f64> = stamps
+            .windows(2)
+            .map(|p| (p[1] - p[0]) as f64 / 1000.0)
+            .collect();
+        let mean = deltas.iter().sum::<f64>() / deltas.len() as f64;
+        let fps = 1000.0 / mean;
+        println!(
+            "mode-2 320x240: mean frame delta {mean:.2} ms = {fps:.2} fps (full-frame VGA \
+             baseline is ~29.97)"
+        );
+        if fps > 40.0 {
+            println!("-> increased-fps crop WORKS on this firmware build");
+        } else {
+            println!("-> mode 2 is accepted but does not raise the rate on this firmware build");
+        }
     } else {
         println!(
-            "-> increased-fps crop alone does not raise the rate on this firmware build \
-             (needs the fps parameter, which was rejected above)"
+            "-> VERDICT: this firmware build rejects crop mode 2 in every probed form; \
+             increased-fps crop is unsupported on this unit (the window works with mode 1)"
         );
+        // sanity: the mode-1 window still works after all the probing
+        cam.set_depth_crop(Some(crop), false)
+            .expect("re-arm mode-1 window after the mode-2 probe");
+        let frame = cam
+            .read_depth_frame(Duration::from_secs(10))
+            .expect("mode-1 frame after the mode-2 probe");
+        assert_eq!((frame.width, frame.height), (320, 240));
     }
     // cleanup: leave the device uncropped and stopped
     cam.set_depth_crop(None, false).expect("disable crop");
@@ -1373,5 +1456,213 @@ fn depth_and_ir_crop_windows() {
         .read_depth_frame(Duration::from_secs(10))
         .expect("full frame after mode-2 disable");
     assert_eq!((frame.width, frame.height), (640, 480));
+    cam.stop_depth().expect("stop depth");
+}
+
+/// Test 11 — depth processing controls (0.3.4): the depth gain
+/// (param 21, the reference's "Gain"), the four AGC shift bins
+/// (params 63-70), close range (param 84) and wavelength correction
+/// (params 73/74). All are allow-while-open parameters, so every phase
+/// runs while the depth stream is live: read the factory state, write a
+/// known-good alternative, read it back, RESTORE, and only then assert
+/// on the captured values — a panic can never leave the device with
+/// modified processing (the restore happens before any assertion).
+#[test]
+fn depth_processing_controls() {
+    if !hardware_present() {
+        eprintln!("skipped: no Xtion attached");
+        return;
+    }
+    let _lock = lock_device();
+    let mut cam = Xtion::open().expect("open");
+
+    cam.start_depth(DepthConfig::default())
+        .expect("start depth");
+    let baseline = cam
+        .read_depth_frame(Duration::from_secs(10))
+        .expect("baseline frame");
+    let baseline_valid = baseline.valid_pixels();
+    println!("baseline: {baseline_valid}/307200 valid pixels");
+    println!(
+        "baseline shift range: {:?}..{:?}",
+        baseline.shift_stats.min, baseline.shift_stats.max
+    );
+
+    // ---- inventory: every depth-processing param, factory state ----
+    let gain0 = cam.depth_gain().expect("read gain (param 21)");
+    let bins0: Vec<xtion::AgcBin> = (0..4)
+        .map(|b| cam.depth_agc_bin(b).expect("read AGC bin"))
+        .collect();
+    let close0 = cam.close_range().expect("read close range (param 84)");
+    let wl0 = cam.wavelength_correction().expect("read wavelength (73)");
+    let wld0 = cam
+        .wavelength_correction_debug()
+        .expect("read wavelength debug (74)");
+    println!("depth gain (21): {gain0} (reference factory default: 50)");
+    for (i, b) in bins0.iter().enumerate() {
+        println!(
+            "AGC bin {i} (params {}-{}): shifts {}..{}",
+            63 + 2 * i,
+            64 + 2 * i,
+            b.min_shift,
+            b.max_shift
+        );
+    }
+    println!(
+        "close range (84): {close0}, wavelength correction (73): {wl0}, \
+         wavelength debug (74): {wld0}"
+    );
+    // structural sanity of the factory bins: ordered ranges in the
+    // 0..=2047 shift space
+    for b in &bins0 {
+        assert!(
+            b.min_shift <= b.max_shift && b.max_shift <= xtion::MAX_SHIFT,
+            "implausible factory bin {b:?}"
+        );
+    }
+
+    // ---- gain (21): write 42 (the reference's pre-5.6 close-range
+    // "restore" value), read back, restore, then compare ----
+    let gain_echo = (|| -> xtion::Result<u16> {
+        cam.set_depth_gain(42)?;
+        let echoed = cam.depth_gain()?;
+        cam.set_depth_gain(gain0)?; // restore before any assertion
+        Ok(echoed)
+    })()
+    .expect("gain write/read/restore cycle");
+    assert_eq!(gain_echo, 42, "gain read-back while set");
+    assert_eq!(
+        cam.depth_gain().expect("gain after restore"),
+        gain0,
+        "gain must be back at the factory value"
+    );
+    println!("gain (21): write 42 -> read {gain_echo}, restored {gain0}");
+
+    // ---- AGC bins (63-70): a contiguous custom partition of the shift
+    // space, read back, one frame under it, restore, then compare ----
+    let custom = [
+        xtion::AgcBin {
+            min_shift: 0,
+            max_shift: 512,
+        },
+        xtion::AgcBin {
+            min_shift: 512,
+            max_shift: 1024,
+        },
+        xtion::AgcBin {
+            min_shift: 1024,
+            max_shift: 1536,
+        },
+        xtion::AgcBin {
+            min_shift: 1536,
+            max_shift: xtion::MAX_SHIFT,
+        },
+    ];
+    let bins_result = (|| -> xtion::Result<(Vec<xtion::AgcBin>, usize)> {
+        for (i, b) in custom.iter().enumerate() {
+            cam.set_depth_agc_bin(i, *b)?;
+        }
+        let mut echoed = Vec::with_capacity(4);
+        for i in 0..4 {
+            echoed.push(cam.depth_agc_bin(i)?);
+        }
+        let frame = cam.read_depth_frame(Duration::from_secs(10));
+        // restore before propagating any frame error
+        for (i, b) in bins0.iter().enumerate() {
+            cam.set_depth_agc_bin(i, *b)?;
+        }
+        let valid = frame?.valid_pixels();
+        Ok((echoed, valid))
+    })()
+    .expect("AGC bin write/read/restore cycle");
+    assert_eq!(
+        bins_result.0,
+        custom.to_vec(),
+        "all four bins must read back exactly as written"
+    );
+    for (i, b) in bins0.iter().enumerate() {
+        assert_eq!(
+            cam.depth_agc_bin(i).expect("bin after restore"),
+            *b,
+            "bin {i} must be back at the factory value"
+        );
+    }
+    println!(
+        "AGC bins: custom partition echoed exactly; {} valid pixels under it \
+         (baseline {baseline_valid}); factory bins restored",
+        bins_result.1
+    );
+    assert!(
+        bins_result.1 > 100,
+        "depth died completely under the custom bins: {} valid",
+        bins_result.1
+    );
+
+    // ---- close range (84): enable, read back, one frame (near-field
+    // re-bias — long-range depth may legitimately vanish, so the frame
+    // is printed, not gated), restore ----
+    let close_result = (|| -> xtion::Result<(bool, usize, Option<u16>)> {
+        cam.set_close_range(true)?;
+        let echoed = cam.close_range()?;
+        let frame = cam.read_depth_frame(Duration::from_secs(10));
+        cam.set_close_range(close0)?; // restore before propagating errors
+        let f = frame?;
+        Ok((echoed, f.valid_pixels(), f.min_depth()))
+    })()
+    .expect("close-range write/read/restore cycle");
+    assert!(close_result.0, "close range must read back as on");
+    assert_eq!(
+        cam.close_range().expect("close range after restore"),
+        close0,
+        "close range must be back at the factory value"
+    );
+    println!(
+        "close range (84): on -> {} valid pixels (baseline {baseline_valid}), min depth {:?} mm; \
+         restored {close0}",
+        close_result.1, close_result.2
+    );
+
+    // ---- wavelength correction (73) + debug telemetry (74): toggled,
+    // read back, restored. No frame is read while the DEBUG flag is on:
+    // it makes the firmware emit wavelength-lock telemetry packets, a
+    // diagnostics mode, not a depth-affecting setting.
+    let wl_result = (|| -> xtion::Result<(bool, bool)> {
+        cam.set_wavelength_correction(true)?;
+        let wl = cam.wavelength_correction()?;
+        cam.set_wavelength_correction_debug(true)?;
+        let wld = cam.wavelength_correction_debug()?;
+        // restore both, then return what was read
+        cam.set_wavelength_correction_debug(wld0)?;
+        cam.set_wavelength_correction(wl0)?;
+        Ok((wl, wld))
+    })()
+    .expect("wavelength write/read/restore cycle");
+    assert!(
+        wl_result == (true, true),
+        "wavelength correction and debug must read back as on"
+    );
+    assert_eq!(
+        cam.wavelength_correction()
+            .expect("wavelength after restore"),
+        wl0
+    );
+    assert_eq!(
+        cam.wavelength_correction_debug()
+            .expect("wavelength debug after restore"),
+        wld0
+    );
+    println!("wavelength (73/74): both toggled on and read back; restored {wl0}/{wld0}");
+
+    // ---- final integrity: with everything restored the scene must be
+    // back to baseline quality ----
+    let final_frame = cam
+        .read_depth_frame(Duration::from_secs(10))
+        .expect("final frame");
+    let final_valid = final_frame.valid_pixels();
+    println!("final: {final_valid} valid pixels (baseline {baseline_valid})");
+    assert!(
+        final_valid > 1000,
+        "depth did not recover after restores: {final_valid} valid"
+    );
     cam.stop_depth().expect("stop depth");
 }

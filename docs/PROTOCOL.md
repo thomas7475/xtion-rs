@@ -263,7 +263,13 @@ reply data: `u16 value`. Param ids from `Sensor/XnParams.h`:
 | DEPTH_FORMAT | 18 | see depth formats |
 | DEPTH_RESOLUTION | 19 | resolution id |
 | DEPTH_FPS | 20 | fps |
+| DEPTH_AGC (the "Gain") | 21 | integration strength, factory default 50 |
+| DEPTH_HOLE_FILTER | 22 | 0/1 |
 | DEPTH_MIRROR | 23 | 0/1 |
+| DEPTH_AGC_BIN0_LO/HI .. BIN3_LO/HI | 63-70 | per-bin shift range (see below) |
+| WAVELENGTH_CORRECTION_ENABLED | 73 | 0/1 (fw >= 5.2) |
+| WAVELENGTH_CORRECTION_DEBUG_ENABLED | 74 | 0/1, telemetry switch |
+| DEPTH_CLOSE_RANGE | 84 | 0/1 (fw >= 5.6) |
 
 Stream start order (from the C property pipeline): format -> resolution ->
 fps -> stream mode on; stop: stream mode off. Changing modes requires
@@ -274,14 +280,23 @@ passing through OFF first (`SetStreamMode`).
 Each stream owns five crop parameters (`XnParams.h`): **46-50** image,
 **51-55** depth, **56-60** IR, in the order SIZE_X, SIZE_Y, OFFSET_X,
 OFFSET_Y, MODE. Firmware modes (`XnFirmwareCroppingMode`, PS1080.h:
-308-313): **0 disabled, 1 normal, 2 increased fps** (mode 2 needs
-fw >= 5.7.2; 5.8.22 has it). The write sequence is the same for all
-three streams (`SetCroppingImpl`, XnSensorDepthStream.cpp:768-840):
+308-313): **0 disabled, 1 normal, 2 increased fps**. The write
+sequence is the same for all three streams (`SetCroppingImpl`,
+XnSensorDepthStream.cpp:768-840):
 
-- **enabling**: SizeX -> SizeY -> OffsetX -> OffsetY -> Mode (the mode
-  LAST — a NACK part-way leaves the previous window active, which is
-  the ordering the reference's rollback relies on);
-- **disabling**: the Mode param alone (0), geometry untouched;
+- **enabling**: the five pairs SizeX, SizeY, OffsetX, OffsetY, Mode
+  (mode LAST) are committed in ONE multi-pair SET_PARAM request — the
+  reference wraps them in a firmware transaction and commits it with
+  `CommitTransactionAsBatch` -> `XnHostProtocolSetMultipleParams`
+  (XnHostProtocol.cpp:2830-2860): the request payload is simply N
+  `{u16 param, u16 value}` pairs under the SAME opcode 3. (The 0.3.3
+  driver sent five separate single writes; hardware accepted them for
+  mode 1, but the batch is the reference form and 0.3.4 uses it.);
+- **disabling**: the Mode pair alone (0), geometry untouched — a
+  one-pair batch, wire-identical to a single SET_PARAM;
+- on a NACK, the reference re-reads the five params from the firmware
+  to re-sync its host state (`UpdateFromFirmware`); 0.3.4 does the
+  same;
 - the params are plain allow-while-open SET_PARAMs (no close/reopen
   dance, no "bigger crop first" — that was an OpenNI 1.x-ism); the
   frame in flight when the window changes is dropped as corrupt;
@@ -307,14 +322,55 @@ pipe). Consequences per stream:
   200-219): non-zero size, `x + w <= XRes`, `y + h <= YRes`.
 
 Mode 2 (INCREASED_FPS) shortens the CMOS readout on top of the
-window; whether fw 5.8.22 also needs a higher fps parameter to
-actually raise the frame rate is probed by hardware test 10. One
-interaction to keep in mind (from the reference): the C mirrors IR
-host-side AFTER cropping, so it flips the crop offset X for mirrored
-IR (`nXOffset = XRes - originX - width`, XnSensorIRStream.cpp:324-330);
-this driver keeps the firmware IR mirror off, so crop coordinates
-pass through unflipped. Depth and color mirroring happen in firmware
-and do not interact with crop coordinates.
+window. **Hardware verdict (fw 5.8.22, 0.3.3 camera run):** a single
+`SET_PARAM DepthCropMode=2` while streaming NACKs **BadParams**, even
+though the OpenNI version heuristic (`bIncreasedFpsCropSupported`,
+XnHostProtocol.cpp:640-643: fw >= 5.7.2) claims support for this build
+— the same window is accepted with mode 1. Hardware test 10 probes
+mode 2 in three forms (single write, C-exact batch, stream-stopped
+batch); treat a BadParams NACK as "unsupported on this unit", not as a
+retryable error. One interaction to keep in mind (from the reference):
+the C mirrors IR host-side AFTER cropping, so it flips the crop offset
+X for mirrored IR (`nXOffset = XRes - originX - width`,
+XnSensorIRStream.cpp:324-330); this driver keeps the firmware IR
+mirror off, so crop coordinates pass through unflipped. Depth and
+color mirroring happen in firmware and do not interact with crop
+coordinates.
+
+### Depth processing controls (params 21, 63-70, 73/74, 84; 0.3.4)
+
+All four groups are plain allow-while-open parameters
+(`MapFirmwareProperty(..., TRUE)`, XnSensorDepthStream.cpp:280-314) —
+they can change while the depth stream runs and take effect on the
+following frames:
+
+- **Depth gain (param 21, `PARAM_DEPTH_AGC`)**: despite the legacy
+  name this is the reference's "Gain" property — a plain
+  integration-strength value (factory default 50;
+  `XN_DEPTH_STREAM_DEFAULT_GAIN_OLD`), not a boolean. The pre-5.6
+  close-range recipe steps it 50 -> 1 -> 42
+  (`CloseRangeControl`, XnSensorDepthStream.cpp:842-873).
+- **AGC bins (params 63-70)**: four bins, each a `{LOW, HIGH}` pair of
+  SHIFT values (0..=2047, `XN_SHIFTS_MAX_SHIFT`). The firmware applies
+  a per-bin integration gain to pixels whose correlation shift falls
+  inside the bin — multi-zone auto exposure for the depth pipe. The
+  reference's public API is millimetre-based and translates through
+  the per-device depth<->shift tables (`SetAGCBin` /
+  `XnHostProtocolSetDepthAGCBin`, XnHostProtocol.cpp:3124-3141); the
+  wire (and this driver's API) carries raw shifts. Writes are TWO
+  separate single SET_PARAMs per bin (LOW first, HIGH second — no
+  batch on this path).
+- **Wavelength correction (params 73/74, fw >= 5.2)**: param 73
+  enables the firmware's correction of depth against the projector's
+  actual laser wavelength vs. the factory reference; param 74 is a
+  DEBUG switch that additionally emits wavelength-lock telemetry
+  packets (TEC set-point steps, hop counts —
+  `XnWavelengthCorrectionDebugPacket`).
+- **Close range (param 84, fw >= 5.6)**: re-biases the receiver so
+  saturated near-field reflections stop swallowing sub-50 cm depth.
+  On fw >= 5.6 the firmware implements the mode internally; the
+  pre-5.6 host-side recipe (AHB register pokes + gain 1/42) is not
+  ported.
 
 Depth input formats (`XnIODepthFormats`): UNCOMPRESSED_16_BIT=0,
 COMPRESSED_PS=1, UNCOMPRESSED_10_BIT=2, **UNCOMPRESSED_11_BIT=3 (Linux

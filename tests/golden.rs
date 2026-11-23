@@ -103,7 +103,7 @@ fn packed11_matches_c_reference() {
 //   the matching file in the factory image (firmware/5.8.22/*.fla —
 //   payload = .fla minus its 6-byte [type][build][version] header).
 
-use xtion::protocol::system::{flash_file_crc, parse_flash_file_table, FlashFile};
+use xtion::protocol::system::{flash_file_crc, parse_flash_file_table};
 
 const TABLE_CAPTURE: [u8; 256] = [
     0x00, 0x00, 0x00, 0x00, 0x78, 0x56, 0x34, 0x12, // id 0, type 0, magic

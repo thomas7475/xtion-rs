@@ -177,8 +177,25 @@ pub enum Param {
     IrCropOffsetX = 58,
     IrCropOffsetY = 59,
     IrCropMode = 60,
+    /// One of the four depth AGC bin bounds: LOW = the bin's minimum
+    /// SHIFT, HIGH = its maximum (XnParams.h 63-70). The firmware applies
+    /// a per-bin integration gain to pixels whose shift falls inside the
+    /// bin; the host-side reference stores/loads the same values in
+    /// millimetres and translates with the depth<->shift tables
+    /// (`XnSensorDepthStream::SetAGCBin`), but the wire carries raw
+    /// shifts in 0..=2047 (`XN_SHIFTS_MAX_SHIFT`).
+    DepthAgcBin0Low = 63,
+    DepthAgcBin0High = 64,
+    DepthAgcBin1Low = 65,
+    DepthAgcBin1High = 66,
+    DepthAgcBin2Low = 67,
+    DepthAgcBin2High = 68,
+    DepthAgcBin3Low = 69,
+    DepthAgcBin3High = 70,
     ImageMirror = 71,
     IrMirror = 72,
+    WavelengthCorrectionEnabled = 73,
+    WavelengthCorrectionDebugEnabled = 74,
     ImageAutoWhiteBalanceMode = 77,
     ImageAutoExposureMode = 80,
     ImageExposureBar = 81,
@@ -231,9 +248,24 @@ pub const STREAM_MODE_IR: u16 = 3;
 /// Mode 2 additionally shortens the CMOS readout so frame rates above
 /// the full-frame maximum become possible (fw >= 5.7.2,
 /// `bIncreasedFpsCropSupported`, XnHostProtocol.cpp:640-643).
+///
+/// HARDWARE VERDICT (ASUS Xtion, fw 5.8.22 RD108 fork, 0.3.3 camera
+/// run): the firmware NACKs `BadParams` for mode 2 written as a single
+/// SET_PARAM while the stream runs, while accepting the same window
+/// with mode 1 — so the OpenNI version heuristic (>= 5.7.2 implies
+/// support) does not hold for this build. Test 10 additionally probes
+/// the C-exact multi-pair batch write and a stream-stopped write; if
+/// those also NACK, treat mode 2 as unsupported on this unit and keep
+/// the window with mode 1.
 pub const CROP_MODE_DISABLED: u16 = 0;
 pub const CROP_MODE_NORMAL: u16 = 1;
 pub const CROP_MODE_INCREASED_FPS: u16 = 2;
+
+/// Largest correlation shift the PS1080 depth pipe reports
+/// (`XN_SHIFTS_MAX_SHIFT`, XnSensorDepthStream.cpp:42); 2047 doubles as
+/// the no-depth marker on the wire. Depth AGC bin bounds live in
+/// 0..=MAX_SHIFT.
+pub const MAX_SHIFT: u16 = 2047;
 
 /// Resolution ids written to PARAM_IMAGE_RESOLUTION / PARAM_DEPTH_RESOLUTION.
 /// Source: Include/XnStreamParams.h `XnResolutions`.
