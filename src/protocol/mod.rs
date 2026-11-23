@@ -162,6 +162,22 @@ pub enum Param {
     IrResolution = 26,
     IrFps = 27,
     DepthGmcMode = 36,
+    /// The whole block 37-44 is the GMC's calibration/derived state
+    /// (`XnParams.h` PARAM_DEPTH_GMC_*). The reference driver never
+    /// writes any of them — only the mode (36) and the debug switch
+    /// (61) are mapped to host properties — so this crate exposes them
+    /// read-only via [`GmcConfig`](crate::GmcConfig).
+    DepthGmcRefOffset = 37,
+    DepthGmcRicc = 38,
+    DepthGmcDxCorrection = 39,
+    DepthGmcDxCorrectionA = 40,
+    DepthGmcDxCorrectionBHigh = 41,
+    DepthGmcDxCorrectionBLow = 42,
+    DepthGmcDxCorrectionDbHigh = 43,
+    DepthGmcDxCorrectionDbLow = 44,
+    /// Switch on the GMC debug stream (0xb200 points + 0xb500 summary,
+    /// `PARAM_GMC_DEBUG`, `XnSensorDepthStream::SetGMCDebug`).
+    GmcDebug = 61,
     ImageCropSizeX = 46,
     ImageCropSizeY = 47,
     ImageCropOffsetX = 48,
@@ -196,6 +212,9 @@ pub enum Param {
     IrMirror = 72,
     WavelengthCorrectionEnabled = 73,
     WavelengthCorrectionDebugEnabled = 74,
+    /// GMC correction mode (`PARAM_GMC_CORRECTION_MODE`). Read-only
+    /// here: the reference driver never maps it to a host property.
+    GmcCorrectionMode = 75,
     ImageAutoWhiteBalanceMode = 77,
     ImageAutoExposureMode = 80,
     ImageExposureBar = 81,
@@ -344,7 +363,19 @@ pub mod packet_type {
     pub const IMAGE_BUFFER: u16 = 0x8200;
     pub const IMAGE_END: u16 = 0x8500;
     pub const AUDIO_BUFFER: u16 = 0x9200;
+    /// Plain GMC motion data: an array of up to 100 tracked points
+    /// (`XN_SENSOR_PROTOCOL_RESPONSE_GMC`; 10 bytes per point — see
+    /// [`crate::stream::GmcPoint`]). The reference driver does NOT route
+    /// this type — it falls into the default "unknown packet" branch of
+    /// `XnFirmwareStreams.cpp` — so this crate is the first decoder.
     pub const GMC: u16 = 0xa200;
+    /// GMC debug points, same layout as plain GMC
+    /// (`XnGMCDebugProcessor`, which dumps them to GMC_Points files).
+    pub const GMC_DEBUG: u16 = 0xb200;
+    /// GMC debug end-of-scan summary (`XnHostProtocolGMCLastPacketData`,
+    /// 38 bytes packed): last/new correlation configuration plus whether
+    /// the flash reference offset was updated.
+    pub const GMC_DEBUG_END: u16 = 0xb500;
     pub const OVERHEAT: u16 = 0xf31f;
     pub const PROJECTOR_FAULT_EVENT: u16 = 0xdead;
 }

@@ -358,8 +358,15 @@ following frames:
   the per-device depth<->shift tables (`SetAGCBin` /
   `XnHostProtocolSetDepthAGCBin`, XnHostProtocol.cpp:3124-3141); the
   wire (and this driver's API) carries raw shifts. Writes are TWO
-  separate single SET_PARAMs per bin (LOW first, HIGH second — no
-  batch on this path).
+  separate single SET_PARAMs per bin.
+  **Hardware finding (fw 5.8.22, 0.3.4 camera run): the firmware
+  validates every individual write against the sibling bound's CURRENT
+  value and NACKs `BadParams` when the write would momentarily leave
+  `min > max` — the reference's LOW-then-HIGH order dies on the first
+  bin that grows upward (factory bins are all (0,0)). 0.3.5 therefore
+  sequences each bin transient-safely: raise HIGH first when the new
+  bin sits above the old one, lower LOW first otherwise; the probe
+  ladder in hardware test 11 pins the exact behaviour per build.**
 - **Wavelength correction (params 73/74, fw >= 5.2)**: param 73
   enables the firmware's correction of depth against the projector's
   actual laser wavelength vs. the factory reference; param 74 is a
@@ -379,6 +386,45 @@ handled by XnPacked11DepthProcessor!)**, UNCOMPRESSED_12_BIT=4 (packed 12).
 Image input formats (`XnIOImageFormats`): BAYER=0, YUV422=1, JPEG=2,
 JPEG_420=3, JPEG_MONO=4, UNCOMPRESSED_YUV422=5 (default), UNCOMPRESSED_BAYER=6,
 UNCOMPRESSED_YUYV=7.
+
+### GMC — Global Motion Compensation (0.3.5)
+
+The firmware tracks projected-pattern features frame to frame and can
+report the resulting motion vectors to the host (camera/scene motion
+between depth frames). Three surfaces:
+
+- **Parameter block (params 36-44, 61, 75, `XnParams.h:68-76, 99, 115`)**:
+  mode 36 (0 = `GMC_NORMAL_MODE`, 1 = `GMC_SCAN_MODE`), reference
+  offset 37, RICC 38, DX correction 39-44 (value + A/B-high/B-low/DB-high/
+  DB-low terms), debug switch 61, correction mode 75. The reference
+  driver maps only TWO of these to host properties — mode and debug
+  (`m_GMCMode`/`m_GMCDebug`, XnSensorFirmwareParams.h:101/112) — so
+  those are the only writes this crate offers (`set_gmc_mode` /
+  `set_gmc_debug`); the calibration block is read-only
+  (`gmc_config()`).
+- **OPCODE 26 (`OPCODE_SET_GMC_PARAMS`)**: enabled for fw >= 4.0 in
+  `XnHostProtocolInitFWParams` (XnHostProtocol.cpp:442) but **never
+  called anywhere in the C driver** — no request layout exists in the
+  reference. Deliberately not implemented here either (an unknown-
+  payload write into the depth processor's configuration is exactly
+  the class of write the safety policy excludes).
+- **Packet stream on the misc endpoint (EP 0x83)**:
+  - **0xa200 plain GMC motion data** — an array of up to 100 points
+    (`XN_SENSOR_PROTOCOL_GMC_MAX_POINTS_IN_PACKET`), each 10 bytes:
+    `u16 x; u16 y; u16 dx; i16 dy; u16 score` (`XnDeviceSensorGMCPoint`,
+    XnDeviceSensor.h:162-169, pack(1)). **The reference driver does not
+    route this type at all** — it falls into the default branch of the
+    `XnFirmwareStreams.cpp` switch — so this crate is its first
+    decoder (`GmcPacket::Points`).
+  - **0xb200 GMC debug points** — identical layout, routed by
+    `XnGMCDebugProcessor` (which only dumps them to `GMC_Points`
+    files).
+  - **0xb500 GMC debug end-of-scan summary** — the packed
+    `XnHostProtocolGMCLastPacketData` (XnHostProtocol.h:267-280,
+    38 bytes): `u16 mode; u16 coverage_pass; {i16 last; u16 ricc_last;
+    f32 ricc_iir}; f32 a; f32 b; f32 c; i16 n; u16 ricc; u32 start_b;
+    u32 delta_b; i16 flash_stored_ref_offset` — decoded as
+    `GmcPacket::DebugEnd`.
 
 ## 4. Calibration
 
@@ -493,7 +539,8 @@ the full 12 MB/s stream).
 Packet types (`XnDeviceSensorProtocol.h`): DEPTH_START 0x7100,
 DEPTH_BUFFER 0x7200, DEPTH_END 0x7500, IMAGE_START 0x8100,
 IMAGE_BUFFER 0x8200, IMAGE_END 0x8500, AUDIO_BUFFER 0x9200, GMC 0xa200,
-OVERHEAT 0xf31f, PROJECTOR_FAULT 0xdead.
+GMC_DEBUG 0xb200, GMC_DEBUG_END 0xb500 (both decoded since 0.3.5, see
+section 3), OVERHEAT 0xf31f, PROJECTOR_FAULT 0xdead.
 
 Parser state machine (`XnDeviceSensorProtocolUsbEpCb`):
 `LOOKING_FOR_MAGIC` (byte scan, with a partial-magic carry across reads;

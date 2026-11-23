@@ -17,6 +17,11 @@
 //! modes — formats 1 (PS-compressed Yuv422), 5 (uncompressed Yuv422) and
 //! 7 (uncompressed Yuyv) at QVGA/VGA, Bayer 0/6 at the wide modes, and
 //! one (9, VGA, 30) entry with a format id OpenNI never exposes.
+//!
+//! Resolution ids render with their actual dimensions via
+//! [`resolution_info`]: the firmware table uses raw numbers
+//! (`format 0 @ res 14 @ 30 fps`), while the C source names them
+//! (`XN_RESOLUTION_720P`); both views are shown now.
 
 use std::time::Duration;
 
@@ -28,6 +33,35 @@ use crate::error::{Result, XtionError};
 /// IMAGE CMOS is 0, the DEPTH CMOS is 1.
 pub const CMOS_TYPE_IMAGE: u16 = 0;
 pub const CMOS_TYPE_DEPTH: u16 = 1;
+
+/// The firmware's resolution id decoded into (name, width, height).
+///
+/// Source: `XnResolutions`, Include/XnStreamParams.h:183-202 — these
+/// ARE the values on the wire (presets, params 13/19): 0=QVGA, 1=VGA,
+/// 2=SXGA (the depth CMOS's native size), 14=720P, 15=1280x960, etc.
+/// Codes the C table does not name return `None`.
+pub fn resolution_info(code: u16) -> Option<(&'static str, u16, u16)> {
+    let (name, w, h) = match code {
+        0 => ("QVGA", 320, 240),
+        1 => ("VGA", 640, 480),
+        2 => ("SXGA", 1280, 1024),
+        3 => ("UXGA", 1600, 1200),
+        4 => ("QQVGA", 160, 120),
+        5 => ("QCIF", 176, 144),
+        6 => ("240P", 432, 240),
+        7 => ("CIF", 352, 288),
+        8 => ("WVGA", 640, 360),
+        9 => ("480P", 864, 480),
+        10 => ("800x448", 800, 448),
+        11 => ("SVGA", 800, 600),
+        12 => ("576P", 1024, 576),
+        13 => ("DV", 960, 720),
+        14 => ("720P", 1280, 720),
+        15 => ("1280x960", 1280, 960),
+        _ => return None,
+    };
+    Some((name, w, h))
+}
 
 /// One stream mode supported by a CMOS (`XnCmosPreset`,
 /// Include/XnStreamParams.h:251-256).
@@ -58,12 +92,22 @@ impl CmosPreset {
 }
 
 impl std::fmt::Display for CmosPreset {
+    /// `format 1 @ res 0 (QVGA 320x240) @ 30 fps` — the raw wire code
+    /// plus the actual resolution it stands for, so a preset listing is
+    /// readable without the C header open.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "format {} @ res {} @ {} fps",
-            self.format, self.resolution, self.fps
-        )
+        match resolution_info(self.resolution) {
+            Some((name, w, h)) => write!(
+                f,
+                "format {} @ res {} ({} {}x{}) @ {} fps",
+                self.format, self.resolution, name, w, h, self.fps
+            ),
+            None => write!(
+                f,
+                "format {} @ res {} @ {} fps",
+                self.format, self.resolution, self.fps
+            ),
+        }
     }
 }
 
@@ -231,6 +275,32 @@ mod tests {
         assert_eq!(presets[1].resolution, 1);
         assert_eq!(presets[3].resolution, 0);
         assert_eq!(presets[3].fps, 30);
+    }
+
+    #[test]
+    fn resolution_table_matches_the_c_header() {
+        // spot checks against XnStreamParams.h:183-202
+        assert_eq!(resolution_info(0), Some(("QVGA", 320, 240)));
+        assert_eq!(resolution_info(1), Some(("VGA", 640, 480)));
+        assert_eq!(resolution_info(2), Some(("SXGA", 1280, 1024)));
+        assert_eq!(resolution_info(4), Some(("QQVGA", 160, 120)));
+        assert_eq!(resolution_info(9), Some(("480P", 864, 480)));
+        assert_eq!(resolution_info(14), Some(("720P", 1280, 720)));
+        assert_eq!(resolution_info(15), Some(("1280x960", 1280, 960)));
+        assert_eq!(resolution_info(16), None);
+        // the Display renders the real dimensions
+        let preset = CmosPreset {
+            format: 1,
+            resolution: 1,
+            fps: 30,
+        };
+        assert_eq!(preset.to_string(), "format 1 @ res 1 (VGA 640x480) @ 30 fps");
+        let wide = CmosPreset {
+            format: 0,
+            resolution: 14,
+            fps: 30,
+        };
+        assert_eq!(wide.to_string(), "format 0 @ res 14 (720P 1280x720) @ 30 fps");
     }
 
     #[test]

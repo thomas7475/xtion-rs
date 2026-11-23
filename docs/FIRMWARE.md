@@ -106,7 +106,8 @@ USB device (VID 1d27)
   `FRQ %d` (temperature/frequency) telemetry strings.
 - **GMC** (Global Motion Compensation): a depth-processing mode (params
   36–44, 61, 75) with a point stream on the misc endpoint (up to 100 points
-  per packet) and debug channels.
+  per packet) and debug channels. Decoded since 0.3.5: plain 0xa200
+  points (`XnDeviceSensorGMCPoint`), debug 0xb200, summary 0xb500.
 
 ## 4. The complete command surface vs xtion-rs
 

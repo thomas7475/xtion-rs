@@ -249,7 +249,7 @@ now fixed and covered by unit tests:
 | 8 | Depth hole filter | PARAM 22 | missing | trivial | none (runtime param) |
 | 9 | Depth AGC (gain) | PARAM 21 | **present (0.3.4)** | - | none (runtime param) |
 | 10 | Close range | PARAM 84 (fw >= 5.6) | **present (0.3.4)** | - | none (runtime param) |
-| 11 | GMC mode | PARAM 36 | missing | trivial | none (runtime param) |
+| 11 | GMC mode | PARAM 36 | **present (0.3.5)** | - | none (runtime param) |
 | 12 | Emitter (IR projector) on/off | OPCODE 42 | missing | trivial | none (runtime state) |
 | 13 | IR stream | STREAM0_MODE=3 + PARAMs 26/27/72, 10-bit packed frames on the image pipe | missing | medium | none (stream config) |
 | 14 | Image mirror | PARAM 71 | missing | trivial | none (runtime param) |
@@ -262,7 +262,7 @@ now fixed and covered by unit tests:
 | 21 | Cropping (all streams) | PARAMs 46-60 + mode | **present (0.3.3; mode 2 hw-unsupported)** | - | none, but complex bookkeeping |
 | 22 | Depth AGC bins | PARAMs 63-70 | **present (0.3.4)** | - | none (runtime params) |
 | 23 | Wavelength correction | PARAMs 73/74 | **present (0.3.4)** | - | none (runtime params) |
-| 24 | GMC data/debug stream | packets 0xa200/0xb200, OPCODE 26 | missing | medium | none (read) |
+| 24 | GMC data/debug stream | packets 0xa200/0xb200, OPCODE 26 | **present (0.3.5; plain 0xa200 + 0xb200/0xb500 decoded — the reference never routed 0xa200)** | - | none (read) |
 | 25 | Firmware log | OPCODE 7 + PARAMs 30/31 | missing | medium | low (PARAM 30/31 are runtime log config) |
 | 26 | CPU stats | OPCODE 27 | missing | small | none (read) |
 | 27 | TEC/emitter status reads | OPCODEs 30/32/38 | missing | small | none (read) |
@@ -285,7 +285,7 @@ is validated on (no color sensor; RD108 flash layout).
 | Feature | Source | Mechanism | Diff. | Value on this unit | Note |
 |---|---|---|---|---|---|
 | Depth→color registration end-to-end | OpenNI | PARAM 2 + ALGORITHM 0x02 tables + padding | **4** | none (no color sensor) | highest-value feature for RGB variants; `set_registration` write exists since 0.2.0, the table/padding machinery does not |
-| GMC motion data + config | OpenNI | packets 0xa200, OPCODE 26, params 36-44 | **3** | medium | projector-based ego-motion correction; decoder + set_gmc_params |
+| GMC motion data + config | OpenNI | packets 0xa200, OPCODE 26, params 36-44 | **done (0.3.5)** | medium | config block + switches + 0xa200/0xb200/0xb500 decoders landed; opcode 26 stays unimplemented (no caller/layout in the reference) |
 | COMPRESSED_PS depth format | OpenNI | depth format 1, `XnStreamCompressDepth*` | **4** | low | bit-level decoder port; prerequisite for SXGA@30 |
 | SXGA depth (1280x1024@15) | OpenNI | CMOS preset + decoders (existing) | **2** | low | @15 works uncompressed; @30 additionally needs COMPRESSED_PS; crop already covers the ROI use case |
 | QVGA@60 + full mode matrix | OpenNI | CMOS presets | **1** | low | config only; crop (0.3.3) makes it less interesting |
@@ -481,7 +481,7 @@ PS1080 driver actually calls (verified by grepping every
 | Firmware capability | Surface | OpenNI 2.2.0 status | Evidence |
 |---|---|---|---|
 | Audio capture | STREAM2_MODE=7, params 8-11/33-35, packet 0x9200 | **disabled** — the stream code exists but `CreateStreamModule` refuses audio (`TODO: enable` + `XN_ASSERT(FALSE)`) | XnSensor.cpp ~470 |
-| GMC motion data | packet 0xa200 (up to 100 points/packet), params 37-44, 75 | **unhandled** — only GMC *debug* (0xb200) is routed; plain GMC falls into the default "Unknown packet type" warning | XnFirmwareStreams.cpp switch |
+| GMC motion data | packet 0xa200 (up to 100 points/packet), params 37-44, 75 | **unhandled in the reference** — only GMC *debug* (0xb200) is routed; plain GMC falls into the default "Unknown packet type" warning. xtion-rs 0.3.5 decodes it (`GmcPacket::Points`) | XnFirmwareStreams.cpp switch |
 | File **upload** to flash | opcodes 13/14/15 (INIT/WRITE/FINISH_FILE_UPLOAD) | **never called** (download/read/delete/execute *are* used) | zero call sites |
 | Firmware kill | opcode 999 (`KILL`) | **never called** | zero call sites |
 | Take snapshot to flash | opcode 12 | **never called** — defined, has a body, no caller | XnHostProtocol.cpp:2440 |
@@ -495,10 +495,11 @@ the driver are ancient-firmware dialects; firmware 5.8.22 uses the main
 packet types, TEC/emitter/projector calibration, CMOS blanking/presets,
 BIST, CPU stats, the log channel — OpenNI does call.
 
-What xtion-rs should do with these: the **audio runtime** and the
-**plain GMC data stream** are the two genuinely valuable firmware
-capabilities that neither the vendor driver nor this crate exposes yet
-(Phases 3-4). The flash-upload, KILL and TAKE_SNAPSHOT surfaces stay
+What xtion-rs should do with these: the **audio runtime** remains the
+only genuinely valuable firmware capability that neither the vendor
+driver nor this crate exposes yet (the **plain GMC data stream** landed
+in 0.3.5 — packet 0xa200, which even the vendor driver never routed).
+The flash-upload, KILL and TAKE_SNAPSHOT surfaces stay
 excluded per section 3 — OpenNI not calling them is itself a signal.
 
 ## 6. Sources

@@ -33,6 +33,178 @@ pub enum DeviceEvent {
     ProjectorFault,
 }
 
+/// `XN_SENSOR_PROTOCOL_GMC_MAX_POINTS_IN_PACKET`
+/// (Sensor/XnDeviceSensorProtocol.h:75) — the most motion points one
+/// GMC packet can carry.
+pub const GMC_MAX_POINTS_IN_PACKET: usize = 100;
+
+/// Wire size of one [`GmcPoint`] (pack(1), five 16-bit fields).
+pub const GMC_POINT_WIRE_SIZE: usize = 10;
+
+/// Wire size of the packed `XnHostProtocolGMCLastPacketData`
+/// (XnHostProtocol.h:267-280).
+pub const GMC_LAST_PACKET_WIRE_SIZE: usize = 38;
+
+/// One tracked point of a GMC motion-data packet — a field-faithful
+/// port of `XnDeviceSensorGMCPoint`
+/// (Sensor/XnDeviceSensor.h:162-169, `pack(1)`): five 16-bit fields,
+/// 10 bytes on the wire, up to [`GMC_MAX_POINTS_IN_PACKET`] per packet.
+///
+/// GMC (Global Motion Compensation) tracks projected-pattern features
+/// frame to frame; the resulting motion vectors describe how much the
+/// camera/scene moved between two depth frames and let a consumer
+/// stabilise or reject shaken frames. The reference driver never
+/// decodes the plain packet — its `XnGMCDebugProcessor` only dumps the
+/// debug variant to `GMC_Points` files as "X,Y,DX,DY".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GmcPoint {
+    /// Pattern X coordinate the tracker locked onto.
+    pub x: u16,
+    /// Pattern Y coordinate.
+    pub y: u16,
+    /// Horizontal displacement since the previous frame. The C's field
+    /// type is `XnUInt16`, so a leftward motion reads as two's
+    /// complement here too (`dx as i16`).
+    pub dx: u16,
+    /// Vertical displacement (the C's field is `XnInt16` — signed).
+    pub dy: i16,
+    /// Tracker confidence of the match.
+    pub score: u16,
+}
+
+impl GmcPoint {
+    fn parse(chunk: &[u8]) -> GmcPoint {
+        GmcPoint {
+            x: u16::from_le_bytes([chunk[0], chunk[1]]),
+            y: u16::from_le_bytes([chunk[2], chunk[3]]),
+            dx: u16::from_le_bytes([chunk[4], chunk[5]]),
+            dy: i16::from_le_bytes([chunk[6], chunk[7]]),
+            score: u16::from_le_bytes([chunk[8], chunk[9]]),
+        }
+    }
+}
+
+/// The firmware's correlation-configuration state, first half:
+/// `XnHostProtocolGMCLastConfData` (XnHostProtocol.h:254-259, pack(1)).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GmcLastConfData {
+    pub last: i16,
+    pub ricc_last: u16,
+    pub ricc_iir: f32,
+}
+
+/// The 0xb500 end-of-scan summary — `XnHostProtocolGMCLastPacketData`
+/// (XnHostProtocol.h:267-280, pack(1), 38 bytes). The reference's
+/// `XnGMCDebugProcessor` renders this as "Last Configuration" /
+/// "New Configuration" (N, RICC, RICC IIR, A, B, C, StartB, DeltaB)
+/// plus whether the flash reference offset was updated.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GmcLastPacketData {
+    /// GMC mode the scan ran in (0 = normal, 1 = scan).
+    pub mode: u16,
+    pub coverage_pass: u16,
+    pub last_conf: GmcLastConfData,
+    pub a: f32,
+    pub b: f32,
+    pub c: f32,
+    pub n: i16,
+    pub ricc: u16,
+    pub start_b: u32,
+    pub delta_b: u32,
+    /// Reference offset the firmware stored to flash this scan; -1000
+    /// means "not written" (the C fills that in for fw < 5.2).
+    pub flash_stored_ref_offset: i16,
+}
+
+/// A decoded GMC packet from the misc endpoint (all GMC traffic lives
+/// on EP 0x83 — `docs/FIRMWARE.md` §3).
+#[derive(Debug, Clone, PartialEq)]
+pub enum GmcPacket {
+    /// 0xa200 plain motion data, or 0xb200 debug points (identical
+    /// layout — the debug processor treats them the same).
+    Points(GmcPoints),
+    /// 0xb500 debug end-of-scan configuration summary.
+    DebugEnd(GmcDebugEnd),
+}
+
+/// The point-array payload of one GMC packet.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GmcPoints {
+    /// Packet timestamp (device ticks, 60 ticks/us).
+    pub timestamp: u32,
+    /// True when carried by the debug channel (0xb200) rather than the
+    /// plain GMC packet (0xa200).
+    pub debug: bool,
+    /// Motion points; never more than [`GMC_MAX_POINTS_IN_PACKET`].
+    pub points: Vec<GmcPoint>,
+}
+
+/// The 0xb500 summary payload.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GmcDebugEnd {
+    pub timestamp: u32,
+    pub data: GmcLastPacketData,
+}
+
+/// Parse a point-array GMC payload (0xa200 / 0xb200). Returns `None`
+/// when the payload is not a whole number of 10-byte records.
+fn parse_gmc_points(raw: &[u8], timestamp: u32, debug: bool) -> Option<GmcPoints> {
+    if raw.is_empty() || raw.len() % GMC_POINT_WIRE_SIZE != 0 {
+        return None;
+    }
+    let mut points = Vec::with_capacity(raw.len() / GMC_POINT_WIRE_SIZE);
+    for chunk in raw.chunks_exact(GMC_POINT_WIRE_SIZE) {
+        if points.len() == GMC_MAX_POINTS_IN_PACKET {
+            log::warn!(
+                "GMC packet advertises more than {GMC_MAX_POINTS_IN_PACKET} points; truncating"
+            );
+            break;
+        }
+        points.push(GmcPoint::parse(chunk));
+    }
+    Some(GmcPoints {
+        timestamp,
+        debug,
+        points,
+    })
+}
+
+/// Parse the packed `XnHostProtocolGMCLastPacketData` summary
+/// (field offsets follow XnHostProtocol.h:267-280 with pack(1)).
+fn parse_gmc_last_packet(raw: &[u8], timestamp: u32) -> Option<GmcDebugEnd> {
+    if raw.len() < GMC_LAST_PACKET_WIRE_SIZE {
+        return None;
+    }
+    let le16 = |o: usize| u16::from_le_bytes([raw[o], raw[o + 1]]);
+    let le16s = |o: usize| i16::from_le_bytes([raw[o], raw[o + 1]]);
+    let le32 = |o: usize| {
+        u32::from_le_bytes([raw[o], raw[o + 1], raw[o + 2], raw[o + 3]])
+    };
+    let lef32 = |o: usize| {
+        f32::from_le_bytes([raw[o], raw[o + 1], raw[o + 2], raw[o + 3]])
+    };
+    Some(GmcDebugEnd {
+        timestamp,
+        data: GmcLastPacketData {
+            mode: le16(0),
+            coverage_pass: le16(2),
+            last_conf: GmcLastConfData {
+                last: le16s(4),
+                ricc_last: le16(6),
+                ricc_iir: lef32(8),
+            },
+            a: lef32(12),
+            b: lef32(16),
+            c: lef32(20),
+            n: le16s(24),
+            ricc: le16(26),
+            start_b: le32(28),
+            delta_b: le32(32),
+            flash_stored_ref_offset: le16s(36),
+        },
+    })
+}
+
 /// A fully assembled frame.
 #[derive(Debug, Clone)]
 pub struct AssembledFrame {
@@ -88,6 +260,14 @@ pub struct StreamAssembler {
     /// Completed device events (OVERHEAT / PROJECTOR_FAULT), ready for
     /// the consumer.
     events: VecDeque<DeviceEvent>,
+    /// Decoded GMC packets (plain 0xa200 motion data, debug 0xb200/0xb500).
+    gmc_packets: VecDeque<GmcPacket>,
+    /// Payload accumulator of the in-flight GMC packet (misc packets can
+    /// span several bulk transfers; the family is only parseable whole).
+    gmc_accum: Vec<u8>,
+    /// True while the in-flight packet is a non-frame packet, so it is
+    /// counted exactly once (at completion) in `other_packets`.
+    packet_is_misc: bool,
     /// Count of non-frame packets consumed (GMC, audio, ...).
     pub other_packets: u64,
     /// Diagnostic counters, surfaced when a stream misbehaves: a single
@@ -137,6 +317,9 @@ impl StreamAssembler {
             last_sof_packet_id: 0,
             frames: VecDeque::new(),
             events: VecDeque::new(),
+            gmc_packets: VecDeque::new(),
+            gmc_accum: Vec::new(),
+            packet_is_misc: false,
             other_packets: 0,
             stats: AssemblerStats::default(),
         }
@@ -182,6 +365,7 @@ impl StreamAssembler {
                             // stop.
                             self.dispatch_packet(&[], true);
                             self.close_if_eof();
+                            self.on_packet_complete();
                             self.state = State::LookingForMagic;
                             self.missing = 2;
                         }
@@ -200,6 +384,7 @@ impl StreamAssembler {
                         // completes the frame (C: nDataOffset + nDataSize
                         // == nBufSize -> OnEndOfFrame)
                         self.close_if_eof();
+                        self.on_packet_complete();
                         self.state = State::LookingForMagic;
                         self.missing = 2;
                     }
@@ -264,6 +449,39 @@ impl StreamAssembler {
         }
     }
 
+    /// Called when the current packet's payload is fully consumed:
+    /// counts a misc packet exactly once, and decodes the GMC family
+    /// (0xa200/0xb200 points, 0xb500 summary) now that its payload is
+    /// whole — the C only ever parsed them as
+    /// `XnWholePacketProcessor`s too.
+    fn on_packet_complete(&mut self) {
+        if self.packet_is_misc {
+            self.packet_is_misc = false;
+            self.other_packets += 1;
+        }
+        let kind = self.header.packet_type;
+        if matches!(
+            kind,
+            packet_type::GMC | packet_type::GMC_DEBUG | packet_type::GMC_DEBUG_END
+        ) {
+            let raw = std::mem::take(&mut self.gmc_accum);
+            let timestamp = self.header.timestamp;
+            let parsed = if kind == packet_type::GMC_DEBUG_END {
+                parse_gmc_last_packet(&raw, timestamp).map(GmcPacket::DebugEnd)
+            } else {
+                parse_gmc_points(&raw, timestamp, kind == packet_type::GMC_DEBUG)
+                    .map(GmcPacket::Points)
+            };
+            match parsed {
+                Some(packet) => self.gmc_packets.push_back(packet),
+                None => log::warn!(
+                    "GMC packet {kind:#06x} payload is {} bytes — not whole GMC records, dropped",
+                    raw.len()
+                ),
+            }
+        }
+    }
+
     /// Handle one chunk of a complete packet's payload. `is_packet_start`
     /// is true for the first bytes of this packet (C: `nDataOffset == 0`).
     fn dispatch_packet(&mut self, data: &[u8], is_packet_start: bool) {
@@ -321,7 +539,9 @@ impl StreamAssembler {
                 // Error-state packets become events instead of being
                 // dropped on the floor (the reference driver's
                 // XnFirmwareStreams.cpp sets the device error state for
-                // these two; everything else is just counted).
+                // these two; everything else is just counted once at
+                // completion). GMC-family payloads additionally collect
+                // into `gmc_accum` so they can be decoded whole.
                 match other {
                     packet_type::OVERHEAT => {
                         log::warn!("device event: OVERHEAT");
@@ -331,9 +551,12 @@ impl StreamAssembler {
                         log::warn!("device event: PROJECTOR_FAULT");
                         self.events.push_back(DeviceEvent::ProjectorFault);
                     }
+                    packet_type::GMC | packet_type::GMC_DEBUG | packet_type::GMC_DEBUG_END => {
+                        self.gmc_accum.extend_from_slice(data);
+                    }
                     _ => {}
                 }
-                self.other_packets += 1;
+                self.packet_is_misc = true;
             }
         }
     }
@@ -365,6 +588,16 @@ impl StreamAssembler {
     /// Drain all pending device events.
     pub fn drain_events(&mut self) -> Vec<DeviceEvent> {
         self.events.drain(..).collect()
+    }
+
+    /// Pop the next decoded GMC packet, if any.
+    pub fn pop_gmc_packet(&mut self) -> Option<GmcPacket> {
+        self.gmc_packets.pop_front()
+    }
+
+    /// Drain all pending GMC packets.
+    pub fn drain_gmc_packets(&mut self) -> Vec<GmcPacket> {
+        self.gmc_packets.drain(..).collect()
     }
 }
 
@@ -580,6 +813,199 @@ mod tests {
         assert!(asm.pop_event().is_none());
         // still counted as misc packets
         assert_eq!(asm.other_packets, 3);
+    }
+
+    /// The plain GMC packet (0xa200) decodes into motion points: the
+    /// 10-byte `XnDeviceSensorGMCPoint` records, little-endian.
+    #[test]
+    fn plain_gmc_points_are_decoded() {
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        // two points: (x=100, y=200, dx=0xffff [-1 as i16], dy=-3, score=90)
+        //             (x=101, y=201, dx=2, dy=0x8000 [-32768], score=0)
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&100u16.to_le_bytes());
+        payload.extend_from_slice(&200u16.to_le_bytes());
+        payload.extend_from_slice(&0xffffu16.to_le_bytes());
+        payload.extend_from_slice(&(-3i16).to_le_bytes());
+        payload.extend_from_slice(&90u16.to_le_bytes());
+        payload.extend_from_slice(&101u16.to_le_bytes());
+        payload.extend_from_slice(&201u16.to_le_bytes());
+        payload.extend_from_slice(&2u16.to_le_bytes());
+        payload.extend_from_slice(&0x8000u16.to_le_bytes());
+        payload.extend_from_slice(&0u16.to_le_bytes());
+        let stream = packet(packet_type::GMC, 9, &payload, 1234);
+        // the packet is deliberately split across three feeds: misc
+        // packets may span bulk transfers
+        let (a, rest) = stream.split_at(15);
+        asm.feed(a);
+        let (b, c) = rest.split_at(17);
+        asm.feed(b);
+        asm.feed(c);
+        match asm.pop_gmc_packet() {
+            Some(GmcPacket::Points(p)) => {
+                assert_eq!(p.timestamp, 1234);
+                assert!(!p.debug);
+                assert_eq!(
+                    p.points,
+                    vec![
+                        GmcPoint {
+                            x: 100,
+                            y: 200,
+                            dx: 0xffff,
+                            dy: -3,
+                            score: 90
+                        },
+                        GmcPoint {
+                            x: 101,
+                            y: 201,
+                            dx: 2,
+                            dy: i16::MIN,
+                            score: 0
+                        },
+                    ]
+                );
+            }
+            other => panic!("expected plain points packet, got {other:?}"),
+        }
+        // still counted as a (single) misc packet despite the split
+        assert_eq!(asm.other_packets, 1);
+    }
+
+    /// The debug points packet (0xb200) decodes identically and is
+    /// flagged as debug.
+    #[test]
+    fn gmc_debug_points_are_flagged() {
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&7u16.to_le_bytes());
+        payload.extend_from_slice(&8u16.to_le_bytes());
+        payload.extend_from_slice(&9u16.to_le_bytes());
+        payload.extend_from_slice(&10u16.to_le_bytes());
+        payload.extend_from_slice(&11u16.to_le_bytes());
+        asm.feed(&packet(packet_type::GMC_DEBUG, 1, &payload, 99));
+        match asm.pop_gmc_packet() {
+            Some(GmcPacket::Points(p)) => {
+                assert!(p.debug);
+                assert_eq!(p.points.len(), 1);
+                assert_eq!(p.points[0], GmcPoint { x: 7, y: 8, dx: 9, dy: 10, score: 11 });
+            }
+            other => panic!("expected debug points packet, got {other:?}"),
+        }
+    }
+
+    /// The 0xb500 debug end-of-scan summary parses as the packed
+    /// `XnHostProtocolGMCLastPacketData` (38 bytes).
+    #[test]
+    fn gmc_debug_end_summary_is_decoded() {
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&1u16.to_le_bytes()); // mode = scan
+        raw.extend_from_slice(&2u16.to_le_bytes()); // coverage pass
+        raw.extend_from_slice(&(-7i16).to_le_bytes()); // last conf: last
+        raw.extend_from_slice(&300u16.to_le_bytes()); // last conf: ricc last
+        raw.extend_from_slice(&1.5f32.to_le_bytes()); // last conf: ricc iir
+        raw.extend_from_slice(&2.25f32.to_le_bytes()); // A
+        raw.extend_from_slice(&0.5f32.to_le_bytes()); // B
+        raw.extend_from_slice(&(-1.0f32).to_le_bytes()); // C
+        raw.extend_from_slice(&(-42i16).to_le_bytes()); // N
+        raw.extend_from_slice(&1024u16.to_le_bytes()); // RICC
+        raw.extend_from_slice(&100_000u32.to_le_bytes()); // StartB
+        raw.extend_from_slice(&4_000u32.to_le_bytes()); // DeltaB
+        raw.extend_from_slice(&(-1000i16).to_le_bytes()); // ref offset: not written
+        assert_eq!(raw.len(), GMC_LAST_PACKET_WIRE_SIZE);
+
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        asm.feed(&packet(packet_type::GMC_DEBUG_END, 3, &raw, 55));
+        match asm.pop_gmc_packet() {
+            Some(GmcPacket::DebugEnd(end)) => {
+                assert_eq!(end.timestamp, 55);
+                let d = end.data;
+                assert_eq!(d.mode, 1);
+                assert_eq!(d.coverage_pass, 2);
+                assert_eq!(d.last_conf.last, -7);
+                assert_eq!(d.last_conf.ricc_last, 300);
+                assert_eq!(d.last_conf.ricc_iir, 1.5);
+                assert_eq!(d.a, 2.25);
+                assert_eq!(d.b, 0.5);
+                assert_eq!(d.c, -1.0);
+                assert_eq!(d.n, -42);
+                assert_eq!(d.ricc, 1024);
+                assert_eq!(d.start_b, 100_000);
+                assert_eq!(d.delta_b, 4_000);
+                assert_eq!(d.flash_stored_ref_offset, -1000);
+            }
+            other => panic!("expected debug end packet, got {other:?}"),
+        }
+    }
+
+    /// A GMC payload that is not whole 10-byte records is counted as
+    /// misc but not decoded (keeps the pre-0.3.5 counting behaviour).
+    #[test]
+    fn non_record_gmc_payload_is_counted_not_decoded() {
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        asm.feed(&packet(packet_type::GMC, 1, b"gmc-data", 1));
+        asm.feed(&packet(packet_type::OVERHEAT, 2, b"hot", 2));
+        assert_eq!(asm.other_packets, 2);
+        assert!(asm.pop_gmc_packet().is_none());
+    }
+
+    /// More than 100 points in one packet are truncated to the C's
+    /// `XN_SENSOR_PROTOCOL_GMC_MAX_POINTS_IN_PACKET` instead of growing
+    /// the allocation with the advertised size.
+    #[test]
+    fn oversized_gmc_packets_are_truncated() {
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        let mut payload = Vec::new();
+        for i in 0..150u16 {
+            payload.extend_from_slice(&i.to_le_bytes());
+            payload.extend_from_slice(&0u16.to_le_bytes());
+            payload.extend_from_slice(&0u16.to_le_bytes());
+            payload.extend_from_slice(&0i16.to_le_bytes());
+            payload.extend_from_slice(&0u16.to_le_bytes());
+        }
+        asm.feed(&packet(packet_type::GMC, 1, &payload, 1));
+        match asm.pop_gmc_packet() {
+            Some(GmcPacket::Points(p)) => {
+                assert_eq!(p.points.len(), GMC_MAX_POINTS_IN_PACKET);
+                assert_eq!(p.points[0].x, 0);
+                assert_eq!(p.points[99].x, 99);
+            }
+            other => panic!("expected points packet, got {other:?}"),
+        }
+    }
+
+    /// GMC packets interleaved with depth frames must not disturb frame
+    /// assembly, and both queues must deliver.
+    #[test]
+    fn gmc_interleaved_with_frames_does_not_disturb_assembly() {
+        let mut asm = StreamAssembler::new(MAGIC, 0);
+        let mut points = Vec::new();
+        points.extend_from_slice(&1u16.to_le_bytes());
+        points.extend_from_slice(&2u16.to_le_bytes());
+        points.extend_from_slice(&0u16.to_le_bytes());
+        points.extend_from_slice(&0i16.to_le_bytes());
+        points.extend_from_slice(&50u16.to_le_bytes());
+        let mut stream = Vec::new();
+        stream.extend(packet(packet_type::DEPTH_START, 1, b"SOF", 1));
+        stream.extend(packet(packet_type::GMC, 2, &points, 2));
+        stream.extend(packet(packet_type::DEPTH_BUFFER, 3, b"MID", 3));
+        stream.extend(packet(packet_type::DEPTH_END, 4, b"!", 4));
+        asm.feed(&stream);
+        let f = asm.pop_frame().unwrap();
+        assert_eq!(f.data, b"SOFMID!".to_vec());
+        assert_eq!(
+            asm.pop_gmc_packet(),
+            Some(GmcPacket::Points(GmcPoints {
+                timestamp: 2,
+                debug: false,
+                points: vec![GmcPoint {
+                    x: 1,
+                    y: 2,
+                    dx: 0,
+                    dy: 0,
+                    score: 50
+                }],
+            }))
+        );
     }
 
     /// Regression guard: event packets interleaved into a frame must not

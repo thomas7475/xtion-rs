@@ -25,7 +25,7 @@ use crate::protocol::{
     CROP_MODE_INCREASED_FPS, CROP_MODE_NORMAL, MAX_SHIFT, SHIFTS_PARAM_COEFFICIENT,
     SHIFTS_SHIFT_SCALE, STREAM_MODE_COLOR, STREAM_MODE_DEPTH, STREAM_MODE_IR, STREAM_MODE_OFF,
 };
-use crate::stream::{DeviceEvent, StreamAssembler};
+use crate::stream::{DeviceEvent, GmcPacket, StreamAssembler};
 use crate::usb::UsbDevice;
 
 /// How long a single command exchange may take.
@@ -290,6 +290,84 @@ fn agc_bin_params(bin: usize) -> Result<(Param, Param)> {
             "depth AGC has exactly four bins (0-3), got bin {bin}"
         ))),
     }
+}
+
+/// Write depth AGC bin `bin` (params 63-70), transport-generic for
+/// testing.
+///
+/// The two bounds go out as two single-pair SET_PARAM requests —
+/// wire-identical to `XnHostProtocolSetDepthAGCBin`
+/// (XnHostProtocol.cpp:3124-3141) — but in a transient-safe ORDER.
+/// This firmware validates every individual parameter write against
+/// the sibling bound's CURRENT value and NACKs `BadParams` when the
+/// write would momentarily leave `min > max`: the reference's
+/// LOW-then-HIGH order hits exactly that whenever a bin grows upward
+/// (the factory bins are all (0,0), so writing LOW=512 while HIGH is
+/// still 0 is rejected — the v0.3.4 camera run died on the first such
+/// bin). Moving the bound that preserves the invariant FIRST never
+/// trips the check:
+///
+/// - new bin entirely ABOVE the current one (`new.min > current.max`):
+///   raise HIGH first — every intermediate state stays ordered;
+/// - otherwise (shrink, slide down, or overlap): lower LOW first —
+///   symmetrically safe, and it also collapses a bin back to the
+///   factory (0,0) state.
+fn write_agc_bin_via<T: ControlTransport>(
+    link: &mut CommandLink,
+    transport: &mut T,
+    bin: usize,
+    value: AgcBin,
+    timeout: Duration,
+) -> Result<()> {
+    let (low, high) = agc_bin_params(bin)?;
+    value.validate()?;
+    let current = AgcBin {
+        min_shift: get_param_via(link, transport, low, timeout)?,
+        max_shift: get_param_via(link, transport, high, timeout)?,
+    };
+    if value.min_shift > current.max_shift {
+        set_param_via(link, transport, high, value.max_shift, timeout)?;
+        set_param_via(link, transport, low, value.min_shift, timeout)?;
+    } else {
+        set_param_via(link, transport, low, value.min_shift, timeout)?;
+        set_param_via(link, transport, high, value.max_shift, timeout)?;
+    }
+    Ok(())
+}
+
+/// The complete GMC (Global Motion Compensation) configuration block
+/// of the depth processor, read with [`Xtion::gmc_config`] — params
+/// 36-44, 61 and 75 (`XnParams.h:68-76, 99, 115`).
+///
+/// Only two members are writable through the reference driver — the
+/// mode (36) and the debug-stream switch (61, `m_GMCMode`/
+/// `m_GMCDebug` are the only GMC properties of
+/// `XnSensorFirmwareParams`) — and those are exactly the setters this
+/// crate offers. The rest is the firmware's calibration and
+/// correlation state: OpenNI defines OPCODE 26 (SET_GMC_PARAMS) but
+/// has no caller and no request layout for it, so a raw write to the
+/// block is deliberately not implemented (see docs/PROTOCOL.md, "GMC").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GmcConfig {
+    /// Processing mode (param 36): 0 = normal, 1 = scan
+    /// (`XnHostProtocolGMCMode`).
+    pub mode: u16,
+    /// Reference offset (param 37) — signed in the debug stream
+    /// (`m_FlashStoredRefOffset` is i16); shown as the raw wire word.
+    pub ref_offset: u16,
+    /// RICC (param 38).
+    pub ricc: u16,
+    /// DX correction base and terms (params 39-44).
+    pub dx_correction: u16,
+    pub dx_correction_a: u16,
+    pub dx_correction_b_high: u16,
+    pub dx_correction_b_low: u16,
+    pub dx_correction_db_high: u16,
+    pub dx_correction_db_low: u16,
+    /// Debug-stream switch (param 61, see [`Xtion::set_gmc_debug`]).
+    pub debug: bool,
+    /// Correction mode (param 75).
+    pub correction_mode: u16,
 }
 
 /// Crop state kept per stream: the window plus the firmware mode it is
@@ -816,6 +894,26 @@ impl Xtion {
         events
     }
 
+    /// Pump the misc endpoint and return every decoded GMC packet
+    /// collected since the last call: plain motion points (0xa200),
+    /// debug points (0xb200) and the debug end-of-scan summary (0xb500).
+    ///
+    /// Packets arrive only while a stream runs (the misc ring is pumped
+    /// alongside the frame reads) and only when the firmware is told to
+    /// produce them — [`set_gmc_mode`](Self::set_gmc_mode) for the
+    /// plain stream, [`set_gmc_debug`](Self::set_gmc_debug) for the
+    /// debug channel. A points packet carries up to 100
+    /// [`GmcPoint`]s (10 bytes each, `XnDeviceSensorGMCPoint`); the
+    /// summary is the packed `XnHostProtocolGMCLastPacketData`.
+    pub fn drain_gmc_packets(&mut self) -> Vec<GmcPacket> {
+        self.pump_misc();
+        let mut out = self.misc_assembler.drain_gmc_packets();
+        out.extend(self.depth_assembler.drain_gmc_packets());
+        out.extend(self.color_assembler.drain_gmc_packets());
+        out.extend(self.ir_assembler.drain_gmc_packets());
+        out
+    }
+
     /// Feed any chunks the misc ring has collected into its assembler
     /// (non-blocking; called from the read loops so events surface while
     /// frames are being waited for).
@@ -1095,9 +1193,51 @@ impl Xtion {
     // 63-70, 73/74, 84).
 
     /// Enable global-motion-compensation processing on the depth stream
-    /// (PARAM_DEPTH_GMC_MODE).
+    /// (PARAM_DEPTH_GMC_MODE, `XnSensorDepthStream::SetGMCMode`). With
+    /// GMC on, the firmware tracks projected-pattern features frame to
+    /// frame and reports them as motion points on the misc endpoint
+    /// ([`drain_gmc_packets`](Self::drain_gmc_packets)).
     pub fn set_gmc_mode(&mut self, enable: bool) -> Result<()> {
         self.set_param(Param::DepthGmcMode, enable as u16)
+    }
+
+    /// Whether GMC processing is currently enabled (param 36).
+    pub fn gmc_mode(&mut self) -> Result<bool> {
+        Ok(self.get_param(Param::DepthGmcMode)? != 0)
+    }
+
+    /// Enable the GMC debug stream (param 61, PARAM_GMC_DEBUG —
+    /// `XnSensorDepthStream::SetGMCDebug`): with it on, the firmware
+    /// emits debug points (0xb200) and a per-scan configuration
+    /// summary (0xb500) on the misc endpoint, decoded by
+    /// [`drain_gmc_packets`](Self::drain_gmc_packets).
+    pub fn set_gmc_debug(&mut self, enable: bool) -> Result<()> {
+        self.set_param(Param::GmcDebug, enable as u16)
+    }
+
+    /// Whether the GMC debug stream is currently on (param 61).
+    pub fn gmc_debug(&mut self) -> Result<bool> {
+        Ok(self.get_param(Param::GmcDebug)? != 0)
+    }
+
+    /// Read the whole GMC configuration block (params 36-44, 61, 75)
+    /// in one call — the factory state a caller should restore after
+    /// experimenting with [`set_gmc_mode`](Self::set_gmc_mode) /
+    /// [`set_gmc_debug`](Self::set_gmc_debug).
+    pub fn gmc_config(&mut self) -> Result<GmcConfig> {
+        Ok(GmcConfig {
+            mode: self.get_param(Param::DepthGmcMode)?,
+            ref_offset: self.get_param(Param::DepthGmcRefOffset)?,
+            ricc: self.get_param(Param::DepthGmcRicc)?,
+            dx_correction: self.get_param(Param::DepthGmcDxCorrection)?,
+            dx_correction_a: self.get_param(Param::DepthGmcDxCorrectionA)?,
+            dx_correction_b_high: self.get_param(Param::DepthGmcDxCorrectionBHigh)?,
+            dx_correction_b_low: self.get_param(Param::DepthGmcDxCorrectionBLow)?,
+            dx_correction_db_high: self.get_param(Param::DepthGmcDxCorrectionDbHigh)?,
+            dx_correction_db_low: self.get_param(Param::DepthGmcDxCorrectionDbLow)?,
+            debug: self.get_param(Param::GmcDebug)? != 0,
+            correction_mode: self.get_param(Param::GmcCorrectionMode)?,
+        })
     }
 
     /// Set, change, or clear the DEPTH crop window (params 51-55).
@@ -1326,15 +1466,20 @@ impl Xtion {
     }
 
     /// Set depth AGC bin `bin` (0-3) to a [min, max] shift range.
-    /// The LOW param is written before the HIGH one, exactly like
-    /// `XnHostProtocolSetDepthAGCBin` (XnHostProtocol.cpp:3124-3141:
-    /// two separate SET_PARAMs — no batch here).
+    /// The bounds are written in a transient-safe order (see
+    /// [`write_agc_bin_via`]): two single-pair SET_PARAMs like the
+    /// reference's `XnHostProtocolSetDepthAGCBin`, but sequenced so no
+    /// intermediate state violates `min <= max` — the reference's
+    /// LOW-first order is rejected by this firmware when a bin grows
+    /// upward.
     pub fn set_depth_agc_bin(&mut self, bin: usize, value: AgcBin) -> Result<()> {
-        let (low, high) = agc_bin_params(bin)?;
-        value.validate()?;
-        self.set_param(low, value.min_shift)?;
-        self.set_param(high, value.max_shift)?;
-        Ok(())
+        write_agc_bin_via(
+            &mut self.link,
+            &mut self.usb,
+            bin,
+            value,
+            COMMAND_TIMEOUT,
+        )
     }
 
     /// Read the close-range switch (PARAM_DEPTH_CLOSE_RANGE, param 84,
@@ -2637,6 +2782,15 @@ mod tests {
         assert_eq!(Param::IrResolution.as_u16(), 26);
         assert_eq!(Param::IrFps.as_u16(), 27);
         assert_eq!(Param::DepthGmcMode.as_u16(), 36);
+        assert_eq!(Param::DepthGmcRefOffset.as_u16(), 37);
+        assert_eq!(Param::DepthGmcRicc.as_u16(), 38);
+        assert_eq!(Param::DepthGmcDxCorrection.as_u16(), 39);
+        assert_eq!(Param::DepthGmcDxCorrectionA.as_u16(), 40);
+        assert_eq!(Param::DepthGmcDxCorrectionBHigh.as_u16(), 41);
+        assert_eq!(Param::DepthGmcDxCorrectionBLow.as_u16(), 42);
+        assert_eq!(Param::DepthGmcDxCorrectionDbHigh.as_u16(), 43);
+        assert_eq!(Param::DepthGmcDxCorrectionDbLow.as_u16(), 44);
+        assert_eq!(Param::GmcDebug.as_u16(), 61);
         assert_eq!(Param::ImageCropSizeX.as_u16(), 46);
         assert_eq!(Param::ImageCropSizeY.as_u16(), 47);
         assert_eq!(Param::ImageCropOffsetX.as_u16(), 48);
@@ -2656,6 +2810,7 @@ mod tests {
         assert_eq!(Param::IrMirror.as_u16(), 72);
         assert_eq!(Param::WavelengthCorrectionEnabled.as_u16(), 73);
         assert_eq!(Param::WavelengthCorrectionDebugEnabled.as_u16(), 74);
+        assert_eq!(Param::GmcCorrectionMode.as_u16(), 75);
         assert_eq!(Param::DepthAgcBin0Low.as_u16(), 63);
         assert_eq!(Param::DepthAgcBin0High.as_u16(), 64);
         assert_eq!(Param::DepthAgcBin1Low.as_u16(), 65);
@@ -2697,6 +2852,132 @@ mod tests {
         // payload: param id then value
         assert_eq!(u16::from_le_bytes([req[8], req[9]]), 84);
         assert_eq!(u16::from_le_bytes([req[10], req[11]]), 1);
+    }
+
+    /// AGC bin write order: a bin that GROWS upward from the factory
+    /// (0,0) state must raise the HIGH bound first. The reference's
+    /// LOW-first order is exactly what this firmware NACKs — the
+    /// v0.3.4 camera run died on the first such bin (param 65 = 512
+    /// while HIGH was still 0).
+    #[test]
+    fn agc_bin_growing_write_raises_high_first() {
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![
+                    getparam_reply(0, 0), // bin 1 LOW currently 0
+                    getparam_reply(1, 0), // bin 1 HIGH currently 0
+                    setparam_ack_reply(2, 1),
+                    setparam_ack_reply(3, 1),
+                ],
+                sent: vec![],
+            },
+        );
+        write_agc_bin_via(
+            &mut link,
+            &mut fake,
+            1,
+            AgcBin {
+                min_shift: 512,
+                max_shift: 1024,
+            },
+            Duration::from_millis(50),
+        )
+        .unwrap();
+        let writes: Vec<(u16, u16)> = fake
+            .sent
+            .iter()
+            .filter(|req| req.len() == 12) // SET_PARAM: header + param + value
+            .map(|req| {
+                (
+                    u16::from_le_bytes([req[8], req[9]]),
+                    u16::from_le_bytes([req[10], req[11]]),
+                )
+            })
+            .collect();
+        // HIGH (param 66 = 1024) BEFORE LOW (param 65 = 512)
+        assert_eq!(writes, vec![(66, 1024), (65, 512)]);
+    }
+
+    /// A bin that SHRINKS (or collapses back to the factory state)
+    /// must lower the LOW bound first — the mirror-image invariant.
+    #[test]
+    fn agc_bin_shrinking_write_lowers_low_first() {
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![
+                    getparam_reply(0, 1536),   // bin 3 LOW currently 1536
+                    getparam_reply(1, 2047),   // bin 3 HIGH currently 2047
+                    setparam_ack_reply(2, 1),
+                    setparam_ack_reply(3, 1),
+                ],
+                sent: vec![],
+            },
+        );
+        write_agc_bin_via(
+            &mut link,
+            &mut fake,
+            3,
+            AgcBin {
+                min_shift: 0,
+                max_shift: 0,
+            },
+            Duration::from_millis(50),
+        )
+        .unwrap();
+        let writes: Vec<(u16, u16)> = fake
+            .sent
+            .iter()
+            .filter(|req| req.len() == 12) // SET_PARAM: header + param + value
+            .map(|req| {
+                (
+                    u16::from_le_bytes([req[8], req[9]]),
+                    u16::from_le_bytes([req[10], req[11]]),
+                )
+            })
+            .collect();
+        // LOW (param 69 = 0) BEFORE HIGH (param 70 = 0)
+        assert_eq!(writes, vec![(69, 0), (70, 0)]);
+    }
+
+    /// An invalid range (or bin index) is rejected host-side without
+    /// any wire traffic.
+    #[test]
+    fn agc_bin_invalid_input_never_touches_the_wire() {
+        let (mut link, mut fake) = (
+            CommandLink::new(ProtocolVersion::V26),
+            FakeTransport {
+                replies: vec![],
+                sent: vec![],
+            },
+        );
+        let err = write_agc_bin_via(
+            &mut link,
+            &mut fake,
+            0,
+            AgcBin {
+                min_shift: 600,
+                max_shift: 500,
+            },
+            Duration::from_millis(50),
+        )
+        .unwrap_err();
+        assert!(matches!(err, XtionError::BadConfig(_)), "got {err:?}");
+        assert!(fake.sent.is_empty());
+        let err = write_agc_bin_via(
+            &mut link,
+            &mut fake,
+            4,
+            AgcBin {
+                min_shift: 0,
+                max_shift: 1,
+            },
+            Duration::from_millis(50),
+        )
+        .unwrap_err();
+        assert!(matches!(err, XtionError::BadConfig(_)), "got {err:?}");
+        assert!(fake.sent.is_empty());
     }
 
     /// The IR start sequence must match XnSensorIRStream::ConfigureStreamImpl

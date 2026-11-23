@@ -58,7 +58,9 @@ pub mod stream;
 pub mod timestamp;
 pub mod usb;
 
-pub use device::{AgcBin, ColorFrame, Crop, DepthConfig, DepthFrame, DeviceVersion, Xtion};
+pub use device::{
+    AgcBin, ColorFrame, Crop, DepthConfig, DepthFrame, DeviceVersion, GmcConfig, Xtion,
+};
 pub use error::{Nack, ProtocolError, Result, XtionError};
 pub use geometry::CameraIntrinsics;
 pub use ir::{IrConfig, IrFrame};
@@ -71,6 +73,9 @@ pub use protocol::{
     CROP_MODE_INCREASED_FPS, CROP_MODE_NORMAL, MAX_SHIFT,
 };
 pub use ring::{RingStats, BULK_MULTIPLIER, RING_BUFFERS};
-pub use stream::DeviceEvent;
+pub use stream::{
+    DeviceEvent, GmcDebugEnd, GmcLastConfData, GmcLastPacketData, GmcPacket, GmcPoint, GmcPoints,
+    GMC_LAST_PACKET_WIRE_SIZE, GMC_MAX_POINTS_IN_PACKET, GMC_POINT_WIRE_SIZE,
+};
 pub use timestamp::TimestampConverter;
 pub use usb::{list_devices, UsbDeviceInfo};
