@@ -1,0 +1,41 @@
+# analysis/nsis/v2.6.0.6/xeyez_Lobby/$_6_/EasyUSB.dll :: WriteData (RVA 0x10e0, file off 0x10e0)
+000010e0  51                   push ecx
+000010e1  53                   push ebx
+000010e2  55                   push ebp
+000010e3  56                   push esi
+000010e4  57                   push edi
+000010e5  e896070000           call 0x1880
+000010ea  8b7c2418             mov edi, dword ptr [esp + 0x18]
+000010ee  8b5c2424             mov ebx, dword ptr [esp + 0x24]
+000010f2  8b6c2420             mov ebp, dword ptr [esp + 0x20]
+000010f6  c744241000000000     mov dword ptr [esp + 0x10], 0
+000010fe  c1e705               shl edi, 5
+00001101  81c7b08d0010         add edi, 0x10008db0
+00001107  8b44241c             mov eax, dword ptr [esp + 0x1c]
+0000110b  8b4c2418             mov ecx, dword ptr [esp + 0x18]
+0000110f  53                   push ebx
+00001110  55                   push ebp
+00001111  50                   push eax
+00001112  57                   push edi
+00001113  51                   push ecx
+00001114  e887010000           call 0x12a0
+00001119  8bf0                 mov esi, eax
+0000111b  83c414               add esp, 0x14
+0000111e  83feff               cmp esi, -1
+00001121  751b                 jne 0x113e
+00001123  397704               cmp dword ptr [edi + 4], esi
+00001126  7516                 jne 0x113e
+00001128  6a64                 push 0x64
+0000112a  ff1500700010         call dword ptr [0x10007000]
+00001130  8b442410             mov eax, dword ptr [esp + 0x10]
+00001134  40                   inc eax
+00001135  83f803               cmp eax, 3
+00001138  89442410             mov dword ptr [esp + 0x10], eax
+0000113c  7cc9                 jl 0x1107
+0000113e  8bc6                 mov eax, esi
+00001140  5f                   pop edi
+00001141  5e                   pop esi
+00001142  5d                   pop ebp
+00001143  5b                   pop ebx
+00001144  59                   pop ecx
+00001145  c3                   ret 

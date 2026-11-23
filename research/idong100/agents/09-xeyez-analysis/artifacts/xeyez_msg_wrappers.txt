@@ -1,0 +1,250 @@
+=== thunk targets used by upload code:
+  [0x10015230] 0aac010012ac0100
+  [0x10015228] f6ab010000ac0100
+  [0x1001526c] 1ead010028ad0100
+
+===== Tx wrapper (0x100139b8) - used to send per-packet wait type 3? (VA 0x100139b8) =====
+  100139b8  jmp dword ptr [0x10015018]
+  100139be  jmp dword ptr [0x10015014]
+  100139c4  jmp dword ptr [0x10015360]
+  100139ca  jmp dword ptr [0x1001535c]
+  100139d0  lea ecx, [ebp - 0x10]
+  100139d3  jmp 0x10001c40
+  100139d8  mov edx, dword ptr [esp + 8]
+  100139dc  lea eax, [edx + 0xc]
+  100139df  mov ecx, dword ptr [edx - 0x2c]
+  100139e2  xor ecx, eax
+  100139e4  call 0x10012d64
+  100139e9  mov eax, 0x10018fcc
+  100139ee  jmp 0x10012d5e
+  100139f3  lea ecx, [ebp - 0x18]
+  100139f6  jmp 0x10001dc0
+  100139fb  lea ecx, [ebp - 0x20]
+  100139fe  jmp 0x10001dc0
+  10013a03  mov edx, dword ptr [esp + 8]
+  10013a07  lea eax, [edx + 0xc]
+  10013a0a  mov ecx, dword ptr [edx - 0x38]
+  10013a0d  xor ecx, eax
+  10013a0f  call 0x10012d64
+  10013a14  mov eax, 0x10019000
+  10013a19  jmp 0x10012d5e
+  10013a1e  lea ecx, [ebp - 0x238]
+  10013a24  jmp 0x10001dc0
+  10013a29  mov edx, dword ptr [esp + 8]
+  10013a2d  lea eax, [edx + 0xc]
+  10013a30  mov ecx, dword ptr [edx - 0x2ac]
+  10013a36  xor ecx, eax
+  10013a38  call 0x10012d64
+  10013a3d  mov ecx, dword ptr [edx - 0xc]
+  10013a40  xor ecx, eax
+  10013a42  call 0x10012d64
+  10013a47  mov eax, 0x1001902c
+  10013a4c  jmp 0x10012d5e
+  10013a51  int3 
+  10013a52  int3 
+  10013a53  int3 
+  10013a54  int3 
+  10013a55  int3 
+  10013a56  int3 
+  10013a57  int3 
+  10013a58  int3 
+  10013a59  int3 
+  10013a5a  int3 
+  10013a5b  int3 
+  10013a5c  int3 
+  10013a5d  int3 
+  10013a5e  int3 
+  10013a5f  int3 
+  10013a60  lea ecx, [ebp - 0x14]
+  10013a63  jmp 0x10001dc0
+  10013a68  mov edx, dword ptr [esp + 8]
+  10013a6c  lea eax, [edx + 0xc]
+  10013a6f  mov ecx, dword ptr [edx - 0x20]
+  10013a72  xor ecx, eax
+  10013a74  call 0x10012d64
+  10013a79  mov eax, 0x10019058
+  10013a7e  jmp 0x10012d5e
+  10013a83  lea ecx, [ebp - 0x30]
+  10013a86  jmp 0x10001dc0
+  10013a8b  mov edx, dword ptr [esp + 8]
+  10013a8f  lea eax, [edx + 0xc]
+  10013a92  mov ecx, dword ptr [edx - 0x48]
+  10013a95  xor ecx, eax
+  10013a97  call 0x10012d64
+  10013a9c  mov ecx, dword ptr [edx - 4]
+  10013a9f  xor ecx, eax
+  10013aa1  call 0x10012d64
+  10013aa6  mov eax, 0x10019084
+  10013aab  jmp 0x10012d5e
+  10013ab0  lea ecx, [ebp - 0x18]
+  10013ab3  jmp 0x10001dc0
+  10013ab8  lea ecx, [ebp - 0x10]
+  10013abb  jmp 0x10001dc0
+  10013ac0  mov edx, dword ptr [esp + 8]
+  10013ac4  lea eax, [edx + 0xc]
+  10013ac7  mov ecx, dword ptr [edx - 0x30]
+  10013aca  xor ecx, eax
+  10013acc  call 0x10012d64
+  10013ad1  mov eax, 0x100190b8
+  10013ad6  jmp 0x10012d5e
+  10013adb  lea ecx, [ebp - 0x28]
+  10013ade  jmp 0x10001dc0
+  10013ae3  lea ecx, [ebp - 0x10]
+  10013ae6  jmp 0x10004530
+  10013aeb  lea ecx, [ebp - 0x14]
+  10013aee  jmp 0x10001dc0
+  10013af3  lea ecx, [ebp - 0x4c]
+  10013af6  jmp 0x10001dc0
+  10013afb  lea ecx, [ebp - 0x8c]
+  10013b01  jmp 0x10001dc0
+  10013b06  mov edx, dword ptr [esp + 8]
+  10013b0a  lea eax, [edx + 0xc]
+  10013b0d  mov ecx, dword ptr [edx - 0xa8]
+  10013b13  xor ecx, eax
+  10013b15  call 0x10012d64
+  10013b1a  mov ecx, dword ptr [edx - 0x2c]
+  10013b1d  xor ecx, eax
+  10013b1f  call 0x10012d64
+  10013b24  mov eax, 0x100190dc
+  10013b29  jmp 0x10012d5e
+  10013b2e  lea ecx, [ebp - 0x15c]
+  10013b34  jmp 0x10001dc0
+  10013b39  lea ecx, [ebp - 0x160]
+  10013b3f  jmp 0x10001dc0
+  10013b44  mov edx, dword ptr [esp + 8]
+
+===== Rx wrapper (0x100139be) (VA 0x100139be) =====
+  100139be  jmp dword ptr [0x10015014]
+  100139c4  jmp dword ptr [0x10015360]
+  100139ca  jmp dword ptr [0x1001535c]
+  100139d0  lea ecx, [ebp - 0x10]
+  100139d3  jmp 0x10001c40
+  100139d8  mov edx, dword ptr [esp + 8]
+  100139dc  lea eax, [edx + 0xc]
+  100139df  mov ecx, dword ptr [edx - 0x2c]
+  100139e2  xor ecx, eax
+  100139e4  call 0x10012d64
+  100139e9  mov eax, 0x10018fcc
+  100139ee  jmp 0x10012d5e
+  100139f3  lea ecx, [ebp - 0x18]
+  100139f6  jmp 0x10001dc0
+  100139fb  lea ecx, [ebp - 0x20]
+  100139fe  jmp 0x10001dc0
+  10013a03  mov edx, dword ptr [esp + 8]
+  10013a07  lea eax, [edx + 0xc]
+  10013a0a  mov ecx, dword ptr [edx - 0x38]
+  10013a0d  xor ecx, eax
+  10013a0f  call 0x10012d64
+  10013a14  mov eax, 0x10019000
+  10013a19  jmp 0x10012d5e
+  10013a1e  lea ecx, [ebp - 0x238]
+  10013a24  jmp 0x10001dc0
+  10013a29  mov edx, dword ptr [esp + 8]
+  10013a2d  lea eax, [edx + 0xc]
+  10013a30  mov ecx, dword ptr [edx - 0x2ac]
+  10013a36  xor ecx, eax
+  10013a38  call 0x10012d64
+  10013a3d  mov ecx, dword ptr [edx - 0xc]
+  10013a40  xor ecx, eax
+  10013a42  call 0x10012d64
+  10013a47  mov eax, 0x1001902c
+  10013a4c  jmp 0x10012d5e
+  10013a51  int3 
+  10013a52  int3 
+  10013a53  int3 
+  10013a54  int3 
+  10013a55  int3 
+  10013a56  int3 
+  10013a57  int3 
+  10013a58  int3 
+  10013a59  int3 
+  10013a5a  int3 
+  10013a5b  int3 
+  10013a5c  int3 
+  10013a5d  int3 
+  10013a5e  int3 
+  10013a5f  int3 
+  10013a60  lea ecx, [ebp - 0x14]
+  10013a63  jmp 0x10001dc0
+  10013a68  mov edx, dword ptr [esp + 8]
+  10013a6c  lea eax, [edx + 0xc]
+  10013a6f  mov ecx, dword ptr [edx - 0x20]
+  10013a72  xor ecx, eax
+  10013a74  call 0x10012d64
+  10013a79  mov eax, 0x10019058
+  10013a7e  jmp 0x10012d5e
+  10013a83  lea ecx, [ebp - 0x30]
+  10013a86  jmp 0x10001dc0
+  10013a8b  mov edx, dword ptr [esp + 8]
+  10013a8f  lea eax, [edx + 0xc]
+  10013a92  mov ecx, dword ptr [edx - 0x48]
+  10013a95  xor ecx, eax
+  10013a97  call 0x10012d64
+  10013a9c  mov ecx, dword ptr [edx - 4]
+  10013a9f  xor ecx, eax
+  10013aa1  call 0x10012d64
+  10013aa6  mov eax, 0x10019084
+  10013aab  jmp 0x10012d5e
+  10013ab0  lea ecx, [ebp - 0x18]
+  10013ab3  jmp 0x10001dc0
+  10013ab8  lea ecx, [ebp - 0x10]
+  10013abb  jmp 0x10001dc0
+  10013ac0  mov edx, dword ptr [esp + 8]
+  10013ac4  lea eax, [edx + 0xc]
+  10013ac7  mov ecx, dword ptr [edx - 0x30]
+  10013aca  xor ecx, eax
+  10013acc  call 0x10012d64
+  10013ad1  mov eax, 0x100190b8
+  10013ad6  jmp 0x10012d5e
+  10013adb  lea ecx, [ebp - 0x28]
+  10013ade  jmp 0x10001dc0
+  10013ae3  lea ecx, [ebp - 0x10]
+  10013ae6  jmp 0x10004530
+  10013aeb  lea ecx, [ebp - 0x14]
+  10013aee  jmp 0x10001dc0
+  10013af3  lea ecx, [ebp - 0x4c]
+  10013af6  jmp 0x10001dc0
+  10013afb  lea ecx, [ebp - 0x8c]
+  10013b01  jmp 0x10001dc0
+  10013b06  mov edx, dword ptr [esp + 8]
+  10013b0a  lea eax, [edx + 0xc]
+  10013b0d  mov ecx, dword ptr [edx - 0xa8]
+  10013b13  xor ecx, eax
+  10013b15  call 0x10012d64
+  10013b1a  mov ecx, dword ptr [edx - 0x2c]
+  10013b1d  xor ecx, eax
+  10013b1f  call 0x10012d64
+  10013b24  mov eax, 0x100190dc
+  10013b29  jmp 0x10012d5e
+  10013b2e  lea ecx, [ebp - 0x15c]
+  10013b34  jmp 0x10001dc0
+  10013b39  lea ecx, [ebp - 0x160]
+  10013b3f  jmp 0x10001dc0
+  10013b44  mov edx, dword ptr [esp + 8]
+  10013b48  lea eax, [edx + 0xc]
+  10013b4b  mov ecx, dword ptr [edx - 0x160]
+  10013b51  xor ecx, eax
+  10013b53  call 0x10012d64
+  10013b58  mov ecx, dword ptr [edx - 8]
+  10013b5b  xor ecx, eax
+  10013b5d  call 0x10012d64
+  10013b62  mov eax, 0x10019138
+  10013b67  jmp 0x10012d5e
+  10013b6c  lea ecx, [ebp - 0x338]
+  10013b72  jmp 0x10001dc0
+  10013b77  mov edx, dword ptr [esp + 8]
+  10013b7b  lea eax, [edx + 0xc]
+  10013b7e  mov ecx, dword ptr [edx - 0x33c]
+  10013b84  xor ecx, eax
+  10013b86  call 0x10012d64
+  10013b8b  mov ecx, dword ptr [edx - 8]
+  10013b8e  xor ecx, eax
+  10013b90  call 0x10012d64
+  10013b95  mov eax, 0x10019164
+  10013b9a  jmp 0x10012d5e
+  10013b9f  int3 
+  10013ba0  mov ecx, dword ptr [ebp - 0x10]
+  10013ba3  jmp 0x10002200
+  10013ba8  mov edx, dword ptr [esp + 8]
+  10013bac  lea eax, [edx + 0xc]
+  10013baf  mov ecx, dword ptr [edx - 8]
