@@ -67,7 +67,12 @@ fn depth_stream_roundtrip() {
         cam.usb_max_packet_sizes().0
     );
     let config = DepthConfig::default();
-    cam.start_depth(config).expect("start depth");
+    let start_attempt = cam
+        .start_depth_verified(config, 3)
+        .expect("start depth (verified)");
+    if start_attempt > 1 {
+        println!("start depth: attempt {start_attempt} (silent start revived)");
+    }
 
     let frame = cam
         .read_depth_frame(Duration::from_secs(10))
@@ -1019,8 +1024,15 @@ fn depth_geometry_fov_and_timestamps() {
     );
 
     // ---- stream and collect frames ----
-    cam.start_depth(DepthConfig::default())
-        .expect("start depth");
+    // verified start: the 0.3.7 run hit the fw 5.8.22 quirk where a
+    // fully ACKed stream-on delivers no data at all; a stop/restart
+    // revives it (see docs/PROTOCOL.md, the silent-stream quirk)
+    let start_attempt = cam
+        .start_depth_verified(DepthConfig::default(), 3)
+        .expect("start depth (verified)");
+    if start_attempt > 1 {
+        println!("start depth: attempt {start_attempt} (silent start revived)");
+    }
 
     // emitter probe WITH the depth stream running: if the idle-state
     // hypothesis for the BadParams NACK is right, the toggle may be
@@ -1038,7 +1050,15 @@ fn depth_geometry_fov_and_timestamps() {
     for _ in 0..90 {
         match cam.read_depth_frame(Duration::from_secs(5)) {
             Ok(frame) => frames.push(frame),
-            Err(err) => panic!("depth read: {err}"),
+            Err(err) => {
+                // diagnostics: no completions = the endpoint never sent
+                // data (the dead-stream quirk); bytes but no frames =
+                // data that never assembles
+                if let Some(stats) = cam.depth_ring_stats() {
+                    eprintln!("depth ring at failure: {stats:?}");
+                }
+                panic!("depth read: {err}");
+            }
         }
     }
     cam.stop_depth().expect("stop");
@@ -1227,8 +1247,12 @@ fn depth_and_ir_crop_windows() {
     let intrinsics = cam.depth_intrinsics(xtion::Resolution::Vga);
 
     // ---- full-frame baseline ----
-    cam.start_depth(DepthConfig::default())
-        .expect("start depth");
+    let start_attempt = cam
+        .start_depth_verified(DepthConfig::default(), 3)
+        .expect("start depth (verified)");
+    if start_attempt > 1 {
+        println!("start depth: attempt {start_attempt} (silent start revived)");
+    }
     let baseline = cam
         .read_depth_frame(Duration::from_secs(10))
         .expect("baseline full frame");
@@ -1345,7 +1369,7 @@ fn depth_and_ir_crop_windows() {
     // A mode-2 rejection is a documented hardware property, NOT a
     // driver bug: the section must end with the window verified working
     // under mode 1, whatever the probe results are.
-    cam.start_depth(DepthConfig::default())
+    cam.start_depth_verified(DepthConfig::default(), 3)
         .expect("restart depth");
     println!("--- crop mode 2 (increased fps) probe ---");
     // (a) single param write while streaming
@@ -1479,8 +1503,12 @@ fn depth_processing_controls() {
     let _lock = lock_device();
     let mut cam = Xtion::open().expect("open");
 
-    cam.start_depth(DepthConfig::default())
-        .expect("start depth");
+    let start_attempt = cam
+        .start_depth_verified(DepthConfig::default(), 3)
+        .expect("start depth (verified)");
+    if start_attempt > 1 {
+        println!("start depth: attempt {start_attempt} (silent start revived)");
+    }
     let baseline = cam
         .read_depth_frame(Duration::from_secs(10))
         .expect("baseline frame");
@@ -1919,8 +1947,12 @@ fn gmc_config_and_motion_data() {
     println!("   debug (61)           = {}", config0.debug);
     println!("   correction mode (75) = {}", config0.correction_mode);
 
-    cam.start_depth(DepthConfig::default())
-        .expect("start depth");
+    let start_attempt = cam
+        .start_depth_verified(DepthConfig::default(), 3)
+        .expect("start depth (verified)");
+    if start_attempt > 1 {
+        println!("start depth: attempt {start_attempt} (silent start revived)");
+    }
     let baseline = cam
         .read_depth_frame(Duration::from_secs(10))
         .expect("baseline frame");
@@ -2112,12 +2144,18 @@ fn depth_mode_matrix_and_high_fps() {
             ..DepthConfig::default()
         };
         print!("--- {tag}: {w}x{h}@{fps} --- ");
-        match cam.start_depth(config) {
+        match cam.start_depth_verified(config, 3) {
             Err(err) => {
                 println!("refused: {err}");
                 continue;
             }
-            Ok(()) => println!("started"),
+            Ok(attempt) => {
+                if attempt > 1 {
+                    println!("started (silent start, revived at attempt {attempt})");
+                } else {
+                    println!("started");
+                }
+            }
         }
         // the frequency the mode locked to (may change per mode — the
         // reference re-reads it after every configuration)
@@ -2134,6 +2172,12 @@ fn depth_mode_matrix_and_high_fps() {
             match cam.read_depth_frame(Duration::from_secs(10)) {
                 Ok(frame) => frames.push(frame),
                 Err(err) => {
+                    // diagnostics for the fw 5.8.22 silent-stream quirk:
+                    // completions = 0 means the endpoint never sent data;
+                    // bytes > 0 with no frames means unframeable data
+                    if let Some(stats) = cam.depth_ring_stats() {
+                        println!("   ring at failure: {stats:?}");
+                    }
                     read_err = Some(err);
                     break;
                 }
@@ -2194,8 +2238,10 @@ fn depth_mode_matrix_and_high_fps() {
     );
     println!("QVGA@60: measured {measured:.1} fps — the high-rate mode works");
 
-    // restore the session's default state for whoever runs next
-    cam.start_depth(DepthConfig::default())
+    // restore the session's default state for whoever runs next (the
+    // verified restart also clears any silent-start state the walk may
+    // have left behind)
+    cam.start_depth_verified(DepthConfig::default(), 3)
         .expect("restart default depth");
     cam.stop_depth().expect("stop default depth");
 }
@@ -2217,8 +2263,12 @@ fn debug_telemetry_channels() {
     let mut cam = Xtion::open().expect("open");
 
     // ---- wavelength debug telemetry while depth streams ----
-    cam.start_depth(DepthConfig::default())
+    let start_attempt = cam
+        .start_depth_verified(DepthConfig::default(), 3)
         .expect("start depth for the wavelength debug window");
+    if start_attempt > 1 {
+        println!("start depth: attempt {start_attempt} (silent start revived)");
+    }
     let wl0 = cam
         .wavelength_correction()
         .expect("wavelength (73) baseline");

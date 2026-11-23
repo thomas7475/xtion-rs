@@ -231,7 +231,55 @@ surface (details in docs/PROTOCOL.md, "Flash file system ... quirks"):
 - `SET_LED_STATE` exists in the protocol but the Xtion has no LED hardware;
   expect it to be a no-op or NACK.
 
-## 6. Sources
+## 6. The public firmware timeline (0.3.8 research)
+
+Research request: "search the ASUS website for older firmware
+versions to analyze." The ASUS Xtion product pages are gone from
+asus.com today; the version history lives in the public record
+(vendor release notes, contemporaneous reports, support articles and
+mirrors of the ASUS download URLs). The platform this driver targets
+— ASUS Xtion / Xtion Pro / Xtion Pro Live, PrimeSense RD108x /
+Carmine 1.08x — went through exactly this line:
+
+| Firmware | When | What it is |
+|---|---|---|
+| 5.7.x (ship era) | 2012 | What early Xtion units shipped with: the OpenNI 1.x-only line. |
+| 5.7.9 | 2013-04 | PrimeSense's earlier update for Xtion Pro / Pro Live (the kheresy report identifies the version from the update's filename). |
+| 5.8.14 | 2013-04-26 | The "OpenNI 2.2 Ready" release: USB 3.0 support, UAC (USB Audio Class) sound, enhanced zoom/crop support, **QQVGA (160x120) DEPTH added**, 1280x960 color option, 8-bit grayscale at all resolutions — and OpenNI 1.x sound functionality REMOVED (fully switching to the OpenNI 2.x era). |
+| 5.8.22 | 2013-07-31 | **The final release** ("Carmine 1.08x [1.081 & 1.082] 3D Sensor Reference Design v5.8.22", release notes v1.1) — what this camera runs. ASUS distributed it as `FWUpdate_5_8_22.zip` (`FWUpdate_RD180x-5.8.22.exe` / `UsbUpdate.exe` + `!Update-RD108x!.bat`) from dlcdnet.asus.com; "corrected issues" over 5.8.14; OpenNI 2.x-only; explicitly NOT for PrimeSense Carmine 1.09 (which has its own later line). |
+
+Sources (opened during the research): kheresy's 2013-04-26 report on
+the 5.8.14 Xtion firmware update (kheresy.wordpress.com, quoting the
+vendor release notes and noting the later 5.8.22 on the ASUS site);
+the Artec3D support article "How to upgrade ASUS Xtion/Pro/ProLive
+firmware" (the 5.8.22 OpenNI 2.0 update procedure, UsbUpdate +
+!Update-RD108x!.bat, the Carmine 1.09 warning); the PrimeSense
+"Carmine 1.08x RD FW 5.8.22" release notes v1.1 (Scribd mirror:
+2013-07-31); the MAGICC wiki and the 2021 jurn.link install notes
+(the dlcdnet.asus.com download URL; the device enumerating as
+"Primesense Carmine 1.08"). The update package itself is mirrored in
+`firmware/5.8.22/` (from the turn-15 acquisition).
+
+What the timeline means for this driver:
+
+- The 5.8.x line IS the OpenNI 2.x era. Everything this crate talks
+  to — the v2.6 PsMonitor control protocol on EP0, the
+  0x81/0x82/0x83 bulk layout, the mode matrix including QQVGA — is
+  5.8.x surface (5.8.14's notes ADD QQVGA depth, which this unit's
+  matrix lists). Downgrading to a 5.7.x build would LOSE the
+  OpenNI-2-era surface (OpenNI 1.x-only protocol): not a viable path
+  for a 5.8-targeted driver. 5.8.22 is the newest and last firmware
+  the hardware ever officially received, so the camera-confirmed
+  refusals on this build (crop mode 2, SXGA@15, SXGA@30, 480P@30,
+  the NACK-and-apply AGC writes) are the platform's steady state.
+- "Enhanced zoom and crop support" was a 5.8.14 release highlight,
+  yet 5.8.22 (this unit) still NACKs crop MODE 2 in every probed
+  form — the enhancement evidently did not reach the
+  increased-fps crop mode on this build.
+- The Artec3D page confirms the update targets "RD108x" — the same
+  reference-design id this unit reports in its platform string.
+
+## 7. Sources
 
 - `firmware/FWUpdate_5_8_22.zip` — official ASUS package (dlcdnet.asus.com,
   SHA-256 `6f9c0ec9…43caad`), extracted with libarchive (LZX CAB).

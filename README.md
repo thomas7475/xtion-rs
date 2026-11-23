@@ -28,7 +28,8 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | **Crop windows (0.3.3, batch write 0.3.4)**: `Crop` + `set_depth_crop` / `set_color_crop` / `set_ir_crop` | implemented — geometry pairs first, mode pair last, committed as ONE multi-pair SET_PARAM batch (the reference's `CommitTransactionAsBatch` form; a NACK triggers the C's re-read rollback); while a window is active the firmware transmits ONLY the window, so frames arrive crop-sized and report their origin (`DepthFrame::crop`), with `to_world` staying full-frame correct; IR has no extra CMOS rows while cropped; **mode 2 (increased fps): this fw build NACKs it with BadParams (0.3.3 camera run) — hardware test 10 probes single/batch/stopped forms and treats the rejection as the documented verdict** |
 | **Depth processing controls (0.3.4, readback-verified 0.3.6, model corrected 0.3.7)**: `depth_gain`/`set_depth_gain` (21), `AgcBin` + `depth_agc_bin`/`set_depth_agc_bin` (63-70), `close_range`/`set_close_range` (84), `wavelength_correction`(+debug) (73/74) | implemented — all allow-while-open; AGC bins carry raw SHIFT ranges like the wire (the reference translates mm through the depth<->shift tables) and are written in a transient-safe order (raise HIGH first when a bin grows upward); **since 0.3.6 every AGC-bin / close-range / wavelength write is VERIFIED BY READBACK: the 0.3.5/0.3.6 camera runs together prove this firmware replies NACK `BadParams` for EVERY SET_PARAM on params 63-70 while applying the value anyway — the 0.3.6 run read `bin1 = 512..0` back right after the NACKed invariant-VIOLATING write (the 0.3.5 "refused" observation was the 0.3.5 restore's own NACKed-and-applied `LOW <- 0` write)** — Ok means the value reads back exactly as requested; the old misleading `set_depth_agc(bool)` was removed (param 21 is a gain value, not a switch); camera validation: hardware test 11 |
 | **Debug telemetry channels (0.3.7)**: wavelength debug 0xc200 + TEC 0xd200 / NESA 0xd201 | implemented — `drain_debug_telemetry()` decodes the packed 44-byte `XnWavelengthCorrectionDebugPacket` (param 74 switch) and the TEC/NESA UTF-16 text lines; the full `XnBistType`/`XnBistError` bit sets exposed (`bist`), with the TEC/NESA BIST bits as the text channels' trigger and `enable_misc_capture()`/`disable_misc_capture()` holding the misc endpoint open through a BIST window; all layouts pinned to the OpenNI 2.2.0 reference (`XnWavelengthCorrectionDebugProcessor`, `XnTecDebugProcessor`, `XnNesaDebugProcessor`); camera validation: hardware test 14 (first camera exercise — refusals and empty censuses are verdicts) |
-| **Depth mode matrix (0.3.7)**: `depth_mode_matrix()` + wide `Resolution` ids (480P/720P/1280x960) | implemented — the opcode-36 preset surface as an API; `start_depth` stays permissive like the reference's depth property writes (the firmware NACKs refused modes itself); **QVGA@60 hard-gated and the full matrix walked in hardware test 13; SXGA 1280x1024 probed at 15 fps — the sustainable 1.3 MP rate on a USB-2 bulk link (the advertised 30 fps needs ~52 MiB/s, the bus delivers ~40)**; the projector modulation frequency follows the mode and is re-readable per mode (`refresh_device_frequency`) — no runtime write exists in the reference |
+| **Depth mode matrix (0.3.7)**: `depth_mode_matrix()` + wide `Resolution` ids (480P/720P/1280x960) | implemented — the opcode-36 preset surface as an API; `start_depth` stays permissive like the reference's depth property writes (the firmware NACKs refused modes itself); **QVGA@60 hard-gated and the full matrix walked in hardware test 13; SXGA 1280x1024 probed at 15 fps — the sustainable 1.3 MP rate on a USB-2 bulk link (the advertised 30 fps needs ~52 MiB/s, the bus delivers ~40)**; 0.3.7 camera run: QVGA@60 measured 60.0 fps — validated; SXGA@15/SXGA@30/480P all refused with NACK BadParams at the blanking read (this build's preset table has no SXGA@15 entry; @30 exceeds the bus budget; 480P likewise refused)**; the projector modulation frequency follows the mode and is re-readable per mode (`refresh_device_frequency`) — no runtime write exists in the reference |
+| **Silent-stream recovery (0.3.8)**: `start_depth_verified` + `XtionError::FrameTimeout` | implemented — the 0.3.7 camera run caught fw 5.8.22 ACKing a stream-on and then delivering ZERO endpoint bytes (four tests died on their baseline frame; the mode walk hit it once and recovered on its next mode — the stop/restart cure, now an API). Frame reads separate "no data" (`FrameTimeout`, bulk-ring counters logged) from real control timeouts; every depth start in the hardware suite is verified (probe frame + stop/restart retries, attempt count reported) |
 | GMC data, audio, registration tables | GMC data **done in 0.3.5** (`gmc_config`, `set_gmc_mode`/`set_gmc_debug`, `drain_gmc_packets` decoding 0xa200/0xb200/0xb500); audio and registration tables not yet (Phase 3-4 of docs/FEATURE_PLAN.md; difficulty-rated table in section 1b) |
 | **Camera geometry (0.3.0)**: pinhole intrinsics from the on-device calibration (`depth_intrinsics`), depth-to-world (`to_world`/`point_cloud`, OpenNI convention: mm, X right, Y up, Z forward), PLY example | implemented — FOV formula ports the PS1080 depth-stream init (hfov spans the CMOS's native 1280 px line, vfov its 960 px height; ~58/45 deg on the Xtion spec), conversion ports the OpenNI2 core (`OniStream.cpp:399-404`); hardware gates: FOV vs spec and a RANSAC dominant-plane RMS (applied only when a plane covers >= 40% of the frame — non-planar scenes skip), in `depth_geometry_fov_and_timestamps` |
 | **Host-referenced frame timestamps (0.3.0)**: `timestamp_us` on every frame, wrap-aware (raw ticks wrap every 71.6 s at 60 MHz) | implemented — port of `XnDataProcessor::CreateTimestampFromDevice` (anchor + wrap estimation + 10 s sanity re-sync); clock rate from ALGORITHM_PARAMS 0x80 |
@@ -119,6 +120,45 @@ driver (Apache-2.0, PrimeSense Ltd.); see `NOTICE.md`. The decode cores
 are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
+
+- **0.3.8 — the silent-stream fix + the ASUS firmware-history
+  research** — the first 0.3.7 camera run (10/14) exposed a new
+  fw 5.8.22 quirk: a fully ACKed `start_depth` can leave the depth
+  bulk endpoint SILENT — zero bytes in 5-10 s windows. Four tests
+  died on their baseline frame, and the mode walk hit it once and
+  recovered on its next mode — pinning the cure (stop + restart) and
+  exposing the diagnosis gap: the frame loops had been returning
+  `ControlTimeout` ("control transfer timed out after retries") for
+  what is really "no data arrived".
+  - New `XtionError::FrameTimeout` — the no-data condition now has
+    its own name and message; every frame read logs the bulk-ring
+    counters (completions / bytes / failures) when it fires, so the
+    next camera run tells whether the endpoint never sent data or
+    sent data that never assembles into frames.
+  - `Xtion::start_depth_verified(config, attempts)`: start, probe
+    one frame (3 s budget), and on a silent stream stop and start
+    again — the camera-proven recovery — returning the attempt
+    number that delivered (1 = healthy). All depth-start sites in
+    the hardware suite (tests 2, 8, 10, 11, 12, 13, 14) use it; a
+    revived start prints its attempt number.
+  - Camera answers recorded from the 0.3.7 run: **QVGA@60 measured
+    60.0 fps (validated)**, VGA@30 30.0, QQVGA@30 30.0; **SXGA@15,
+    SXGA@30 and 480P@30 are all refused with NACK BadParams at the
+    blanking read on this firmware** (the preset table carries no
+    15 fps SXGA entry, and the 30 fps entries exceed the USB-2 bulk
+    budget); the device frequency read 60.000 ticks/us at every
+    mode. Test 14: wavelength (73/74) enables landed, the 0xc200
+    census was 0/90 frames; BIST TEC|NESA returned all green with
+    no narration — verdicts, all recorded in docs/PROTOCOL.md.
+  - **ASUS/PrimeSense firmware version history researched and
+    documented** (docs/FIRMWARE.md section 6): ship-era 5.7.x →
+    5.7.9 (2013-04) → 5.8.14 (2013-04: USB 3.0, OpenNI 2.2-ready,
+    UAC audio, enhanced crop/zoom, QQVGA depth, 1280x960 color) →
+    5.8.22 (2013-07-31, the final release for the Carmine 1.08x /
+    RD108x platform this driver targets). A downgrade to the
+    OpenNI-1.x-era line would lose the very protocol surface this
+    driver speaks — 5.8.22 is and remains the target.
+  - 155 lib + 4 golden + 1 doc tests green, clippy clean.
 
 - **0.3.7 — the debug telemetry channels + the full depth mode
   matrix (and the corrected AGC-NACK model)** — the 0.3.6 camera run

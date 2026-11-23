@@ -1818,6 +1818,60 @@ impl Xtion {
         Ok(())
     }
 
+    /// Start the depth stream and VERIFY that it actually delivers
+    /// frames.
+    ///
+    /// The 0.3.7 camera run (fw 5.8.22) surfaced a firmware quirk: a
+    /// `start_depth` can be fully ACKed — every parameter write and the
+    /// stream-mode ON — while the depth bulk endpoint then stays silent:
+    /// `read_depth_frame` sees zero data and fails with
+    /// [`XtionError::FrameTimeout`] (that run lost four tests to it, and
+    /// the mode-walk test recovered exactly this way mid-run). The quirk
+    /// is recoverable in place — stopping the stream and starting it
+    /// again revives it — and the recovery is what this method encodes:
+    ///
+    /// 1. [`start_depth`](Self::start_depth) as usual;
+    /// 2. one probe frame read with a short budget (3 s);
+    /// 3. on [`XtionError::FrameTimeout`] stop the stream and start it
+    ///    again, up to `attempts` times;
+    /// 4. any other error (a refused mode, a real control failure) is
+    ///    returned as-is after the stream is stopped.
+    ///
+    /// Returns the attempt number that first delivered a frame (1 = the
+    /// stream was healthy on the first try, N > 1 = N-1 silent starts
+    /// were revived). The probe frame is consumed — the stream keeps
+    /// running behind it, so callers read subsequent frames as usual.
+    /// The same recovery pattern presumably applies to the IR stream
+    /// (whose 0.2.x silent-stream root cause was the missing CMOS
+    /// blanking fetch); it is depth-only for now because the camera
+    /// evidence is depth-only.
+    pub fn start_depth_verified(&mut self, config: DepthConfig, attempts: u32) -> Result<u32> {
+        let attempts = attempts.max(1);
+        for attempt in 1..=attempts {
+            self.start_depth(config)?;
+            match self.read_depth_frame(Duration::from_secs(3)) {
+                Ok(_) => return Ok(attempt),
+                Err(XtionError::FrameTimeout) => {
+                    if let Some(stats) = self.depth_ring_stats() {
+                        log::warn!(
+                            "depth start #{attempt} stayed silent (ring {stats:?}) — stopping \
+                             and restarting"
+                        );
+                    }
+                    let _ = self.stop_depth();
+                }
+                Err(err) => {
+                    let _ = self.stop_depth();
+                    return Err(err);
+                }
+            }
+        }
+        Err(XtionError::BadConfig(format!(
+            "depth stream stayed silent through {attempts} start attempts (fw 5.8.22 \
+             dead-stream quirk; power-cycle the camera and retry)"
+        )))
+    }
+
     /// Configure and start the color stream (stream0 in firmware terms).
     ///
     /// # Capability gate
@@ -2161,7 +2215,7 @@ impl Xtion {
                 .depth_ring
                 .as_ref()
                 .ok_or(XtionError::StreamNotRunning)?;
-            let chunk = ring.pop(deadline).ok_or(XtionError::ControlTimeout)?;
+            let chunk = ring.pop(deadline).ok_or(XtionError::FrameTimeout)?;
             let take = chunk.len().min(bytes - written);
             file.write_all(&chunk[..take])
                 .map_err(|e| XtionError::Io(format!("{}: {e}", path.display())))?;
@@ -2236,7 +2290,19 @@ impl Xtion {
                         return Err(err);
                     }
                     if Instant::now() >= deadline {
-                        return Err(XtionError::ControlTimeout);
+                        // make the two possible failure modes distinguishable
+                        // from the log: no data at all (the fw 5.8.22
+                        // dead-stream quirk) vs data that never forms frames
+                        let ring = self.depth_ring.as_ref().unwrap().stats();
+                        log::error!(
+                            "no depth frame within {timeout:?}: ring saw {} chunks / {} bytes \
+                             / {} failures, assembler {:?}",
+                            ring.completions,
+                            ring.bytes,
+                            ring.failures,
+                            self.depth_assembler.stats
+                        );
+                        return Err(XtionError::FrameTimeout);
                     }
                 }
             }
@@ -2372,7 +2438,7 @@ impl Xtion {
                             stats.bytes,
                             stats.failures
                         );
-                        return Err(XtionError::ControlTimeout);
+                        return Err(XtionError::FrameTimeout);
                     }
                 }
             }
@@ -2484,7 +2550,7 @@ impl Xtion {
                             stats.bytes,
                             stats.failures
                         );
-                        return Err(XtionError::ControlTimeout);
+                        return Err(XtionError::FrameTimeout);
                     }
                 }
             }

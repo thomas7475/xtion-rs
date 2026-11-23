@@ -89,6 +89,11 @@ pub enum XtionError {
     #[error("control transfer timed out after retries")]
     ControlTimeout,
     #[error(
+        "no frame data arrived within the read timeout — the stream mode is on but the \
+         endpoint is silent (fw 5.8.22 dead-stream quirk; a stop/restart revives it)"
+    )]
+    FrameTimeout,
+    #[error(
         "device is too old: bulk-endpoint control protocol (pre-3.0 firmware) is not supported yet"
     )]
     UnsupportedFirmware,

@@ -131,6 +131,41 @@ XnSensorStreamHelper::Open parity) before stream-on, then crop mode
 (50) disabled, auto exposure (80) and auto white balance (77) with
 their fw >= 5.8.9 reference defaults (both TRUE).
 
+### The silent-stream quirk and the verified start (0.3.8)
+
+The 0.3.7 camera run surfaced a state the hygiene above cannot
+prevent: a `start_depth` whose every write is ACKed — parameters,
+blanking fetch, stream-on — after which the depth bulk endpoint
+delivers **zero bytes**. Four tests died on their baseline frame
+(5-10 s windows) and the mode walk hit it once and recovered on its
+next mode, which pins both the cure and the diagnosis gap:
+
+- `start_depth` returning Ok proves the CONTROL plane only. Data
+  flow is a separate fact, and this firmware build occasionally arms
+  the stream without starting it. The condition now surfaces as
+  `XtionError::FrameTimeout` (0.3.8: the frame loops previously
+  returned `ControlTimeout`, misdiagnosing a silent endpoint as a
+  control-transfer failure — the 0.3.7 run's four "control transfer
+  timed out" panics were all this quirk).
+- The recovery is a stop/restart cycle on the SAME handle:
+  `Xtion::start_depth_verified(config, attempts)` starts, probes one
+  frame with a 3 s budget, and on silence stops and starts again —
+  the walk's own recovery, now an API. It returns the attempt number
+  that delivered frames (1 = healthy); the hardware suite's depth
+  starts go through it and print revived starts.
+- When a frame read times out, the driver logs the bulk-ring
+  counters (completions / bytes / failures, plus the assembler
+  counters): **0 completions = the endpoint never sent data** (this
+  quirk); **bytes with no frames = unframeable stream data** — the
+  next camera run's counters decide between the two.
+- Incidence in the 0.3.7 run: five silent sessions out of ~15
+  stream starts, clustered after the walk first exercised REFUSED
+  SXGA/480P starts (its mode 1 died right after the refused SXGA@15
+  probe; the four baseline deaths followed the walk's SXGA@30/480P
+  refusals) — a correlation the next run's ring counters can confirm
+  or break. A soft reset does NOT clear it (the four failing tests
+  each opened fresh, soft reset included); a power cycle does.
+
 ### CMOS presets (GET_CMOS_PRESETS, opcode 36, fw >= 5.3.29)
 
 - Request payload: ONE LITTLE-endian u16 CMOS id (`XnCMOSType`:
@@ -173,9 +208,15 @@ format). Two findings matter when USING it:
   SXGA 1280x1024 is advertised at 30 — but 30 fps of 1.3 MP depth is
   11-bit-packed ~52 MiB/s, above the ~40 MiB/s a USB-2 bulk link
   delivers; **SXGA@15 (~26 MiB/s) is the sustainable 1.3 MP mode**.
-  `start_depth` does not hard-validate the fps (neither do the
-  reference's depth property writes): the firmware answers a refused
-  mode with NACK(BadParams) on the SET_PARAM or on the blanking read
+  0.3.7 camera run — the firmware is the gate in practice: (SXGA, 15),
+  (SXGA, 30) and (480P, 30) are ALL refused with NACK(BadParams) at
+  the blanking read (this build's preset table carries no 15 fps SXGA
+  entry at all), while QVGA@60, VGA@30 and QQVGA@30 delivered
+  (measured 60.0 / 30.0 / 30.0 fps; QVGA@30 fell to the silent-stream
+  quirk that run — see the previous section). `start_depth` does
+  not hard-validate the fps (neither do the reference's depth
+  property writes): the firmware answers a refused mode with
+  NACK(BadParams) on the SET_PARAM or on the blanking read
   (ALGORITHM_PARAMS 0x06 for that (resolution, fps)).
 - **Multi-camera interference**: the projector modulation frequency
   follows the stream mode — the reference re-reads the device
