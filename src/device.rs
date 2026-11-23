@@ -893,17 +893,26 @@ impl Xtion {
 
     /// Configure and start the color stream (stream0 in firmware terms).
     ///
+    /// # Capability gate
+    ///
+    /// Units without a color sensor report `image_cmos_type = 0`
+    /// (`XN_IMAGE_CMOS_NONE`, fixed-params byte 76; PS1080.h:425-431) —
+    /// this method refuses them up front, mirroring the reference
+    /// driver, which never creates the image stream when
+    /// `bImageSupported` is false (XnSensorFirmware.cpp:128-140,
+    /// XnSensor.cpp:274-281). Hardware-validated 2026-11-23: the
+    /// project's fw 5.8.22 unit reports NONE, its firmware NACKs
+    /// STREAM0_MODE=COLOR with BadParams (every combination since
+    /// 0.2.4), while IR — the other stream0 source, fed by the depth
+    /// CMOS — starts fine. Depth and IR are unaffected by the gate.
+    ///
     /// Wire input formats (`XnIOImageFormats`, Include/PS1080.h:253-261):
     ///
     /// - [`ImageFormat::Yuv422`] (1) is the **PS-compressed** variant —
     ///   the reference driver's default on non-Windows hosts, with the
     ///   vendor comment *"non win32 works with BULK, so it's better to
-    ///   compress the image"* (XnSensorImageStream.h:36-41). This is the
-    ///   recommended mode on the Xtion's bulk endpoints and what the
-    ///   hardware accepts on fw 5.8.22 (observed 2026-11-22: starts of
-    ///   the uncompressed mode were rejected with NACK(BadParams) by the
-    ///   same firmware that lists them in its preset table — the presets
-    ///   describe CMOS capability, the bulk USB interface filters them).
+    ///   compress the image"* (XnSensorImageStream.h:36-41) and the
+    ///   recommended mode on the Xtion's bulk endpoints.
     /// - [`ImageFormat::UncompressedYuv422`] (5) is plain UYVY — the
     ///   Windows/ISO default. Supported for completeness; may be
     ///   rejected by the firmware on bulk endpoints.
@@ -924,6 +933,27 @@ impl Xtion {
         if self.ir_config.is_some() {
             return Err(XtionError::BadConfig(
                 "the IR stream is running; color and IR share the image pipe".into(),
+            ));
+        }
+        // C parity: bImageSupported (XnSensorFirmware.cpp:128-140). For
+        // fw >= 5.6.9 (bGetImageCmosTypeSupported) the gate is exactly
+        // `image_cmos_type != 0`; the C then never even creates the
+        // image stream (XnSensor.cpp:274-281), so it never sees the
+        // BadParams NACK this firmware answers to STREAM0_MODE=COLOR on
+        // a sensorless unit. Fail fast BEFORE writing any image params
+        // so device state is left clean.
+        if (self.version.major, self.version.minor, self.version.build) >= (5, 6, 9)
+            && self.fixed_params.image_cmos_type == 0
+        {
+            return Err(XtionError::BadConfig(
+                "start_color: this device has no color sensor — the fixed-params \
+                 block reports image_cmos_type = XN_IMAGE_CMOS_NONE (0; 1 = MT9M112, \
+                 2 = MT9D131, 3 = MT9M114). This is a depth+IR unit: the firmware \
+                 rejects COLOR on stream0 with NACK(BadParams), and the reference \
+                 driver refuses to create the image stream on such units as well \
+                 (bImageSupported, XnSensorFirmware.cpp:128-140). Depth and IR are \
+                 unaffected; see docs/PROTOCOL.md section 7"
+                    .into(),
             ));
         }
         match format {
@@ -1100,8 +1130,23 @@ impl Xtion {
         self.color_ring.as_ref().map(|ring| ring.stats())
     }
 
+    /// The C's `bImageSupported` capability gate (fw >= 5.6.9:
+    /// `fixed_params.image_cmos_type != 0`; XnSensorFirmware.cpp:128-140).
+    ///
+    /// `false` means this unit has **no color sensor**: `start_color`
+    /// refuses up front, and the reference driver never creates the
+    /// image stream on such devices either (XnSensor.cpp:274-281 —
+    /// OpenNI lists no color node for them). Depth and IR are
+    /// unaffected: they are served by the depth CMOS.
+    pub fn image_supported(&self) -> bool {
+        self.fixed_params.image_cmos_type != 0
+    }
+
     /// Stream modes the color (image) CMOS supports, as reported by the
     /// firmware (opcode 36). `start_color` validates against this list.
+    /// NOTE: this is a PLATFORM capability list baked into the firmware
+    /// (RD108x) — on units with `image_cmos_type = 0` it still lists
+    /// color modes the absent sensor can never deliver.
     pub fn image_presets(&mut self) -> Result<Vec<CmosPreset>> {
         self.cmos_presets(CMOS_TYPE_IMAGE)
     }

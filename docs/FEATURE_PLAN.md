@@ -11,19 +11,20 @@ project owner's constraint:
 > buses is permanently excluded (see "Excluded features" below). READS
 > of the same surfaces are safe and implemented as of 0.2.8.
 
-**Status after 0.2.9 (2026-11-23):** Phases 1-2 complete and hardware-
+**Status after 0.2.10 (2026-11-23):** Phases 1-2 complete and hardware-
 validated (depth, IR); Phase 3 items 9-11 still open; the read-only
 diagnostics tier (old item 12) shipped early in 0.2.8 together with the
-flash file-system READS, the init soft reset (GET_MODE/SET_MODE) and
-the PS-compressed color path. **0.2.9 adds stream hygiene + the full
-image-open C parity** (see section 0b): the on-camera color run still
-NACKed BadParams on the stream-on write after 0.2.8, and the re-audit
-found the reference guards every stream-mode write with an OFF
-transition, kills all streams at open/shutdown, and writes four more
-params in the image-open sequence. 0.2.9 is green on CI (106 lib +
-2 golden tests, clippy clean); the on-camera run of the new color path
-+ `color_start_probe` (now with image-CMOS-type and boot-log dumps) is
-the immediate next action.
+flash file-system READS, the init soft reset (GET_MODE/SET_MODE) and the
+PS-compressed color path. 0.2.9 added stream hygiene + the full
+image-open C parity (section 0b). **0.2.10 closes the color story with
+a hardware answer (section 0c): this unit reports image_cmos_type = 0
+— XN_IMAGE_CMOS_NONE — it has NO color sensor, and every stream-on
+NACK since 0.2.4 was the firmware refusing COLOR from an absent
+sensor. The gate is now enforced host-side exactly like the C
+(bImageSupported); on this hardware the color test skips with the
+reason, and the complete compressed-color path awaits a unit with an
+RGB sensor.** 0.2.10 is green on CI (106 lib + 2 golden tests, clippy
+clean).
 
 ## 0b. Stream hygiene + image-open parity (0.2.9)
 
@@ -60,14 +61,51 @@ found five C behaviours xtion-rs lacked; all are now ported:
    `read_device_frequency`, issued by `start_color`.
 5. **bImageSupported** — the reference refuses to create the image
    stream at all when fixed params report image CMOS type 0
-   (XnSensorFirmware.cpp:128-140). Not yet enforced host-side; the
-   hardware tests now print the value (0 = no color sensor detected)
-   plus the boot self-test log (CLR/PRJ/TEC lines) so the next run
-   decides between "stale-state/sequence" and "no working color CMOS".
+   (XnSensorFirmware.cpp:128-140). The hardware tests now print the
+   value (0 = no color sensor detected) plus the boot self-test log
+   (CLR/PRJ/TEC lines) so the next run decides between
+   "stale-state/sequence" and "no working color CMOS".
 
-If the color start STILL NACKs after 0.2.9, `color_start_probe` output
-now pinpoints the state: per-step readbacks of the whole sequence, the
-image CMOS type, the firmware mode and the boot log.
+The 0.2.9 on-camera run delivered that answer: **image_cmos_type = 0**
+(see section 0c).
+
+## 0c. No color sensor on this unit (0.2.10, hardware-validated)
+
+The run of 2026-11-23 (`cargo test --test hardware --
+color_stream_roundtrip --nocapture`, 0.2.9) printed
+`image cmos type: 0` — the fixed-params block reports
+**XN_IMAGE_CMOS_NONE** for this unit (fw 5.8.22, serial 1408090603):
+
+- That field IS the reference driver's capability gate:
+  `XnSensorFirmware::Init` (XnSensorFirmware.cpp:128-140) sets
+  `bImageSupported = (image_cmos_type != 0)` for fw >= 5.6.9, and
+  `XnSensor::Init` (XnSensor.cpp:274-281) only adds the IMAGE stream
+  to the supported list when it is true — OpenNI therefore lists no
+  color node on this device, and the C never writes
+  STREAM0_MODE=COLOR, so it never meets the NACK.
+- Every color stream-on since 0.2.4 was rejected with
+  NACK(BadParams) — compressed AND uncompressed, VGA AND QVGA —
+  while IR, the OTHER stream0 source (fed by the depth CMOS), starts
+  fine on the same image pipe. The image pipe works; the COLOR data
+  source does not exist on this unit.
+- The opcode-36 preset table still lists 25 color modes because it is
+  a platform (RD108x) capability list baked into the firmware, not a
+  per-unit sensor inventory. The C validates modes against it only
+  AFTER the bImageSupported gate, so the two never conflict in the
+  reference stack.
+- The PID cannot settle it: 1d27:0601 was used for late batches of
+  both the Xtion Pro (depth-only, no RGB) and the Xtion Pro Live —
+  the CMOS-type report is the only reliable answer, which is exactly
+  why the C gates on it.
+
+0.2.10 ports the gate: `Xtion::image_supported()` exposes it,
+`start_color` fails fast with an explicit no-color-sensor error BEFORE
+writing any image params (device state stays clean), and
+`color_stream_roundtrip` skips with the explanation (printing
+depth_cmos_type as the parse cross-check). Color on this hardware is
+impossible, not broken; the complete compressed-color implementation
+(format 1, `uncompress_yuv_image_ps`, full C-parity open sequence)
+is finished and waits for a unit with an RGB sensor.
 
 ## 0. Hardware-validation fixes (0.2.1)
 

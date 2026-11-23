@@ -244,6 +244,37 @@ fn color_stream_roundtrip() {
     println!(
         "image cmos type: {image_cmos_type} (0=none, 1=MT9M112, 2=MT9D131, 3=MT9M114), mode: {mode:?}, stream0: {stream0:?}"
     );
+    if image_cmos_type == 0 {
+        // Hardware answer (2026-11-23 run): THIS UNIT HAS NO COLOR
+        // SENSOR. The fixed-params field IS the reference driver's
+        // bImageSupported gate (XnSensorFirmware.cpp:128-140), and the C
+        // never creates the image stream when it is 0
+        // (XnSensor.cpp:274-281) — OpenNI lists no color node on this
+        // device either. Every color start since 0.2.4 was NACKed
+        // BadParams on the stream-on write across all four attempted
+        // mode combinations, while IR — the other stream0 source, fed
+        // by the depth CMOS — starts fine on the same pipe. The preset
+        // table printed above is a platform capability list baked into
+        // the RD108x firmware, not this unit's sensor inventory. There
+        // is nothing to round-trip on this hardware; 0.2.10 makes the
+        // driver refuse it up front like the reference driver does.
+        let depth = cam.fixed_params.depth_cmos_type;
+        eprintln!(
+            "skipped: no color sensor on this device — image_cmos_type = 0 \
+             (XN_IMAGE_CMOS_NONE), depth_cmos_type = {depth} ({}). Depth + IR \
+             are this unit's streams; color streaming is a hardware \
+             property it lacks. The reference C driver also refuses to \
+             create the image stream here (bImageSupported), and \
+             start_color now fails fast with the same gate instead of \
+             NACKing at stream-on. See docs/PROTOCOL.md section 7.",
+            match depth {
+                1 => "MT9M001",
+                2 => "AR130",
+                _ => "unknown type",
+            }
+        );
+        return;
+    }
 
     cam.start_color(resolution, fps, xtion::ImageFormat::Yuv422)
         .expect("start color");
@@ -311,8 +342,8 @@ fn color_start_probe() {
 
     println!("== device mode: {:?}", cam.get_mode());
     println!(
-        "== image cmos type: {} (0 = the firmware sees NO color sensor: the C then refuses to\n   create the image stream at all — XnSensorFirmware.cpp:128-140, bImageSupported)",
-        cam.fixed_params.image_cmos_type
+        "== image cmos type: {} (0 = the firmware sees NO color sensor: the C then refuses to\n   create the image stream at all — XnSensorFirmware.cpp:128-140, bImageSupported)\n   depth cmos type: {} (1 = MT9M001, 2 = AR130 — nonzero = the depth/IR sensor\n   the working streams use; this cross-checks the fixed-params parse)",
+        cam.fixed_params.image_cmos_type, cam.fixed_params.depth_cmos_type
     );
 
     // the boot self-test log: the color CMOS reports CLR C/V/ND/W/OK

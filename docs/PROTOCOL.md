@@ -340,6 +340,46 @@ C = (Y - 16) * 298 + 128;  D = U - 128;  E = V - 128
 R = clamp((C + 409*E) >> 8);  G = clamp((C - 100*D - 208*E) >> 8);  B = clamp((C + 516*D) >> 8)
 ```
 
+### No color sensor (`bImageSupported`, hardware-validated 2026-11-23)
+
+The fixed-params block carries the fitted sensor inventory:
+`depth_cmos_type` (byte 56: 1 = MT9M001, 2 = AR130; PS1080.h:418-423)
+and `image_cmos_type` (byte 76: 0 = XN_IMAGE_CMOS_NONE, 1 = MT9M112,
+2 = MT9D131, 3 = MT9M114; PS1080.h:425-431). This IS the reference
+driver's capability gate:
+
+- `XnSensorFirmware::Init` (XnSensorFirmware.cpp:128-140): for fw >=
+  5.6.9 (`bGetImageCmosTypeSupported`),
+  `bImageSupported = (image_cmos_type != 0)`; older firmwares fall back
+  to an image-blanking heuristic.
+- `XnSensor::Init` (XnSensor.cpp:274-281): the IMAGE stream is only
+  added to the supported-stream list when `bImageSupported` — on a
+  sensorless unit the C never writes PARAM_STREAM0_MODE=COLOR and so
+  never meets the NACK. OpenNI lists no color node for such devices.
+
+The project's fw 5.8.22 unit (serial 1408090603) reports
+image_cmos_type = 0: a **depth+IR unit with no color sensor**. The
+0.2.4-0.2.9 NACK history (`device NACK BadParams (5)` on every
+STREAM0_MODE=COLOR write, all four attempted format/res combinations,
+while IR starts fine on the same image pipe) is that hardware fact
+expressed on the wire: the firmware refuses to route COLOR from an
+absent sensor. The opcode-36 preset table it still answers with is a
+platform (RD108x) capability list, not a per-unit sensor inventory —
+the C validates modes against it only AFTER the bImageSupported gate.
+The USB PID cannot settle it either (1d27:0601 was used for late
+batches of both the depth-only Xtion Pro and the Pro Live); the
+CMOS-type report is the only reliable answer.
+
+Since 0.2.10 the driver mirrors the C: `Xtion::image_supported()`
+exposes the gate, `start_color` fails fast with an explicit
+no-color-sensor error BEFORE writing any image params (device state
+stays clean), and the color hardware test skips with the reason on
+such units. Independent confirmations for such a unit:
+`color_start_probe` prints both CMOS types and the boot self-test log
+(the color-CMOS test lines start with "CLR"), and the front of the
+housing shows two optical windows (projector + one lens) instead of
+the Pro Live's three.
+
 ## 8. IR decoding
 
 - IR runs on the **image pipe**: STREAM0_MODE = 3, frames arrive as

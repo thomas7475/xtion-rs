@@ -21,7 +21,7 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Packed-11 depth decode | done, **byte-identical to the C reference** (golden vectors) |
 | Bulk-stream frame assembly | done, unit-tested incl. chunk splits |
 | Depth stream (VGA@30, packed-11 or raw 16-bit) | **hardware-validated** (87% valid pixels @ 29.97 fps) |
-| Color stream (YUV422 -> RGB888) | implemented — **PS-compressed YUV422 (format 1, the C's Linux/bulk default) and uncompressed (format 5)**; mode validated against the firmware's CMOS presets (opcode 36); compressed frames decoded by the ported `XnStreamUncompressYUVImagePS`; on-camera validation pending |
+| Color stream (YUV422 -> RGB888) | implemented — **PS-compressed YUV422 (format 1, the C's Linux/bulk default) and uncompressed (format 5)**; mode validated against the firmware's CMOS presets (opcode 36); compressed frames decoded by the ported `XnStreamUncompressYUVImagePS`; **0.2.10, hardware answer: this unit reports image_cmos_type = 0 (XN_IMAGE_CMOS_NONE) — no color sensor on this hardware; `start_color` fails fast with that explanation and the hardware test skips with the reason; the full round-trip awaits a unit with an RGB sensor** |
 | IR stream (16-bit grayscale, image pipe) | implemented in 0.2.0; wire-size fix in 0.2.3 (MT9M001 sends `height + 8` rows — hardware-measured, see docs/PROTOCOL.md section 8); **hardware-validated 2026-11-22, all four tests green** |
 | Hardware registration, emitter on/off, OVERHEAT/PROJECTOR_FAULT events | implemented in 0.2.0 |
 | Runtime options: mirror, hole filter, AGC, close range, GMC mode, exposure, white balance, gain, quality, flicker | implemented in 0.2.0 |
@@ -108,6 +108,26 @@ are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
 
+- **0.2.10 — color NACK final root cause: no color sensor on this unit** -
+  the 0.2.9 on-camera run printed the answer the new diagnostics were
+  built for: `image cmos type: 0` — the fixed-params block reports
+  XN_IMAGE_CMOS_NONE for this unit. That field IS the reference
+  driver's capability gate `bImageSupported`
+  (XnSensorFirmware.cpp:128-140, fw >= 5.6.9), and the C never creates
+  the image stream when it is 0 (XnSensor.cpp:274-281) — OpenNI lists
+  no color node on this device either. Every stream-on NACK since
+  0.2.4 (compressed/uncompressed x VGA/QVGA) was the firmware
+  refusing to route COLOR from an absent sensor, while IR — the other
+  stream0 source, fed by the depth CMOS — starts fine on the same
+  pipe. The opcode-36 preset table is a platform (RD108x) capability
+  list, not a per-unit sensor inventory, and the USB PID cannot settle
+  it (1d27:0601 was used for late batches of both the depth-only
+  Xtion Pro and the Pro Live). Since 0.2.10: `Xtion::image_supported()`
+  exposes the gate, `start_color` fails fast with an explicit
+  no-color-sensor error BEFORE writing any image params (device state
+  stays clean), and `color_stream_roundtrip` skips with the full
+  explanation, printing depth_cmos_type as the parse cross-check.
+  Color on this hardware is impossible, not broken.
 - **0.2.9 — stream hygiene + full image-open C parity** - the 0.2.8
   color start still NACKed BadParams on the stream-on write on real
   hardware. Source-level re-audit of the whole reference image path

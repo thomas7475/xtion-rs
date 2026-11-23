@@ -32,7 +32,7 @@ Reference hardware: ASUS Xtion Pro Live, firmware 5.8.22, USB 2.0
 | 2 | `depth_stream_roundtrip` | full depth pipeline: stream setup, ring, packed-11 decode, shift-to-depth | >= 80% valid pixels (M5 reference: 87.4%); 29-30.1 fps (reference 29.97); ring `failures == 0`; shift histogram inside the table (reference 291-797); min depth 400-500 mm (reference 431 mm) |
 | 3 | `phase1_identity_and_options` | 0.2.0 identity + runtime options | platform string non-empty (ASUS Xtion: `RD108x-112`-family); USB core parses (Jango=0 expected on 5.8.22); registration GET/SET round-trips true/false; hole filter, depth mirror, close range accept writes; emitter off/on accepts writes |
 | 4 | `ir_stream_roundtrip` | IR stream end-to-end | 640x480, exactly 307,200 values; values not constant (`max > min`) and not black (`max > 0`); `drain_events()` empty on a healthy camera; `stop_ir` succeeds |
-| 5 | `color_stream_roundtrip` | color stream end-to-end in the **PS-compressed YUV422 mode** (format 1, the C's non-Windows/bulk default) | prints the 25-entry preset table + endianness guard; `start_color` ACKed including `STREAM0_MODE=COLOR`; one frame decodes to exactly width x height x 3 RGB, non-constant; IR start refused while color runs; stop clean |
+| 5 | `color_stream_roundtrip` | color stream end-to-end in the **PS-compressed YUV422 mode** (format 1, the C's non-Windows/bulk default) | prints the 25-entry preset table + endianness guard + the two capability gates (image_cmos_type, firmware mode); **on units reporting image_cmos_type = 0 (no color sensor — our fw 5.8.22 unit) SKIPS with the reason**; otherwise `start_color` ACKed including `STREAM0_MODE=COLOR`, one frame decodes to exactly width x height x 3 RGB, non-constant; IR start refused while color runs; stop clean |
 | 6 | `color_start_probe` | diagnostic (always REPORTS, never gates): mode, image-pipe params before/after the init soft reset, C-parity write sequence with readbacks (compressed mode), one driver `start_color` | informational — paste the output when color misbehaves |
 | 7 | `system_commands_readonly` | the 0.2.8 read-only command surface end-to-end | firmware log, flash file list, flash map, ImageCmos download, CPU stats, TEC + emitter telemetry, direct CMOS blanking, CMOS register reads (I2C), AHB read, raw flash read — each section may report `unavailable: ...` without failing (firmware-dependent surface), but nothing may hang or corrupt the session |
 
@@ -132,6 +132,20 @@ documented API. Every check lists the expected observation.
   the color CMOS was never armed (blanking fetch missing / wrong image
   params), and 5 unusable frames fail fast with assembler + ring
   counters in the message.
+- **Color NACK FINAL ROOT CAUSE (0.2.10, hardware-validated 2026-11-23):
+  this unit has NO color sensor.** The 0.2.9 on-camera run printed
+  `image cmos type: 0` — the fixed-params block reports
+  XN_IMAGE_CMOS_NONE. That field IS the reference driver's
+  bImageSupported gate (XnSensorFirmware.cpp:128-140, fw >= 5.6.9);
+  the C never creates the image stream when it is 0
+  (XnSensor.cpp:274-281), so OpenNI lists no color node on this device
+  either. Every stream-on NACK since 0.2.4 (compressed/uncompressed x
+  VGA/QVGA) was the firmware refusing to route COLOR from an absent
+  sensor; IR — the other stream0 source, fed by the depth CMOS —
+  starts fine on the same pipe. Since 0.2.10 `start_color` fails fast
+  with this explanation (nothing written) and the color test skips on
+  such units. Not a driver bug: color is impossible on this hardware;
+  the full compressed-color path awaits a unit with an RGB sensor.
 - **Color NACK ROOT CAUSE (0.2.8):** two firmware facts from the
   OpenNI 2.2.0 cross-read explain every 0.2.4-0.2.7 symptom:
   (1) the reference driver SOFT-RESETS the firmware at EVERY init
