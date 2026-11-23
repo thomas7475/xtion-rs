@@ -26,7 +26,7 @@ series; the alternative Rust bindings over the C OpenNI2 stack live in the
 | Hardware registration, emitter on/off, OVERHEAT/PROJECTOR_FAULT events | implemented in 0.2.0 |
 | Runtime options: mirror, hole filter, AGC, close range, GMC mode, exposure, white balance, gain, quality, flicker | implemented in 0.2.0 |
 | Cropping, depth AGC bins, GMC data, audio | not yet (Phase 3-4 of docs/FEATURE_PLAN.md) |
-| **Camera geometry (0.3.0)**: pinhole intrinsics from the on-device calibration (`depth_intrinsics`), depth-to-world (`to_world`/`point_cloud`, OpenNI convention: mm, X right, Y up, Z forward), PLY example | implemented — FOV formula ports the PS1080 depth-stream init (hfov spans the CMOS's native 1280 px line, vfov its 960 px height; ~58/45 deg on the Xtion spec), conversion ports the OpenNI2 core (`OniStream.cpp:399-404`); hardware gates: FOV vs spec, plane-fit RMS, in `depth_geometry_fov_and_timestamps` |
+| **Camera geometry (0.3.0)**: pinhole intrinsics from the on-device calibration (`depth_intrinsics`), depth-to-world (`to_world`/`point_cloud`, OpenNI convention: mm, X right, Y up, Z forward), PLY example | implemented — FOV formula ports the PS1080 depth-stream init (hfov spans the CMOS's native 1280 px line, vfov its 960 px height; ~58/45 deg on the Xtion spec), conversion ports the OpenNI2 core (`OniStream.cpp:399-404`); hardware gates: FOV vs spec and a RANSAC dominant-plane RMS (applied only when a plane covers >= 40% of the frame — non-planar scenes skip), in `depth_geometry_fov_and_timestamps` |
 | **Host-referenced frame timestamps (0.3.0)**: `timestamp_us` on every frame, wrap-aware (raw ticks wrap every 71.6 s at 60 MHz) | implemented — port of `XnDataProcessor::CreateTimestampFromDevice` (anchor + wrap estimation + 10 s sanity re-sync); clock rate from ALGORITHM_PARAMS 0x80 |
 | System commands (0.2.8): firmware log, CPU stats, BIST, TEC + emitter telemetry, CMOS blanking/register reads (I2C), AHB read, flash map / file list / file download / raw flash read | implemented — strictly READ-ONLY; the write-side commands stay excluded; **0.3.0 fixed the firmware-log header field order** (the 0.2.8 "Unix epoch" timestamps were boot-tick/module splice artifacts), documented the flash file list (sizes in words, 0x8000 read-only, garbage tail on fw 5.8.22) and added raw-table + CRC-identification probes to the hardware test |
 | Pre-3.0 firmware (bulk control endpoints) | not supported (explicit error) |
@@ -110,6 +110,27 @@ are verified byte-identical to that implementation via golden vectors.
 
 ## Changelog
 
+- **0.3.1 — scene-robust plane-fit gate** — the first 0.3.0 camera run
+  failed `depth_geometry_fov_and_timestamps` on an ordinary room: the
+  test fitted one plane to the WHOLE cloud by least squares, so a
+  two-plane scene (global RMS 49 mm) failed while every geometric gate
+  passed (intrinsics 58.59/45.64 deg from ZPD 120 / ZPPS 0.1052, mean
+  inter-frame delta 33.37 ms with 0.00 ms max deviation, center pixel
+  on the optical axis). The fit is now a RANSAC dominant-plane search
+  (400 three-point hypotheses on a deterministic 8k subsample) with a
+  PCA refit (smallest-eigenvector normal) of the full-cloud inliers;
+  the RMS gate (15 mm, inlier band 20 mm) applies only when the
+  dominant plane covers >= 40% of the cloud — anything else reports
+  its numbers and skips, so the test no longer demands a staged scene.
+  New camera-independent `plane_fit_synthetic` test pins the fit on
+  wall / two-plane / noise-cloud scenes. Same run also settled the
+  0.3.0 probes: device clock 60.0 ticks/us (as the timestamp port
+  assumed), emitter toggle ACKed WHILE depth streams (idle-state
+  hypothesis confirmed — the BadParams NACK is an idle-state refusal),
+  NACKs produce no new firmware-log entries on fw 5.8.22, and no
+  CRC-16 candidate matched GainControl's stored 0xc44b over the whole
+  548-byte download — test 7 now dumps the full blob for an offline
+  region sweep.
 - **0.3.0 — photogrammetry milestone: geometry + timestamps, plus
   diagnostics-parse fixes** -
   - **Camera geometry** (`src/geometry.rs`): `Xtion::depth_intrinsics(res)`

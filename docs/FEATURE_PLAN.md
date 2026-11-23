@@ -134,9 +134,11 @@ surface at all (`src/geometry.rs`):
   forward; invalid pixels are skipped.
 - `examples/point_cloud.rs` — capture N frames, convert, write an ASCII
   PLY (metres, documented) for MeshLab/CloudCompare pipelines.
-- Hardware acceptance (in the same test): a least-squares plane fit of
-  a known-distance flat wall — RMS residual of a few millimetres is
-  the photogrammetric quality gate.
+- Hardware acceptance (in the same test): a RANSAC dominant-plane fit
+  (PCA-refined) of the scene — when one plane covers >= 40% of the
+  cloud its inlier RMS must be a few millimetres (gate: <= 15 mm);
+  non-planar scenes report and skip the gate. The camera-independent
+  `plane_fit_synthetic` test pins the fit on synthetic scenes.
 
 ## 0e. Host-referenced frame timestamps (0.3.0)
 
